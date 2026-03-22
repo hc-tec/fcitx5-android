@@ -72,6 +72,12 @@ class MainFragment : PaddingPreferenceFragment() {
                     SettingsRoute.VirtualKeyboard
                 )
                 addDestinationPreference(
+                    R.string.ai,
+                    R.drawable.ic_baseline_auto_awesome_24,
+                    SettingsRoute.Ai,
+                    R.string.ai_settings_summary
+                )
+                addDestinationPreference(
                     R.string.function_kit,
                     R.drawable.ic_baseline_send_24,
                     SettingsRoute.FunctionKit,

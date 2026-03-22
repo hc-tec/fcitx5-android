@@ -351,6 +351,41 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         ) { clipboardListening.getValue() }
     }
 
+    inner class Ai : ManagedPreferenceCategory(R.string.ai, sharedPreferences) {
+        val chatEnabled = switch(
+            R.string.ai_chat_enabled,
+            "ai_chat_enabled",
+            false,
+            R.string.ai_chat_enabled_summary
+        )
+        val chatBaseUrl = string(
+            R.string.ai_chat_base_url,
+            "ai_chat_base_url",
+            "",
+            R.string.ai_chat_base_url_summary
+        ) { chatEnabled.getValue() }
+        val chatApiKey = string(
+            R.string.ai_chat_api_key,
+            "ai_chat_api_key",
+            "",
+            R.string.ai_chat_api_key_summary
+        ) { chatEnabled.getValue() }
+        val chatModel = string(
+            R.string.ai_chat_model,
+            "ai_chat_model",
+            "",
+            R.string.ai_chat_model_summary
+        ) { chatEnabled.getValue() }
+        val chatTimeoutSeconds = int(
+            R.string.ai_chat_timeout_seconds,
+            "ai_chat_timeout_seconds",
+            20,
+            1,
+            300,
+            "s"
+        ) { chatEnabled.getValue() }
+    }
+
     inner class FunctionKit : ManagedPreferenceCategory(R.string.function_kit, sharedPreferences) {
         val showToolbarButton = switch(
             R.string.function_kit_toolbar_button,
@@ -402,6 +437,21 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         val allowCandidatesRegenerate = switch(
             R.string.function_kit_permission_candidates_regenerate,
             "function_kit_permission_candidates_regenerate",
+            true
+        )
+        val allowNetworkFetch = switch(
+            R.string.function_kit_permission_network_fetch,
+            "function_kit_permission_network_fetch",
+            true
+        )
+        val allowAiChat = switch(
+            R.string.function_kit_permission_ai_chat,
+            "function_kit_permission_ai_chat",
+            true
+        )
+        val allowAiAgentAccess = switch(
+            R.string.function_kit_permission_ai_agent_access,
+            "function_kit_permission_ai_agent_access",
             true
         )
         val allowSettingsOpen = switch(
@@ -458,6 +508,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
     val keyboard = Keyboard().register()
     val candidates = Candidates().register()
     val clipboard = Clipboard().register()
+    val ai = Ai().register()
     val functionKit = FunctionKit().register()
     val symbols = Symbols().register()
     val advanced = Advanced().register()
@@ -489,6 +540,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
                 keyboard,
                 candidates,
                 clipboard,
+                ai,
                 functionKit
             ).forEach { category ->
                 category.managedPreferences.forEach {

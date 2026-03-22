@@ -117,6 +117,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
 
     private val service: FcitxInputMethodService by manager.inputMethodService()
     private val theme: Theme by manager.theme()
+    private val aiPrefs = AppPrefs.getInstance().ai
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
     private val functionKitManifest by lazy {
         FunctionKitManifest.loadFromAssets(
@@ -293,7 +294,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             "composer.close" -> handleComposerClose(replyTo, surface, payload)
             "composer.apply.insert" -> handleComposerApply(replyTo, surface, payload, replace = false)
             "composer.apply.replace" -> handleComposerApply(replyTo, surface, payload, replace = true)
-            "settings.open" -> handleSettingsOpen(replyTo)
+            "settings.open" -> handleSettingsOpen(replyTo, payload)
             else -> {
                 host.dispatchBridgeError(
                     replyTo = replyTo,
@@ -376,7 +377,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         ensurePermission(replyTo, "candidates.regenerate") ?: return
 
         val executionConfig = currentExecutionConfig()
-        if (!executionConfig.remoteEnabled) {
+        if (!executionConfig.remoteEnabled && !canUseLocalAiForCandidates(currentAiChatConfig())) {
             renderSeed += 1
         }
         val preferredTone = payload.optString("preferredTone").ifBlank { "balanced" }
@@ -474,14 +475,22 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         )
     }
 
-    private fun handleSettingsOpen(replyTo: String) {
+    private fun handleSettingsOpen(
+        replyTo: String,
+        payload: JSONObject
+    ) {
         ensurePermission(replyTo, "settings.open") ?: return
 
-        AppUtil.launchMainToFunctionKitSettings(context)
+        val section = payload.optString("section").trim().lowercase()
+        if (section == "ai") {
+            AppUtil.launchMainToAiSettings(context)
+        } else {
+            AppUtil.launchMainToFunctionKitSettings(context)
+        }
         host.dispatchHostStateUpdate(
             kitId = functionKitId,
             surface = Surface,
-            label = "已打开功能件设置"
+            label = if (section == "ai") "已打开 AI 设置" else "已打开功能件设置"
         )
     }
 
@@ -581,6 +590,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         ensurePermission(replyTo, "ai.chat") ?: return
 
         val executionConfig = currentExecutionConfig()
+        val aiChatConfig = currentAiChatConfig()
         val statusPayload = buildAiChatStatusPayload(executionConfig)
         if (statusPayload.optString("status") != "ready") {
             host.dispatchBridgeError(
@@ -595,18 +605,94 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             return
         }
 
-        host.dispatchBridgeError(
-            replyTo = replyTo,
+        val requestSessionId = sessionId
+        val messages = buildAiChatMessages(payload)
+        val temperature = payload.optDouble("temperature").takeIf { payload.has("temperature") }
+        val maxOutputTokens = payload.optInt("maxTokens").takeIf { payload.has("maxTokens") }
+
+        host.dispatchHostStateUpdate(
             kitId = functionKitId,
             surface = surface,
-            code = "ai_chat_not_implemented",
-            message = "ai.chat has not been wired to a concrete Android backend yet.",
-            retryable = false,
+            label = "Android AI chat 请求中",
             details =
-                JSONObject()
-                    .put("routing", buildRoutingSnapshot(executionConfig, "ai.chat"))
-                    .put("request", JSONObject(payload.toString()))
+                buildHostDetails(executionConfig)
+                    .put("reason", "ai.chat")
+                    .put("model", aiChatConfig.model)
         )
+
+        remoteExecutor.execute {
+            try {
+                val completion =
+                    requestLocalAiChatCompletion(
+                        aiChatConfig = aiChatConfig,
+                        messages = messages,
+                        temperature = temperature,
+                        maxOutputTokens = maxOutputTokens
+                    )
+                ContextCompat.getMainExecutor(service).execute {
+                    if (requestSessionId != sessionId) {
+                        return@execute
+                    }
+
+                    host.dispatchAiChatResult(
+                        replyTo = replyTo,
+                        kitId = functionKitId,
+                        surface = surface,
+                        payload =
+                            JSONObject()
+                                .put("text", completion.text)
+                                .put(
+                                    "message",
+                                    JSONObject()
+                                        .put("role", "assistant")
+                                        .put("content", completion.text)
+                                )
+                                .put(
+                                    "structured",
+                                    completion.structured?.let { JSONObject(it.toString()) } ?: JSONObject.NULL
+                                )
+                                .put(
+                                    "candidates",
+                                    FunctionKitAiChatBackend.normalizeCandidates(
+                                        rawText = completion.text,
+                                        maxCandidates = RemoteCandidateCount,
+                                        maxCharsPerCandidate = RemoteMaxCharsPerCandidate
+                                    )
+                                )
+                                .put(
+                                    "usage",
+                                    completion.usage?.let { JSONObject(it.toString()) } ?: JSONObject()
+                                )
+                                .put("routing", buildLocalAiRoutingSnapshot(executionConfig, aiChatConfig, "ai.chat"))
+                                .put("hostInfo", buildHostInfo(executionConfig))
+                    )
+                    host.dispatchHostStateUpdate(
+                        kitId = functionKitId,
+                        surface = surface,
+                        label = "Android AI chat 已完成",
+                        details =
+                            buildHostDetails(executionConfig)
+                                .put("reason", "ai.chat")
+                                .put("model", aiChatConfig.model)
+                    )
+                }
+            } catch (error: RemoteInferenceException) {
+                ContextCompat.getMainExecutor(service).execute {
+                    if (requestSessionId != sessionId) {
+                        return@execute
+                    }
+
+                    dispatchLocalAiChatError(
+                        replyTo = replyTo,
+                        surface = surface,
+                        reason = "ai.chat",
+                        executionConfig = executionConfig,
+                        aiChatConfig = aiChatConfig,
+                        error = error
+                    )
+                }
+            }
+        }
     }
 
     private fun handleAiAgentList(
@@ -904,28 +990,363 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         dispatchComposerStateSync(replyTo = replyTo, surface = surface, reason = "composer.sync")
     }
 
+    private fun currentAiChatConfig(): HostAiChatConfig =
+        FunctionKitAiChatBackend.fromPrefs(aiPrefs)
+
+    private fun canUseLocalAiForCandidates(aiChatConfig: HostAiChatConfig): Boolean =
+        aiChatConfig.isConfigured &&
+            "ai.chat" in grantedPermissions &&
+            functionKitManifest.ai.executionMode == "direct-model"
+
+    private fun buildLocalAiRoutingSnapshot(
+        executionConfig: ExecutionConfig,
+        aiChatConfig: HostAiChatConfig,
+        reason: String
+    ): JSONObject =
+        JSONObject(buildRoutingSnapshot(executionConfig, reason).toString())
+            .put("effectiveExecutionMode", "direct-model")
+            .put("effectiveBackendClass", "direct-model")
+            .put("transport", "android-direct-http")
+            .put("providerType", aiChatConfig.providerType)
+            .put("model", aiChatConfig.model)
+            .put("baseUrl", aiChatConfig.configuredBaseUrl)
+
+    private fun buildAiChatMessages(payload: JSONObject): JSONArray {
+        val messages = JSONArray()
+        var hasConversationMessages = false
+        val systemPrompt = payload.optString("systemPrompt").trim()
+        if (systemPrompt.isNotBlank()) {
+            messages.put(
+                JSONObject()
+                    .put("role", "system")
+                    .put("content", systemPrompt)
+            )
+        }
+
+        val explicitMessages = payload.optJSONArray("messages")
+        if (explicitMessages != null && explicitMessages.length() > 0) {
+            for (index in 0 until explicitMessages.length()) {
+                val rawMessage = explicitMessages.optJSONObject(index) ?: continue
+                val role = rawMessage.optString("role").ifBlank { "user" }
+                val content =
+                    rawMessage.opt("content")
+                        ?.takeIf { it != JSONObject.NULL }
+                        ?.toString()
+                        .orEmpty()
+                        .trim()
+                if (content.isBlank()) {
+                    continue
+                }
+                messages.put(
+                    JSONObject()
+                        .put("role", role)
+                        .put("content", content)
+                )
+                hasConversationMessages = true
+            }
+        }
+
+        if (hasConversationMessages) {
+            return messages
+        }
+
+        val prompt = payload.optString("prompt").trim()
+        val format = payload.optString("format").trim()
+        val inputPayload = payload.opt("input")
+        val userContent =
+            buildString {
+                append(prompt.ifBlank { "Continue from the provided input and answer helpfully." })
+                if (format.equals("json", ignoreCase = true)) {
+                    append("\n\nReturn strict JSON only.")
+                }
+                if (inputPayload != null && inputPayload != JSONObject.NULL) {
+                    append("\n\nInput:\n")
+                    append(inputPayload.toString().take(currentAiChatConfig().maxContextChars))
+                }
+            }.trim()
+
+        return JSONArray().put(
+            JSONObject()
+                .put("role", "user")
+                .put("content", userContent)
+        )
+    }
+
+    private fun buildLocalAiCandidateMessages(
+        requestContext: JSONObject,
+        preferredTone: String,
+        modifiers: List<String>,
+        aiChatConfig: HostAiChatConfig
+    ): JSONArray {
+        val modifierText = modifiers.joinToString("；").ifBlank { "无" }
+        val contextText = requestContext.toString().take(aiChatConfig.maxContextChars)
+        return JSONArray()
+            .put(
+                JSONObject()
+                    .put("role", "system")
+                    .put(
+                        "content",
+                        """
+                        你是 Android 输入法里的聊天自动回复引擎。
+                        只返回一个 JSON 对象，不要输出 Markdown，不要解释，不要代码围栏。
+                        JSON 结构必须是：
+                        {"candidates":[{"text":"...","tone":"...","risk":"low|medium|high","rationale":"..."}]}
+                        要求：
+                        - 生成 ${RemoteCandidateCount} 条中文回复候选
+                        - 每条候选尽量不超过 ${RemoteMaxCharsPerCandidate} 个字符
+                        - 回复应当自然、可直接发送、避免空泛
+                        - `tone` 写简短标签，`risk` 只能是 low / medium / high
+                        - 如果上下文不足，也要给出稳妥候选
+                        """.trimIndent()
+                    )
+            )
+            .put(
+                JSONObject()
+                    .put("role", "user")
+                    .put(
+                        "content",
+                        """
+                        当前偏好语气：$preferredTone
+                        附加要求：$modifierText
+                        输入上下文：
+                        $contextText
+                        """.trimIndent()
+                    )
+            )
+    }
+
+    private fun requestLocalAiChatCompletion(
+        aiChatConfig: HostAiChatConfig,
+        messages: JSONArray,
+        temperature: Double?,
+        maxOutputTokens: Int?
+    ): HostAiChatCompletion {
+        val endpoint =
+            aiChatConfig.endpoint
+                ?: throw RemoteInferenceException(
+                    code = "ai_chat_not_configured",
+                    message = "Android AI chat base URL is blank.",
+                    retryable = false
+                )
+        val connection =
+            try {
+                val url = URL(endpoint)
+                require(url.protocol == "http" || url.protocol == "https") {
+                    "Unsupported URL scheme: ${url.protocol}"
+                }
+                url.openConnection() as HttpURLConnection
+            } catch (error: Exception) {
+                throw RemoteInferenceException(
+                    code = "ai_chat_invalid_base_url",
+                    message = "Android AI chat base URL is invalid.",
+                    retryable = false,
+                    details = error.message ?: aiChatConfig.configuredBaseUrl
+                )
+            }
+
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = aiChatConfig.timeoutSeconds * 1000
+            connection.readTimeout = aiChatConfig.timeoutSeconds * 1000
+            connection.doInput = true
+            connection.doOutput = true
+            connection.instanceFollowRedirects = false
+            connection.useCaches = false
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            if (aiChatConfig.apiKeyConfigured) {
+                connection.setRequestProperty("Authorization", "Bearer ${aiChatConfig.apiKey}")
+            }
+
+            val requestBody =
+                FunctionKitAiChatBackend.buildChatCompletionRequest(
+                    config = aiChatConfig,
+                    messages = messages,
+                    temperature = temperature,
+                    maxOutputTokens = maxOutputTokens
+                )
+            connection.outputStream.use { output ->
+                output.write(requestBody.toString().toByteArray(StandardCharsets.UTF_8))
+            }
+
+            val statusCode = connection.responseCode
+            val responseBody = readResponseBody(connection, successful = statusCode in 200..299)
+            if (statusCode !in 200..299) {
+                throw buildLocalAiHttpException(statusCode, responseBody)
+            }
+
+            val response =
+                try {
+                    JSONObject(responseBody)
+                } catch (error: Exception) {
+                    throw RemoteInferenceException(
+                        code = "ai_chat_invalid_json",
+                        message = "Android AI chat returned invalid JSON: ${error.message}",
+                        retryable = false,
+                        details = responseBody
+                    )
+                }
+            val text = FunctionKitAiChatBackend.extractAssistantText(response)
+            if (text.isBlank()) {
+                throw RemoteInferenceException(
+                    code = "ai_chat_empty_response",
+                    message = "Android AI chat returned an empty completion.",
+                    retryable = false,
+                    details = response.toString()
+                )
+            }
+
+            return HostAiChatCompletion(
+                text = text,
+                structured = FunctionKitAiChatBackend.extractStructuredJson(text),
+                usage = response.optJSONObject("usage")?.let { JSONObject(it.toString()) }
+            )
+        } catch (error: SocketTimeoutException) {
+            throw RemoteInferenceException(
+                code = "ai_chat_timeout",
+                message = "Android AI chat timed out after ${aiChatConfig.timeoutSeconds}s.",
+                retryable = true,
+                details = endpoint
+            )
+        } catch (error: IOException) {
+            throw RemoteInferenceException(
+                code = "ai_chat_io_error",
+                message = "Android AI chat request failed: ${error.message ?: "I/O error"}",
+                retryable = true,
+                details = endpoint
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun buildLocalAiHttpException(
+        statusCode: Int,
+        body: String
+    ): RemoteInferenceException {
+        val errorObject =
+            try {
+                JSONObject(body).optJSONObject("error")
+            } catch (_: Exception) {
+                null
+            }
+        val message =
+            errorObject?.optString("message")
+                ?.takeIf { it.isNotBlank() }
+                ?: "Android AI chat request failed with HTTP $statusCode."
+        val code =
+            errorObject?.optString("code")
+                ?.takeIf { it.isNotBlank() }
+                ?: when (statusCode) {
+                    401, 403 -> "ai_chat_auth_failed"
+                    408, 504 -> "ai_chat_timeout"
+                    else -> "ai_chat_http_error"
+                }
+        return RemoteInferenceException(
+            code = code,
+            message = message,
+            retryable = statusCode >= 500 || statusCode == 408 || statusCode == 429,
+            statusCode = statusCode,
+            details = if (body.isBlank()) null else body
+        )
+    }
+
+    private fun buildLocalAiCandidatesRenderPayload(
+        requestContext: JSONObject,
+        completion: HostAiChatCompletion,
+        executionConfig: ExecutionConfig,
+        aiChatConfig: HostAiChatConfig,
+        reason: String
+    ): JSONObject =
+        JSONObject()
+            .put("requestContext", JSONObject(requestContext.toString()))
+            .put(
+                "result",
+                JSONObject()
+                    .put(
+                        "candidates",
+                        FunctionKitAiChatBackend.normalizeCandidates(
+                            rawText = completion.text,
+                            maxCandidates = RemoteCandidateCount,
+                            maxCharsPerCandidate = RemoteMaxCharsPerCandidate
+                        )
+                    )
+                    .put("missing_context", JSONArray())
+            )
+            .put("uiHints", JSONObject().put("allowRegenerate", true))
+            .put("manifest", buildManifestSnapshot())
+            .put("routing", buildLocalAiRoutingSnapshot(executionConfig, aiChatConfig, reason))
+            .put("slash", buildSlashSnapshot())
+            .put(
+                "meta",
+                JSONObject()
+                    .put("backendClass", "direct-model")
+                    .put("providerType", aiChatConfig.providerType)
+                    .put("model", aiChatConfig.model)
+                    .put("usage", completion.usage ?: JSONObject())
+            )
+
+    private fun dispatchLocalAiChatError(
+        replyTo: String?,
+        surface: String,
+        reason: String,
+        executionConfig: ExecutionConfig,
+        aiChatConfig: HostAiChatConfig,
+        error: RemoteInferenceException
+    ) {
+        host.dispatchBridgeError(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            code = error.code,
+            message = error.message,
+            retryable = error.retryable,
+            details =
+                JSONObject()
+                    .put("reason", reason)
+                    .put("baseUrl", aiChatConfig.configuredBaseUrl)
+                    .put("model", aiChatConfig.model)
+                    .put("statusCode", error.statusCode)
+                    .put("details", JSONObject.wrap(error.details))
+        )
+        host.dispatchHostStateUpdate(
+            kitId = functionKitId,
+            surface = surface,
+            label = "Android AI chat 失败",
+            details =
+                buildHostDetails(executionConfig)
+                    .put("reason", reason)
+                    .put("model", aiChatConfig.model)
+                    .put("error", JSONObject().put("code", error.code).put("message", error.message))
+        )
+    }
+
     private fun buildAiChatStatusPayload(executionConfig: ExecutionConfig): JSONObject {
-        val networkEnabled = functionKitPrefs.remoteInferenceEnabled.getValue()
+        val aiChatConfig = currentAiChatConfig()
         val permissionGranted = "ai.chat" in grantedPermissions
         val status =
             when {
-                !networkEnabled -> "not_configured"
-                executionConfig.renderEndpoint.isNullOrBlank() -> "not_configured"
+                !aiChatConfig.enabled -> "not_configured"
+                !aiChatConfig.isConfigured -> "not_configured"
                 !permissionGranted -> "disabled_by_user"
                 else -> "ready"
             }
         val reason =
             when {
-                !networkEnabled -> "disabled_by_user"
-                executionConfig.renderEndpoint.isNullOrBlank() -> "not_configured"
+                !aiChatConfig.enabled -> "disabled_by_user"
+                !aiChatConfig.isConfigured -> "not_configured"
                 !permissionGranted -> "permission_denied"
                 else -> "ready"
             }
         return JSONObject()
+            .put("available", status == "ready")
             .put("status", status)
             .put("reason", reason)
             .put("permissionGranted", permissionGranted)
-            .put("routing", buildRoutingSnapshot(executionConfig, "ai.chat.status"))
+            .put("providerType", aiChatConfig.providerType)
+            .put("baseUrl", aiChatConfig.configuredBaseUrl)
+            .put("model", aiChatConfig.model)
+            .put("routing", buildLocalAiRoutingSnapshot(executionConfig, aiChatConfig, "ai.chat.status"))
             .put("hostInfo", buildHostInfo(executionConfig))
     }
 
@@ -1191,13 +1612,98 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         requestContext: JSONObject,
         executionConfig: ExecutionConfig
     ) {
-        if (!executionConfig.remoteEnabled) {
+        val aiChatConfig = currentAiChatConfig()
+        if (!executionConfig.remoteEnabled && !canUseLocalAiForCandidates(aiChatConfig)) {
             host.dispatchCandidatesRender(
                 replyTo = replyTo,
                 kitId = functionKitId,
                 surface = surface,
                 payload = buildCandidatesRenderPayload(requestContext, preferredTone, modifiers)
             )
+            return
+        }
+
+        if (!executionConfig.remoteEnabled && canUseLocalAiForCandidates(aiChatConfig)) {
+            val requestSessionId = sessionId
+            val messages =
+                buildLocalAiCandidateMessages(
+                    requestContext = requestContext,
+                    preferredTone = preferredTone,
+                    modifiers = modifiers,
+                    aiChatConfig = aiChatConfig
+                )
+
+            host.dispatchHostStateUpdate(
+                kitId = functionKitId,
+                surface = surface,
+                label = "Android AI 生成候选中",
+                details =
+                    buildHostDetails(executionConfig)
+                        .put("reason", reason)
+                        .put("model", aiChatConfig.model)
+            )
+
+            remoteExecutor.execute {
+                try {
+                    val completion =
+                        requestLocalAiChatCompletion(
+                            aiChatConfig = aiChatConfig,
+                            messages = messages,
+                            temperature = 0.4,
+                            maxOutputTokens = 512
+                        )
+                    val renderPayload =
+                        buildLocalAiCandidatesRenderPayload(
+                            requestContext = requestContext,
+                            completion = completion,
+                            executionConfig = executionConfig,
+                            aiChatConfig = aiChatConfig,
+                            reason = reason
+                        )
+                    ContextCompat.getMainExecutor(service).execute {
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+
+                        host.dispatchCandidatesRender(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            payload = renderPayload
+                        )
+                        host.dispatchHostStateUpdate(
+                            kitId = functionKitId,
+                            surface = surface,
+                            label = "Android AI 候选已更新",
+                            details =
+                                buildHostDetails(executionConfig)
+                                    .put("reason", reason)
+                                    .put("model", aiChatConfig.model)
+                                    .put(
+                                        "candidateCount",
+                                        renderPayload.optJSONObject("result")
+                                            ?.optJSONArray("candidates")
+                                            ?.length() ?: 0
+                                    )
+                        )
+                    }
+                } catch (error: RemoteInferenceException) {
+                    ContextCompat.getMainExecutor(service).execute {
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+
+                        dispatchLocalAiChatError(
+                            replyTo = replyTo,
+                            surface = surface,
+                            reason = reason,
+                            executionConfig = executionConfig,
+                            aiChatConfig = aiChatConfig,
+                            error = error
+                        )
+                    }
+                }
+            }
             return
         }
 
@@ -1637,17 +2143,26 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         }
     }
 
-    private fun buildHostInfo(executionConfig: ExecutionConfig = currentExecutionConfig()): JSONObject =
-        JSONObject()
+    private fun buildHostInfo(executionConfig: ExecutionConfig = currentExecutionConfig()): JSONObject {
+        val aiChatConfig = currentAiChatConfig()
+        val localAiActive = !executionConfig.remoteEnabled && canUseLocalAiForCandidates(aiChatConfig)
+        return JSONObject()
             .put("platform", "android")
             .put("runtime", "fcitx5-android-webview")
             .put("protocol", FunctionKitWebViewHost.protocolInfo())
             .put("supportedRuntimePermissions", JSONArray(supportedRuntimePermissions))
             .put("grantedPermissions", JSONArray(grantedPermissions))
-            .put("executionMode", executionConfig.executionMode)
+            .put("executionMode", if (localAiActive) "direct-model" else executionConfig.executionMode)
             .put("requestedExecutionMode", executionConfig.requestedExecutionMode)
-            .put("transport", executionConfig.transport)
-            .put("modeMessage", executionConfig.modeMessage)
+            .put("transport", if (localAiActive) "android-direct-http" else executionConfig.transport)
+            .put(
+                "modeMessage",
+                when {
+                    localAiActive ->
+                        "Using Android shared AI chat via ${aiChatConfig.endpoint ?: aiChatConfig.configuredBaseUrl}"
+                    else -> executionConfig.modeMessage
+                }
+            )
             .put("baseUrl", executionConfig.configuredBaseUrl)
             .put("remoteAuthConfigured", executionConfig.remoteAuthConfigured)
             .put("preferredBackendClass", executionConfig.preferredBackendClass)
@@ -1656,6 +2171,15 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             .put("latencyTier", executionConfig.latencyTier)
             .put("requireStructuredJson", executionConfig.requireStructuredJson)
             .put("requiredCapabilities", JSONArray(executionConfig.requiredCapabilities))
+            .put(
+                "ai",
+                JSONObject()
+                    .put("available", aiChatConfig.isConfigured)
+                    .put("permissionGranted", "ai.chat" in grantedPermissions)
+                    .put("providerType", aiChatConfig.providerType)
+                    .put("model", aiChatConfig.model)
+                    .put("baseUrl", aiChatConfig.configuredBaseUrl)
+            )
             .put(
                 "discovery",
                 functionKitManifest.discovery.toJson()
@@ -1669,6 +2193,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
                     put("timeoutMs", executionConfig.timeoutMs)
                 }
             }
+    }
 
     private fun buildHostDetails(executionConfig: ExecutionConfig = currentExecutionConfig()): JSONObject =
         JSONObject()

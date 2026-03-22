@@ -36,6 +36,9 @@ object AppUtil {
     fun launchMainToKeyboard(context: Context) =
         launchMainToDest(context, SettingsRoute.VirtualKeyboard)
 
+    fun launchMainToAiSettings(context: Context) =
+        launchMainToDest(context, SettingsRoute.Ai)
+
     fun launchMainToInputMethodList(context: Context) =
         launchMainToDest(context, SettingsRoute.InputMethodList)
 
