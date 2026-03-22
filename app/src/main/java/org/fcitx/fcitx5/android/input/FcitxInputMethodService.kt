@@ -80,6 +80,34 @@ import timber.log.Timber
 import kotlin.math.max
 
 class FcitxInputMethodService : LifecycleInputMethodService() {
+    interface LocalInputTarget {
+        fun isActive(): Boolean
+
+        fun commitText(
+            text: String,
+            cursor: Int = -1
+        ): Boolean
+
+        fun deleteSurrounding(
+            before: Int,
+            after: Int
+        ): Boolean
+
+        fun handleBackspace(): Boolean
+
+        fun handleEnter(): Boolean
+
+        fun handleArrow(keyCode: Int): Boolean
+
+        fun deleteSelection(): Boolean
+
+        fun applySelectionOffset(
+            offsetStart: Int,
+            offsetEnd: Int = 0
+        ): Boolean
+
+        fun cancelSelection(): Boolean
+    }
 
     private lateinit var fcitx: FcitxConnection
 
@@ -130,6 +158,7 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     private var cursorUpdateIndex: Int = 0
 
     private var highlightColor: Int = 0x66008577 // material_deep_teal_500 with alpha 0.4
+    var localInputTarget: LocalInputTarget? = null
 
     private val prefs = AppPrefs.getInstance()
     private val inlineSuggestions by prefs.keyboard.inlineSuggestions
@@ -329,6 +358,9 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     }
 
     private fun handleDeleteSurrounding(before: Int, after: Int) {
+        if (localInputTarget?.takeIf { it.isActive() }?.deleteSurrounding(before, after) == true) {
+            return
+        }
         val ic = currentInputConnection ?: return
         if (before > 0) {
             selection.predictOffset(-before)
@@ -341,6 +373,9 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     }
 
     private fun handleBackspaceKey() {
+        if (localInputTarget?.takeIf { it.isActive() }?.handleBackspace() == true) {
+            return
+        }
         val lastSelection = selection.latest
         if (lastSelection.isNotEmpty()) {
             selection.predict(lastSelection.start)
@@ -372,6 +407,9 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     }
 
     private fun handleReturnKey() {
+        if (localInputTarget?.takeIf { it.isActive() }?.handleEnter() == true) {
+            return
+        }
         currentInputEditorInfo.run {
             if (inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_NULL ||
                 imeOptions.hasFlag(EditorInfo.IME_FLAG_NO_ENTER_ACTION)
@@ -392,6 +430,9 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     }
 
     private fun handleArrowKey(keyCode: Int) {
+        if (localInputTarget?.takeIf { it.isActive() }?.handleArrow(keyCode) == true) {
+            return
+        }
         if (currentInputEditorInfo.inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_NULL) {
             sendDownUpKeyEvents(keyCode)
             return
@@ -407,6 +448,9 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     }
 
     fun commitText(text: String, cursor: Int = -1) {
+        if (localInputTarget?.takeIf { it.isActive() }?.commitText(text, cursor) == true) {
+            return
+        }
         val ic = currentInputConnection ?: return
         // when composing text equals commit content, finish composing text as-is
         if (composing.isNotEmpty() && composingText.toString() == text) {
@@ -472,6 +516,9 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     }
 
     fun deleteSelection() {
+        if (localInputTarget?.takeIf { it.isActive() }?.deleteSelection() == true) {
+            return
+        }
         val lastSelection = selection.latest
         if (lastSelection.isEmpty()) return
         selection.predict(lastSelection.start)
@@ -500,6 +547,9 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     }
 
     fun applySelectionOffset(offsetStart: Int, offsetEnd: Int = 0) {
+        if (localInputTarget?.takeIf { it.isActive() }?.applySelectionOffset(offsetStart, offsetEnd) == true) {
+            return
+        }
         val lastSelection = selection.latest
         currentInputConnection?.also {
             val start = max(lastSelection.start + offsetStart, 0)
@@ -511,6 +561,9 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     }
 
     fun cancelSelection() {
+        if (localInputTarget?.takeIf { it.isActive() }?.cancelSelection() == true) {
+            return
+        }
         val lastSelection = selection.latest
         if (lastSelection.isEmpty()) return
         val end = lastSelection.end

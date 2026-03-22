@@ -343,6 +343,14 @@
     <string name="function_kit_status_permission_composer_apply_insert">Apply detached composer by insert</string>
     <string name="function_kit_status_permission_composer_apply_replace">Apply detached composer by replace</string>
     <string name="function_kit_status_permission_composer_control">Control detached composer window</string>
+    <string name="function_kit_detached_composer_title">Detached Composer</string>
+    <string name="function_kit_detached_composer_hint">Draft for the current Function Kit</string>
+    <string name="function_kit_detached_composer_insert">Insert</string>
+    <string name="function_kit_detached_composer_replace">Replace</string>
+    <string name="function_kit_detached_composer_close">Close</string>
+    <string name="function_kit_detached_composer_status_focused">Keyboard input goes to local draft</string>
+    <string name="function_kit_detached_composer_status_unfocused">Draft kept locally; tap to continue editing</string>
+    <string name="function_kit_detached_composer_status_target_lost">Writeback unavailable because the target editor was lost</string>
     <string name="function_kit_toolbar_button">Show toolbar shortcut</string>
     <string name="function_kit_toolbar_button_summary">Pin the Function Kit next to clipboard and editing tools</string>
     <string name="function_kit_remote_inference_enabled">Enable remote inference</string>

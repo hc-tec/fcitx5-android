@@ -6,10 +6,19 @@ package org.fcitx.fcitx5.android.input.functionkit
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.res.ColorStateList
+import android.text.InputType
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.WebView
+import android.widget.LinearLayout
+import androidx.appcompat.widget.AppCompatButton
+import androidx.appcompat.widget.AppCompatEditText
+import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.content.ContextCompat
+import androidx.core.widget.addTextChangedListener
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.core.CapabilityFlags
 import org.fcitx.fcitx5.android.core.FcitxEvent
@@ -39,8 +48,21 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.Executors
 
+private class FunctionKitComposerEditText(context: Context) : AppCompatEditText(context) {
+    var onSelectionChangedListener: ((Int, Int) -> Unit)? = null
+
+    override fun onSelectionChanged(
+        selStart: Int,
+        selEnd: Int
+    ) {
+        super.onSelectionChanged(selStart, selEnd)
+        onSelectionChangedListener?.invoke(selStart, selEnd)
+    }
+}
+
 class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.ExtendedInputWindow<FunctionKitWindow>(),
-    InputBroadcastReceiver {
+    InputBroadcastReceiver,
+    FcitxInputMethodService.LocalInputTarget {
 
     private data class CandidateDraft(
         val id: String,
@@ -150,10 +172,149 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             config = hostConfig
         )
     }
+    private val composerTitleView by lazy {
+        AppCompatTextView(context).apply {
+            setTextColor(theme.keyTextColor)
+            text = context.getString(R.string.function_kit_detached_composer_title)
+            textSize = 14f
+        }
+    }
+    private val composerStatusView by lazy {
+        AppCompatTextView(context).apply {
+            setTextColor(theme.candidateCommentColor)
+            textSize = 12f
+        }
+    }
+    private val composerEditText by lazy {
+        FunctionKitComposerEditText(context).apply {
+            setTextColor(theme.keyTextColor)
+            setHintTextColor(theme.candidateCommentColor)
+            hint = context.getString(R.string.function_kit_detached_composer_hint)
+            backgroundTintList = ColorStateList.valueOf(theme.dividerColor)
+            inputType =
+                InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                    InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            minLines = 2
+            maxLines = 4
+            gravity = Gravity.TOP or Gravity.START
+            showSoftInputOnFocus = false
+            onSelectionChangedListener = { start, end ->
+                handleComposerViewSelectionChanged(start, end)
+            }
+            setOnFocusChangeListener { _, hasFocus ->
+                handleComposerViewFocusChanged(hasFocus)
+            }
+            addTextChangedListener {
+                handleComposerViewTextChanged(it?.toString().orEmpty())
+            }
+        }
+    }
+    private val composerInsertButton by lazy {
+        AppCompatButton(context).apply {
+            text = context.getString(R.string.function_kit_detached_composer_insert)
+            setOnClickListener {
+                performComposerApply(replyTo = null, surface = Surface, payload = JSONObject(), replace = false)
+            }
+        }
+    }
+    private val composerReplaceButton by lazy {
+        AppCompatButton(context).apply {
+            text = context.getString(R.string.function_kit_detached_composer_replace)
+            setOnClickListener {
+                performComposerApply(replyTo = null, surface = Surface, payload = JSONObject(), replace = true)
+            }
+        }
+    }
+    private val composerCloseButton by lazy {
+        AppCompatButton(context).apply {
+            text = context.getString(R.string.function_kit_detached_composer_close)
+            setOnClickListener {
+                updateComposerState(replyTo = null, surface = Surface, reason = "composer.view.close") { current ->
+                    current.copy(
+                        open = false,
+                        focused = false,
+                        source = "host",
+                        lastAction = "view-close"
+                    )
+                }
+            }
+        }
+    }
+    private val composerContainer by lazy {
+        LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(theme.backgroundColor)
+            val padding = context.dp(8)
+            setPadding(padding, padding, padding, padding)
+            visibility = View.GONE
+
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        composerTitleView,
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    )
+                    addView(
+                        composerStatusView,
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        )
+                    )
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                composerEditText,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = context.dp(6)
+                }
+            )
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END
+                    addView(composerCloseButton)
+                    addView(composerReplaceButton)
+                    addView(composerInsertButton)
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = context.dp(6)
+                }
+            )
+        }
+    }
     private val rootView by lazy {
-        context.frameLayout {
-            backgroundColor = theme.barColor
-            add(webView, lParams(matchParent, matchParent))
+        LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(theme.barColor)
+            addView(
+                composerContainer,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                webView,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f
+                )
+            )
         }
     }
     private val refreshButton by lazy {
@@ -197,6 +358,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     private var currentCandidateCount = 0
     private var currentPreeditText = ""
     private var composerState = ComposerState(updatedAtEpochMs = System.currentTimeMillis())
+    private var composerSyncingView = false
     private val functionKitId: String
         get() = functionKitManifest.id
     private val supportedRuntimePermissions: List<String>
@@ -211,6 +373,8 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         ensureManifestStateInitialized()
         syncCurrentInputState()
         refreshGrantedPermissions(notifyUi = panelInitialized)
+        service.localInputTarget = this
+        syncComposerUiFromState()
 
         if (!panelInitialized) {
             host.initialize(functionKitManifest.entryHtmlAssetPath)
@@ -227,6 +391,10 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     }
 
     override fun onDetached() {
+        if (service.localInputTarget === this) {
+            service.localInputTarget = null
+        }
+        composerEditText.clearFocus()
         webView.onPause()
         webView.stopLoading()
     }
@@ -247,6 +415,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     override fun onStartInput(info: EditorInfo, capFlags: CapabilityFlags) {
         currentPackageName = info.packageName.orEmpty()
         currentInputType = info.inputType
+        syncComposerUiFromState()
         pushHostState("输入上下文已切换")
     }
 
@@ -750,24 +919,22 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     ) {
         ensurePermission(replyTo, "composer.control") ?: return
 
-        composerState =
-            composerState.copy(
+        updateComposerState(replyTo = replyTo, surface = surface, reason = "composer.open") { current ->
+            current.copy(
                 open = true,
                 focused = payload.optBoolean("focused", true),
-                text = payload.optString("text").takeIf { payload.has("text") } ?: composerState.text,
+                text = resolveComposerText(payload, current.text),
                 selectionStart =
                     payload.optInt("selectionStart").takeIf { payload.has("selectionStart") }
-                        ?: composerState.selectionStart,
+                        ?: current.selectionStart,
                 selectionEnd =
                     payload.optInt("selectionEnd").takeIf { payload.has("selectionEnd") }
-                        ?: composerState.selectionEnd,
-                revision = composerState.revision + 1,
-                mode = payload.optString("mode").ifBlank { composerState.mode },
+                        ?: current.selectionEnd,
+                mode = payload.optString("mode").ifBlank { current.mode },
                 source = "kit",
-                lastAction = "open",
-                updatedAtEpochMs = System.currentTimeMillis()
+                lastAction = "open"
             )
-        dispatchComposerState(replyTo, surface)
+        }
     }
 
     private fun handleComposerFocus(
@@ -777,16 +944,14 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     ) {
         ensurePermission(replyTo, "composer.control") ?: return
 
-        composerState =
-            composerState.copy(
+        updateComposerState(replyTo = replyTo, surface = surface, reason = "composer.focus") { current ->
+            current.copy(
                 open = true,
                 focused = payload.optBoolean("focused", true),
-                revision = composerState.revision + 1,
                 source = "kit",
-                lastAction = "focus",
-                updatedAtEpochMs = System.currentTimeMillis()
+                lastAction = "focus"
             )
-        dispatchComposerState(replyTo, surface)
+        }
     }
 
     private fun handleComposerUpdate(
@@ -796,23 +961,21 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     ) {
         ensurePermission(replyTo, "composer.control") ?: return
 
-        composerState =
-            composerState.copy(
+        updateComposerState(replyTo = replyTo, surface = surface, reason = "composer.update") { current ->
+            current.copy(
                 open = true,
-                focused = payload.optBoolean("focused", composerState.focused),
-                text = payload.optString("text").takeIf { payload.has("text") } ?: composerState.text,
+                focused = payload.optBoolean("focused", current.focused),
+                text = resolveComposerText(payload, current.text),
                 selectionStart =
                     payload.optInt("selectionStart").takeIf { payload.has("selectionStart") }
-                        ?: composerState.selectionStart,
+                        ?: current.selectionStart,
                 selectionEnd =
                     payload.optInt("selectionEnd").takeIf { payload.has("selectionEnd") }
-                        ?: composerState.selectionEnd,
-                revision = composerState.revision + 1,
+                        ?: current.selectionEnd,
                 source = "kit",
-                lastAction = "update",
-                updatedAtEpochMs = System.currentTimeMillis()
+                lastAction = "update"
             )
-        dispatchComposerState(replyTo, surface)
+        }
     }
 
     private fun handleComposerClose(
@@ -822,16 +985,14 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     ) {
         ensurePermission(replyTo, "composer.control") ?: return
 
-        composerState =
-            composerState.copy(
+        updateComposerState(replyTo = replyTo, surface = surface, reason = "composer.close") { current ->
+            current.copy(
                 open = payload.optBoolean("open", false),
                 focused = false,
-                revision = composerState.revision + 1,
                 source = "kit",
-                lastAction = "close",
-                updatedAtEpochMs = System.currentTimeMillis()
+                lastAction = "close"
             )
-        dispatchComposerState(replyTo, surface)
+        }
     }
 
     private fun handleComposerApply(
@@ -839,61 +1000,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         surface: String,
         payload: JSONObject,
         replace: Boolean
-    ) {
-        ensurePermission(replyTo, if (replace) "input.replace" else "input.insert") ?: return
-
-        val text =
-            payload.optString("text")
-                .takeIf { payload.has("text") }
-                ?.trim()
-                .orEmpty()
-                .ifBlank { composerState.text.trim() }
-        if (text.isBlank()) {
-            host.dispatchBridgeError(
-                replyTo = replyTo,
-                kitId = functionKitId,
-                surface = surface,
-                code = "composer_apply_empty",
-                message = "Composer draft is empty.",
-                retryable = false
-            )
-            return
-        }
-
-        composerState =
-            composerState.copy(
-                text = text,
-                selectionStart = text.length,
-                selectionEnd = text.length,
-                revision = composerState.revision + 1,
-                source = "kit",
-                lastAction = if (replace) "apply-replace" else "apply-insert",
-                open = !payload.optBoolean("closeAfterApply", true),
-                focused = false,
-                updatedAtEpochMs = System.currentTimeMillis()
-            )
-
-        ContextCompat.getMainExecutor(service).execute {
-            service.commitText(text)
-            host.dispatchComposerApplyResult(
-                replyTo = replyTo,
-                kitId = functionKitId,
-                surface = surface,
-                payload =
-                    JSONObject()
-                        .put("applied", true)
-                        .put("mode", if (replace) "replace" else "insert")
-                        .put("text", text)
-                        .put("composer", composerState.toJson())
-            )
-            host.dispatchComposerStateSync(
-                replyTo = null,
-                kitId = functionKitId,
-                surface = surface,
-                payload = composerState.toJson()
-            )
-        }
-    }
+    ) = performComposerApply(replyTo = replyTo, surface = surface, payload = payload, replace = replace)
 
     private fun updateComposerState(
         replyTo: String?,
@@ -902,6 +1009,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         transform: (ComposerState) -> ComposerState
     ) {
         composerState = normalizeComposerState(transform(composerState))
+        syncComposerUiFromState()
         dispatchComposerStateSync(replyTo = replyTo, surface = surface, reason = reason)
     }
 
@@ -936,6 +1044,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
                 JSONObject()
                     .put("canInsert", "input.insert" in grantedPermissions)
                     .put("canReplace", "input.replace" in grantedPermissions)
+                    .put("targetAvailable", canApplyComposerToTarget())
             )
 
     private fun normalizeComposerState(state: ComposerState): ComposerState {
@@ -953,9 +1062,11 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         payload: JSONObject,
         fallback: String
     ): String =
-        payload.optString("text")
-            .ifBlank { payload.optString("initialText") }
-            .ifBlank { fallback }
+        when {
+            payload.has("text") -> payload.optString("text")
+            payload.has("initialText") -> payload.optString("initialText")
+            else -> fallback
+        }
 
     private fun applyComposerSelection(
         payload: JSONObject,
@@ -988,6 +1099,315 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         surface: String
     ) {
         dispatchComposerStateSync(replyTo = replyTo, surface = surface, reason = "composer.sync")
+    }
+
+    private fun performComposerApply(
+        replyTo: String?,
+        surface: String,
+        payload: JSONObject,
+        replace: Boolean
+    ) {
+        ensurePermission(replyTo, if (replace) "input.replace" else "input.insert") ?: return
+
+        val text =
+            payload.optString("text")
+                .takeIf { payload.has("text") }
+                ?.trim()
+                .orEmpty()
+                .ifBlank { composerState.text.trim() }
+        if (text.isBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "composer_apply_empty",
+                message = "Composer draft is empty.",
+                retryable = false
+            )
+            return
+        }
+        if (!canApplyComposerToTarget()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "composer_target_lost",
+                message = "The external editor is no longer available for writeback.",
+                retryable = false,
+                details = buildComposerStatePayload("composer.target.lost")
+            )
+            syncComposerUiFromState()
+            return
+        }
+
+        updateComposerState(replyTo = null, surface = surface, reason = "composer.apply") { current ->
+            current.copy(
+                text = text,
+                selectionStart = text.length,
+                selectionEnd = text.length,
+                source = "host",
+                lastAction = if (replace) "apply-replace" else "apply-insert",
+                open = !payload.optBoolean("closeAfterApply", true),
+                focused = false
+            )
+        }
+
+        ContextCompat.getMainExecutor(service).execute {
+            service.commitText(text)
+            host.dispatchComposerApplyResult(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                payload =
+                    JSONObject()
+                        .put("applied", true)
+                        .put("mode", if (replace) "replace" else "insert")
+                        .put("text", text)
+                        .put("composer", composerState.toJson())
+            )
+        }
+    }
+
+    private fun syncComposerUiFromState() {
+        composerSyncingView = true
+        try {
+            composerContainer.visibility = if (composerState.open) View.VISIBLE else View.GONE
+            composerStatusView.text = resolveComposerStatusLabel()
+            composerInsertButton.isEnabled =
+                canApplyComposerToTarget() && "input.insert" in grantedPermissions
+            composerReplaceButton.isEnabled =
+                canApplyComposerToTarget() && "input.replace" in grantedPermissions
+            composerCloseButton.isEnabled = "composer.control" in grantedPermissions
+            composerEditText.isCursorVisible = composerState.focused
+
+            if (composerEditText.text?.toString() != composerState.text) {
+                composerEditText.setText(composerState.text)
+            }
+            val textLength = composerEditText.text?.length ?: 0
+            val start = composerState.selectionStart.coerceIn(0, textLength)
+            val end = composerState.selectionEnd.coerceIn(0, textLength)
+            if (composerEditText.selectionStart != start || composerEditText.selectionEnd != end) {
+                composerEditText.setSelection(start, end)
+            }
+            if (composerState.open && composerState.focused) {
+                if (!composerEditText.hasFocus()) {
+                    composerEditText.requestFocus()
+                }
+            } else if (composerEditText.hasFocus()) {
+                composerEditText.clearFocus()
+            }
+        } finally {
+            composerSyncingView = false
+        }
+    }
+
+    private fun resolveComposerStatusLabel(): String =
+        when {
+            !canApplyComposerToTarget() ->
+                context.getString(R.string.function_kit_detached_composer_status_target_lost)
+            composerState.focused ->
+                context.getString(R.string.function_kit_detached_composer_status_focused)
+            else -> context.getString(R.string.function_kit_detached_composer_status_unfocused)
+        }
+
+    private fun canApplyComposerToTarget(): Boolean = service.currentInputConnection != null
+
+    private fun buildComposerDraftState(state: ComposerState = composerState): ComposerDraftBufferState =
+        ComposerDraftBufferState(
+            text = state.text,
+            selectionStart = state.selectionStart,
+            selectionEnd = state.selectionEnd
+        )
+
+    private fun mutateComposerDraft(
+        reason: String,
+        transform: (ComposerDraftBufferState) -> ComposerDraftBufferState
+    ) {
+        updateComposerState(replyTo = null, surface = Surface, reason = reason) { current ->
+            val draft = transform(buildComposerDraftState(current))
+            current.copy(
+                open = true,
+                focused = true,
+                text = draft.text,
+                selectionStart = draft.selectionStart,
+                selectionEnd = draft.selectionEnd,
+                source = "host",
+                lastAction = reason
+            )
+        }
+    }
+
+    private fun handleComposerViewTextChanged(text: String) {
+        if (composerSyncingView || text == composerState.text) {
+            return
+        }
+        updateComposerState(replyTo = null, surface = Surface, reason = "composer.view.text") { current ->
+            current.copy(
+                open = true,
+                text = text,
+                selectionStart = composerEditText.selectionStart.coerceAtLeast(0),
+                selectionEnd = composerEditText.selectionEnd.coerceAtLeast(0),
+                source = "host",
+                lastAction = "view-text"
+            )
+        }
+    }
+
+    private fun handleComposerViewSelectionChanged(
+        start: Int,
+        end: Int
+    ) {
+        if (composerSyncingView ||
+            (start == composerState.selectionStart && end == composerState.selectionEnd)
+        ) {
+            return
+        }
+        updateComposerState(replyTo = null, surface = Surface, reason = "composer.view.selection") { current ->
+            current.copy(
+                selectionStart = start,
+                selectionEnd = end,
+                source = "host",
+                lastAction = "view-selection"
+            )
+        }
+    }
+
+    private fun handleComposerViewFocusChanged(hasFocus: Boolean) {
+        if (composerSyncingView || !composerState.open || composerState.focused == hasFocus) {
+            return
+        }
+        updateComposerState(
+            replyTo = null,
+            surface = Surface,
+            reason = if (hasFocus) "composer.view.focus" else "composer.view.blur"
+        ) { current ->
+            current.copy(
+                focused = hasFocus,
+                source = "host",
+                lastAction = if (hasFocus) "view-focus" else "view-blur"
+            )
+        }
+    }
+
+    override fun isActive(): Boolean = composerState.open && composerState.focused
+
+    override fun commitText(
+        text: String,
+        cursor: Int
+    ): Boolean {
+        if (!isActive()) {
+            return false
+        }
+        mutateComposerDraft("composer.target.commitText") {
+            FunctionKitComposerDraftBuffer.commitText(it, text, cursor)
+        }
+        return true
+    }
+
+    override fun deleteSurrounding(
+        before: Int,
+        after: Int
+    ): Boolean {
+        if (!isActive()) {
+            return false
+        }
+        mutateComposerDraft("composer.target.deleteSurrounding") {
+            FunctionKitComposerDraftBuffer.deleteSurrounding(it, before, after)
+        }
+        return true
+    }
+
+    override fun handleBackspace(): Boolean {
+        if (!isActive()) {
+            return false
+        }
+        mutateComposerDraft("composer.target.backspace") {
+            FunctionKitComposerDraftBuffer.backspace(it)
+        }
+        return true
+    }
+
+    override fun handleEnter(): Boolean {
+        if (!isActive()) {
+            return false
+        }
+        mutateComposerDraft("composer.target.enter") {
+            FunctionKitComposerDraftBuffer.commitText(it, "\n", 1)
+        }
+        return true
+    }
+
+    override fun handleArrow(keyCode: Int): Boolean {
+        if (!isActive()) {
+            return false
+        }
+        when (keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT ->
+                mutateComposerDraft("composer.target.arrowLeft") { draft ->
+                    if (draft.selectionStart != draft.selectionEnd) {
+                        FunctionKitComposerDraftBuffer.setSelection(
+                            draft,
+                            draft.selectionStart,
+                            draft.selectionStart
+                        )
+                    } else {
+                        FunctionKitComposerDraftBuffer.applySelectionOffset(draft, -1, -1)
+                    }
+                }
+
+            android.view.KeyEvent.KEYCODE_DPAD_RIGHT ->
+                mutateComposerDraft("composer.target.arrowRight") { draft ->
+                    if (draft.selectionStart != draft.selectionEnd) {
+                        FunctionKitComposerDraftBuffer.setSelection(
+                            draft,
+                            draft.selectionEnd,
+                            draft.selectionEnd
+                        )
+                    } else {
+                        FunctionKitComposerDraftBuffer.applySelectionOffset(draft, 1, 1)
+                    }
+                }
+
+            else -> return false
+        }
+        return true
+    }
+
+    override fun deleteSelection(): Boolean {
+        if (!isActive()) {
+            return false
+        }
+        val draft = buildComposerDraftState()
+        if (draft.selectionStart == draft.selectionEnd) {
+            return false
+        }
+        mutateComposerDraft("composer.target.deleteSelection") {
+            FunctionKitComposerDraftBuffer.commitText(it, "", 0)
+        }
+        return true
+    }
+
+    override fun applySelectionOffset(
+        offsetStart: Int,
+        offsetEnd: Int
+    ): Boolean {
+        if (!isActive()) {
+            return false
+        }
+        mutateComposerDraft("composer.target.selectionOffset") {
+            FunctionKitComposerDraftBuffer.applySelectionOffset(it, offsetStart, offsetEnd)
+        }
+        return true
+    }
+
+    override fun cancelSelection(): Boolean {
+        if (!isActive()) {
+            return false
+        }
+        mutateComposerDraft("composer.target.cancelSelection") {
+            FunctionKitComposerDraftBuffer.cancelSelection(it)
+        }
+        return true
     }
 
     private fun currentAiChatConfig(): HostAiChatConfig =
@@ -1494,7 +1914,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         return headers
     }
 
-    private fun ensurePermission(replyTo: String, permission: String): String? {
+    private fun ensurePermission(replyTo: String?, permission: String): String? {
         refreshGrantedPermissions(notifyUi = panelInitialized)
         if (permission in grantedPermissions) {
             return permission

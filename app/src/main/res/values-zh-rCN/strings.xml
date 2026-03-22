@@ -343,6 +343,14 @@
     <string name="function_kit_status_permission_composer_apply_insert">以插入方式应用独立编辑框</string>
     <string name="function_kit_status_permission_composer_apply_replace">以替换方式应用独立编辑框</string>
     <string name="function_kit_status_permission_composer_control">控制独立编辑框窗口</string>
+    <string name="function_kit_detached_composer_title">独立编辑框</string>
+    <string name="function_kit_detached_composer_hint">当前功能件的本地草稿</string>
+    <string name="function_kit_detached_composer_insert">插入</string>
+    <string name="function_kit_detached_composer_replace">替换</string>
+    <string name="function_kit_detached_composer_close">关闭</string>
+    <string name="function_kit_detached_composer_status_focused">当前键盘输入写入本地草稿</string>
+    <string name="function_kit_detached_composer_status_unfocused">草稿仍保留在本地，点击后继续编辑</string>
+    <string name="function_kit_detached_composer_status_target_lost">原目标输入框已失效，暂时无法写回</string>
     <string name="function_kit_toolbar_button">显示功能件工具栏快捷入口</string>
     <string name="function_kit_toolbar_button_summary">将当前功能件固定在剪贴板、文本编辑等工具旁边</string>
     <string name="function_kit_remote_inference_enabled">启用远程推理</string>
