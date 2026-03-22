@@ -54,6 +54,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         val remoteEnabled: Boolean,
         val configuredBaseUrl: String,
         val normalizedBaseUrl: String,
+        val remoteAuthToken: String,
         val timeoutSeconds: Int,
         val requestedExecutionMode: String,
         val preferredBackendClass: String?,
@@ -66,6 +67,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         val remoteRenderPath: String
     ) {
         val timeoutMs: Int = timeoutSeconds.coerceAtLeast(1) * 1000
+        val remoteAuthConfigured: Boolean = remoteAuthToken.isNotBlank()
         val renderEndpoint: String? =
             normalizedBaseUrl.takeIf { it.isNotBlank() }?.let { "$it$remoteRenderPath" }
         val executionMode: String = if (remoteEnabled) requestedExecutionMode else "local-demo"
@@ -500,6 +502,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
                     functionKitManifest.ai.executionMode != "local-demo",
             configuredBaseUrl = configuredBaseUrl,
             normalizedBaseUrl = configuredBaseUrl.trimEnd('/'),
+            remoteAuthToken = functionKitPrefs.remoteAuthToken.getValue().trim(),
             timeoutSeconds = functionKitPrefs.remoteTimeoutSeconds.getValue(),
             requestedExecutionMode = functionKitManifest.ai.executionMode,
             preferredBackendClass = backendHints.preferredBackendClass,
@@ -699,6 +702,9 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             connection.useCaches = false
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            if (executionConfig.remoteAuthConfigured) {
+                connection.setRequestProperty("Authorization", "Bearer ${executionConfig.remoteAuthToken}")
+            }
 
             connection.outputStream.use { output ->
                 output.write(requestPayload.toString().toByteArray(StandardCharsets.UTF_8))
@@ -973,6 +979,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             .put("transport", executionConfig.transport)
             .put("modeMessage", executionConfig.modeMessage)
             .put("baseUrl", executionConfig.configuredBaseUrl)
+            .put("remoteAuthConfigured", executionConfig.remoteAuthConfigured)
             .put("preferredBackendClass", executionConfig.preferredBackendClass)
             .put("preferredAdapter", executionConfig.preferredAdapter)
             .put("latencyBudgetMs", executionConfig.latencyBudgetMs)
@@ -1008,6 +1015,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             .put("transport", executionConfig.transport)
             .put("modeMessage", executionConfig.modeMessage)
             .put("baseUrl", executionConfig.configuredBaseUrl)
+            .put("remoteAuthConfigured", executionConfig.remoteAuthConfigured)
             .put("preferredBackendClass", executionConfig.preferredBackendClass)
             .put("preferredAdapter", executionConfig.preferredAdapter)
             .put("latencyBudgetMs", executionConfig.latencyBudgetMs)

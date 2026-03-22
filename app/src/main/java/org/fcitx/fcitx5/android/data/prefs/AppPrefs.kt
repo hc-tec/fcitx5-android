@@ -370,6 +370,12 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             "http://127.0.0.1:18789",
             R.string.function_kit_remote_base_url_summary
         ) { remoteInferenceEnabled.getValue() }
+        val remoteAuthToken = string(
+            R.string.function_kit_remote_auth_token,
+            "function_kit_remote_auth_token",
+            "",
+            R.string.function_kit_remote_auth_token_summary
+        ) { remoteInferenceEnabled.getValue() }
         val remoteTimeoutSeconds = int(
             R.string.function_kit_remote_timeout_seconds,
             "function_kit_remote_timeout_seconds",

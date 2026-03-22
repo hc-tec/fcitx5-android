@@ -298,6 +298,8 @@
     <string name="function_kit_remote_inference_enabled_summary">Call a local or Windows Function Kit host service instead of generating demo candidates on device</string>
     <string name="function_kit_remote_base_url">Remote host service base URL</string>
     <string name="function_kit_remote_base_url_summary">Base URL only. The app appends /v1/function-kits/chat-auto-reply/render</string>
+    <string name="function_kit_remote_auth_token">Remote host service token</string>
+    <string name="function_kit_remote_auth_token_summary">Optional for loopback. Required when the host service is exposed on LAN and protected by a token</string>
     <string name="function_kit_remote_timeout_seconds">Remote inference timeout</string>
     <string name="function_kit_permission_context_read">Allow reading input context</string>
     <string name="function_kit_permission_input_insert">Allow inserting candidate text</string>
