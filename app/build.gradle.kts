@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.Sync
+
 plugins {
     id("org.fcitx.fcitx5.android.app-convention")
     id("org.fcitx.fcitx5.android.native-app-convention")
@@ -7,6 +9,51 @@ plugins {
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+}
+
+val functionKitWorkspaceRoot =
+    System.getenv("FUNCTION_KIT_WORKSPACE_ROOT")?.let(::file)
+        ?: rootDir.resolve("../../../")
+val functionKitRuntimeSdkDir = functionKitWorkspaceRoot.resolve("function-kit-runtime-sdk")
+val functionKitCatalogDir = functionKitWorkspaceRoot.resolve("function-kits")
+val functionKitAssetsDir = layout.buildDirectory.dir("generated/function-kit-assets")
+val functionKitTestAssetsDir = layout.buildDirectory.dir("generated/function-kit-test-assets")
+
+val syncFunctionKitAssets by tasks.registering(Sync::class) {
+    group = "function-kit"
+    description = "Sync browser Function Kit runtime assets into the Android app bundle."
+    into(functionKitAssetsDir)
+    doFirst {
+        check(functionKitRuntimeSdkDir.resolve("dist").isDirectory) {
+            "Missing Function Kit runtime bundle directory: ${functionKitRuntimeSdkDir.resolve("dist")}"
+        }
+        check(functionKitCatalogDir.resolve("chat-auto-reply/ui/app").isDirectory) {
+            "Missing Function Kit UI directory: ${functionKitCatalogDir.resolve("chat-auto-reply/ui/app")}"
+        }
+    }
+    from(functionKitRuntimeSdkDir.resolve("dist")) {
+        into("function-kit-runtime-sdk/dist")
+    }
+    from(functionKitCatalogDir.resolve("chat-auto-reply/manifest.json")) {
+        into("function-kits/chat-auto-reply")
+    }
+    from(functionKitCatalogDir.resolve("chat-auto-reply/ui/app")) {
+        into("function-kits/chat-auto-reply/ui/app")
+    }
+}
+
+val syncFunctionKitTestAssets by tasks.registering(Sync::class) {
+    group = "function-kit"
+    description = "Sync browser Function Kit test fixtures into the Android test assets."
+    into(functionKitTestAssetsDir)
+    doFirst {
+        check(functionKitCatalogDir.resolve("chat-auto-reply/tests/fixtures").isDirectory) {
+            "Missing Function Kit fixture directory: ${functionKitCatalogDir.resolve("chat-auto-reply/tests/fixtures")}"
+        }
+    }
+    from(functionKitCatalogDir.resolve("chat-auto-reply/tests/fixtures")) {
+        into("function-kits/chat-auto-reply/tests/fixtures")
+    }
 }
 
 android {
@@ -55,6 +102,13 @@ android {
     androidResources {
         @Suppress("UnstableApiUsage")
         generateLocaleConfig = true
+    }
+
+    sourceSets.named("main") {
+        assets.srcDir(functionKitAssetsDir.get().asFile)
+    }
+    sourceSets.named("androidTest") {
+        assets.srcDir(functionKitTestAssetsDir.get().asFile)
     }
 }
 
@@ -107,6 +161,7 @@ dependencies {
     implementation(libs.androidx.room.paging)
     implementation(libs.androidx.startup)
     implementation(libs.androidx.viewpager2)
+    implementation(libs.androidx.webkit)
     implementation(libs.material)
     implementation(libs.arrow.core)
     implementation(libs.arrow.functions)
@@ -125,6 +180,7 @@ dependencies {
     implementation(libs.splitties.views.recyclerview)
     implementation(libs.aboutlibraries.core)
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.lifecycle.testing)
@@ -139,4 +195,9 @@ configurations {
         exclude(group = "com.louiscad.splitties", module = "splitties-appctx")
         exclude(group = "com.louiscad.splitties", module = "splitties-systemservices")
     }
+}
+
+tasks.named("preBuild") {
+    dependsOn(syncFunctionKitAssets)
+    dependsOn(syncFunctionKitTestAssets)
 }

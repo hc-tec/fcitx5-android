@@ -44,6 +44,10 @@ class ButtonsBarUi(override val ctx: Context, private val theme: Theme) : Ui {
         contentDescription = ctx.getString(R.string.clipboard)
     }
 
+    val functionKitButton = toolButton(R.drawable.ic_baseline_auto_awesome_24).apply {
+        contentDescription = ctx.getString(R.string.function_kit_auto_reply)
+    }
+
     val moreButton = toolButton(R.drawable.ic_baseline_more_horiz_24).apply {
         contentDescription = ctx.getString(R.string.status_area)
     }

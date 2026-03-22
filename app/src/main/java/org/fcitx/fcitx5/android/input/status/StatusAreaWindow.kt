@@ -26,7 +26,9 @@ import org.fcitx.fcitx5.android.input.dependency.fcitx
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editorinfo.EditorInfoWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.InputMethod
+import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKit
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.Keyboard
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.ReloadConfig
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.ThemeList
@@ -57,6 +59,11 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
 
     private val staticEntries by lazy {
         arrayOf(
+            StatusAreaEntry.Android(
+                context.getString(R.string.function_kit_auto_reply),
+                R.drawable.ic_baseline_auto_awesome_24,
+                FunctionKit
+            ),
             StatusAreaEntry.Android(
                 context.getString(R.string.theme),
                 R.drawable.ic_baseline_palette_24,
@@ -136,6 +143,7 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                         popup.show()
                     }
                     is StatusAreaEntry.Android -> when (entry.type) {
+                        FunctionKit -> windowManager.attachWindow(FunctionKitWindow())
                         InputMethod -> fcitx.runImmediately { inputMethodEntryCached }.let {
                             AppUtil.launchMainToInputMethodConfig(
                                 context, it.uniqueName, it.displayName

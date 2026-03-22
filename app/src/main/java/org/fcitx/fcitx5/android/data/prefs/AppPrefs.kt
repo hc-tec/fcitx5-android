@@ -131,7 +131,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         val focusChangeResetKeyboard =
             switch(R.string.reset_keyboard_on_focus_change, "reset_keyboard_on_focus_change", true)
         val expandToolbarByDefault =
-            switch(R.string.expand_toolbar_by_default, "expand_toolbar_by_default", false)
+            switch(R.string.expand_toolbar_by_default, "expand_toolbar_by_default", true)
         val inlineSuggestions = switch(R.string.inline_suggestions, "inline_suggestions", true)
         val toolbarNumRowOnPassword =
             switch(R.string.toolbar_num_row_on_password, "toolbar_num_row_on_password", true)
@@ -351,6 +351,75 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         ) { clipboardListening.getValue() }
     }
 
+    inner class FunctionKit : ManagedPreferenceCategory(R.string.function_kit, sharedPreferences) {
+        val showToolbarButton = switch(
+            R.string.function_kit_toolbar_button,
+            "function_kit_toolbar_button",
+            true,
+            R.string.function_kit_toolbar_button_summary
+        )
+        val remoteInferenceEnabled = switch(
+            R.string.function_kit_remote_inference_enabled,
+            "function_kit_remote_inference_enabled",
+            false,
+            R.string.function_kit_remote_inference_enabled_summary
+        )
+        val remoteBaseUrl = string(
+            R.string.function_kit_remote_base_url,
+            "function_kit_remote_base_url",
+            "http://127.0.0.1:18789",
+            R.string.function_kit_remote_base_url_summary
+        ) { remoteInferenceEnabled.getValue() }
+        val remoteTimeoutSeconds = int(
+            R.string.function_kit_remote_timeout_seconds,
+            "function_kit_remote_timeout_seconds",
+            20,
+            1,
+            300,
+            "s"
+        ) { remoteInferenceEnabled.getValue() }
+        val allowContextRead = switch(
+            R.string.function_kit_permission_context_read,
+            "function_kit_permission_context_read",
+            true
+        )
+        val allowInputInsert = switch(
+            R.string.function_kit_permission_input_insert,
+            "function_kit_permission_input_insert",
+            true
+        )
+        val allowInputReplace = switch(
+            R.string.function_kit_permission_input_replace,
+            "function_kit_permission_input_replace",
+            true
+        )
+        val allowCandidatesRegenerate = switch(
+            R.string.function_kit_permission_candidates_regenerate,
+            "function_kit_permission_candidates_regenerate",
+            true
+        )
+        val allowSettingsOpen = switch(
+            R.string.function_kit_permission_settings_open,
+            "function_kit_permission_settings_open",
+            true
+        )
+        val allowStorageRead = switch(
+            R.string.function_kit_permission_storage_read,
+            "function_kit_permission_storage_read",
+            true
+        )
+        val allowStorageWrite = switch(
+            R.string.function_kit_permission_storage_write,
+            "function_kit_permission_storage_write",
+            true
+        )
+        val allowPanelStateWrite = switch(
+            R.string.function_kit_permission_panel_state_write,
+            "function_kit_permission_panel_state_write",
+            true
+        )
+    }
+
     inner class Symbols : ManagedPreferenceCategory(R.string.emoji_and_symbols, sharedPreferences) {
         val hideUnsupportedEmojis = switch(
             R.string.hide_unsupported_emojis,
@@ -383,6 +452,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
     val keyboard = Keyboard().register()
     val candidates = Candidates().register()
     val clipboard = Clipboard().register()
+    val functionKit = FunctionKit().register()
     val symbols = Symbols().register()
     val advanced = Advanced().register()
 
@@ -412,7 +482,8 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             listOf(
                 keyboard,
                 candidates,
-                clipboard
+                clipboard,
+                functionKit
             ).forEach { category ->
                 category.managedPreferences.forEach {
                     it.value.putValueTo(this@edit)

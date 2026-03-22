@@ -57,6 +57,7 @@ import org.fcitx.fcitx5.android.input.dependency.context
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editing.TextEditingWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.keyboard.CommonKeyActionListener
 import org.fcitx.fcitx5.android.input.keyboard.CustomGestureView
 import org.fcitx.fcitx5.android.input.keyboard.KeyboardWindow
@@ -103,6 +104,8 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private val clipboardMaskSensitive by prefs.clipboard.clipboardMaskSensitive
     private val expandedCandidateStyle by prefs.keyboard.expandedCandidateStyle
     private val expandToolbarByDefault by prefs.keyboard.expandToolbarByDefault
+    private val functionKitToolbarButton = prefs.functionKit.showToolbarButton
+    private val showFunctionKitToolbarButton by functionKitToolbarButton
     private val toolbarNumRowOnPassword by prefs.keyboard.toolbarNumRowOnPassword
     private val showVoiceInputButton by prefs.keyboard.showVoiceInputButton
     private val preferredVoiceInput by prefs.keyboard.preferredVoiceInput
@@ -162,6 +165,12 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
             }
         }
 
+    @Keep
+    private val onFunctionKitToolbarButtonChangeListener =
+        ManagedPreference.OnChangeListener<Boolean> { _, _ ->
+            updateFunctionKitToolbarButtonVisibility()
+        }
+
     private fun launchClipboardTimeoutJob() {
         clipboardTimeoutJob?.cancel()
         val timeout = clipboardItemTimeout.getValue() * 1000L
@@ -172,6 +181,11 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
             isClipboardFresh = false
             clipboardTimeoutJob = null
         }
+    }
+
+    private fun updateFunctionKitToolbarButtonVisibility() {
+        idleUi.buttonsUi.functionKitButton.visibility =
+            if (showFunctionKitToolbarButton) View.VISIBLE else View.GONE
     }
 
     private fun evalIdleUiState(fromUser: Boolean = false) {
@@ -313,6 +327,9 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 clipboardButton.setOnClickListener {
                     windowManager.attachWindow(ClipboardWindow())
                 }
+                functionKitButton.setOnClickListener {
+                    windowManager.attachWindow(FunctionKitWindow())
+                }
                 moreButton.setOnClickListener {
                     windowManager.attachWindow(StatusAreaWindow())
                 }
@@ -439,6 +456,8 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         ClipboardManager.addOnUpdateListener(onClipboardUpdateListener)
         clipboardSuggestion.registerOnChangeListener(onClipboardSuggestionUpdateListener)
         clipboardItemTimeout.registerOnChangeListener(onClipboardTimeoutUpdateListener)
+        functionKitToolbarButton.registerOnChangeListener(onFunctionKitToolbarButtonChangeListener)
+        updateFunctionKitToolbarButtonVisibility()
     }
 
     override fun onStartInput(info: EditorInfo, capFlags: CapabilityFlags) {

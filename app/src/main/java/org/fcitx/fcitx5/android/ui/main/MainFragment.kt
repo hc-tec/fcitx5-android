@@ -81,6 +81,11 @@ class MainFragment : PaddingPreferenceFragment() {
                     SettingsRoute.Clipboard
                 )
                 addDestinationPreference(
+                    R.string.function_kit,
+                    R.drawable.ic_baseline_extension_24,
+                    SettingsRoute.FunctionKit
+                )
+                addDestinationPreference(
                     R.string.emoji_and_symbols,
                     R.drawable.ic_baseline_emoji_symbols_24,
                     SettingsRoute.Symbol
