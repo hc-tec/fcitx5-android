@@ -9,6 +9,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Message
+import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -22,6 +23,7 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
@@ -32,6 +34,7 @@ private const val ProtocolVersion = "1.0.0"
 private const val DefaultLocalDomain = "function-kit.local"
 private const val DefaultAssetPathPrefix = "/assets/"
 private const val DefaultBridgeName = "AndroidFunctionKitHost"
+private const val DefaultLegacyBridgeName = "AndroidFunctionKitLegacyHost"
 
 private val AllowedSurfaces = setOf("inline", "panel", "editor")
 private val AllowedInboundTypes =
@@ -41,10 +44,40 @@ private val AllowedInboundTypes =
         "candidate.insert",
         "candidate.replace",
         "candidates.regenerate",
+        "network.fetch",
+        "ai.chat",
+        "ai.chat.status.request",
+        "ai.agent.list",
+        "ai.agent.run",
+        "composer.open",
+        "composer.focus",
+        "composer.update",
+        "composer.close",
+        "composer.apply.insert",
+        "composer.apply.replace",
         "settings.open",
         "storage.get",
         "storage.set",
         "panel.state.update"
+    )
+private val AllowedOutboundTypes =
+    setOf(
+        "bridge.ready.ack",
+        "permissions.sync",
+        "context.sync",
+        "candidates.render",
+        "storage.sync",
+        "panel.state.ack",
+        "host.state.update",
+        "permission.denied",
+        "bridge.error",
+        "network.fetch.result",
+        "ai.chat.status.sync",
+        "ai.chat.result",
+        "ai.agent.list.result",
+        "ai.agent.run.result",
+        "composer.state.sync",
+        "composer.apply.result"
     )
 
 class FunctionKitWebViewHost(
@@ -58,6 +91,7 @@ class FunctionKitWebViewHost(
         val localDomain: String = DefaultLocalDomain,
         val assetPathPrefix: String = DefaultAssetPathPrefix,
         val bridgeName: String = DefaultBridgeName,
+        val legacyBridgeName: String = DefaultLegacyBridgeName,
         val expectedKitId: String? = null,
         val expectedSurface: String? = "panel",
         val enableDevTools: Boolean = false
@@ -72,6 +106,20 @@ class FunctionKitWebViewHost(
     }
 
     private var bridgeInstalled = false
+    private val legacyBridge =
+        object {
+            @JavascriptInterface
+            fun postMessage(rawEnvelope: String?) {
+                if (rawEnvelope.isNullOrBlank()) {
+                    onHostEvent("Dropped empty envelope from legacy bridge")
+                    return
+                }
+
+                webView.post {
+                    parseInboundEnvelope(rawEnvelope)?.let(onUiEnvelope)
+                }
+            }
+        }
 
     companion object {
         fun createDefaultAssetLoader(
@@ -85,6 +133,17 @@ class FunctionKitWebViewHost(
                     WebViewAssetLoader.AssetsPathHandler(context)
                 )
                 .build()
+
+        fun supportedInboundTypes(): List<String> = AllowedInboundTypes.toList().sorted()
+
+        fun supportedOutboundTypes(): List<String> = AllowedOutboundTypes.toList().sorted()
+
+        fun protocolInfo(): JSONObject =
+            JSONObject()
+                .put("version", ProtocolVersion)
+                .put("surfaces", JSONArray(AllowedSurfaces.toList().sorted()))
+                .put("inboundTypes", JSONArray(supportedInboundTypes()))
+                .put("outboundTypes", JSONArray(supportedOutboundTypes()))
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -118,12 +177,30 @@ class FunctionKitWebViewHost(
         webView.removeJavascriptInterface("searchBoxJavaBridge_")
         webView.removeJavascriptInterface("accessibility")
         webView.removeJavascriptInterface("accessibilityTraversal")
+        webView.removeJavascriptInterface(config.legacyBridgeName)
+        webView.addJavascriptInterface(legacyBridge, config.legacyBridgeName)
         webView.isLongClickable = false
         webView.setDownloadListener { url, _, _, _, _ ->
             onHostEvent("Blocked download request: $url")
         }
         webView.webChromeClient =
             object : WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
+                    onHostEvent(
+                        buildString {
+                            append("WebView console[")
+                            append(consoleMessage.messageLevel())
+                            append("] ")
+                            append(consoleMessage.message())
+                            append(" @")
+                            append(consoleMessage.sourceId())
+                            append(':')
+                            append(consoleMessage.lineNumber())
+                        }
+                    )
+                    return super.onConsoleMessage(consoleMessage)
+                }
+
                 override fun onPermissionRequest(request: PermissionRequest) {
                     request.deny()
                     onHostEvent(
@@ -189,7 +266,48 @@ class FunctionKitWebViewHost(
                 WebMessageCompat(serializedEnvelope),
                 Uri.parse(config.localOrigin)
             )
+            dispatchEnvelopeViaJavascript(serializedEnvelope)
         }
+    }
+
+    private fun dispatchTypedPayload(
+        type: String,
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject,
+        error: JSONObject? = null
+    ) {
+        check(type in AllowedOutboundTypes) { "Unsupported outbound type: $type" }
+        dispatchEnvelope(
+            buildEnvelope(
+                type = type,
+                replyTo = replyTo,
+                kitId = kitId,
+                surface = surface,
+                payload = payload,
+                error = error
+            )
+        )
+    }
+
+    private fun dispatchEnvelopeViaJavascript(serializedEnvelope: String) {
+        val quotedEnvelope = JSONObject.quote(serializedEnvelope)
+        val script =
+            """
+            (() => {
+              const envelope = $quotedEnvelope;
+              const bridge = window.__FUNCTION_KIT_HOST_BRIDGE__;
+              if (bridge && typeof bridge.dispatchEnvelope === "function") {
+                bridge.dispatchEnvelope(envelope);
+                return "dispatched";
+              }
+              window.__FUNCTION_KIT_PENDING_HOST_ENVELOPES__ = window.__FUNCTION_KIT_PENDING_HOST_ENVELOPES__ || [];
+              window.__FUNCTION_KIT_PENDING_HOST_ENVELOPES__.push(envelope);
+              return "queued";
+            })();
+            """.trimIndent()
+        webView.evaluateJavascript(script, null)
     }
 
     fun dispatchReadyAck(
@@ -200,18 +318,16 @@ class FunctionKitWebViewHost(
         grantedPermissions: List<String>,
         hostInfo: JSONObject
     ) {
-        dispatchEnvelope(
-            buildEnvelope(
-                type = "bridge.ready.ack",
-                replyTo = replyTo,
-                kitId = kitId,
-                surface = surface,
-                payload =
-                    JSONObject()
-                        .put("sessionId", sessionId)
-                        .put("grantedPermissions", grantedPermissions)
-                        .put("hostInfo", hostInfo)
-            )
+        dispatchTypedPayload(
+            type = "bridge.ready.ack",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload =
+                JSONObject()
+                    .put("sessionId", sessionId)
+                    .put("grantedPermissions", grantedPermissions)
+                    .put("hostInfo", hostInfo)
         )
     }
 
@@ -220,14 +336,12 @@ class FunctionKitWebViewHost(
         surface: String,
         grantedPermissions: List<String>
     ) {
-        dispatchEnvelope(
-            buildEnvelope(
-                type = "permissions.sync",
-                replyTo = null,
-                kitId = kitId,
-                surface = surface,
-                payload = JSONObject().put("grantedPermissions", grantedPermissions)
-            )
+        dispatchTypedPayload(
+            type = "permissions.sync",
+            replyTo = null,
+            kitId = kitId,
+            surface = surface,
+            payload = JSONObject().put("grantedPermissions", grantedPermissions)
         )
     }
 
@@ -237,14 +351,12 @@ class FunctionKitWebViewHost(
         surface: String,
         payload: JSONObject
     ) {
-        dispatchEnvelope(
-            buildEnvelope(
-                type = "context.sync",
-                replyTo = replyTo,
-                kitId = kitId,
-                surface = surface,
-                payload = payload
-            )
+        dispatchTypedPayload(
+            type = "context.sync",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
         )
     }
 
@@ -254,14 +366,12 @@ class FunctionKitWebViewHost(
         surface: String,
         payload: JSONObject
     ) {
-        dispatchEnvelope(
-            buildEnvelope(
-                type = "candidates.render",
-                replyTo = replyTo,
-                kitId = kitId,
-                surface = surface,
-                payload = payload
-            )
+        dispatchTypedPayload(
+            type = "candidates.render",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
         )
     }
 
@@ -271,14 +381,12 @@ class FunctionKitWebViewHost(
         surface: String,
         payload: JSONObject
     ) {
-        dispatchEnvelope(
-            buildEnvelope(
-                type = "storage.sync",
-                replyTo = replyTo,
-                kitId = kitId,
-                surface = surface,
-                payload = payload
-            )
+        dispatchTypedPayload(
+            type = "storage.sync",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
         )
     }
 
@@ -288,14 +396,12 @@ class FunctionKitWebViewHost(
         surface: String,
         payload: JSONObject
     ) {
-        dispatchEnvelope(
-            buildEnvelope(
-                type = "panel.state.ack",
-                replyTo = replyTo,
-                kitId = kitId,
-                surface = surface,
-                payload = payload
-            )
+        dispatchTypedPayload(
+            type = "panel.state.ack",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
         )
     }
 
@@ -305,17 +411,15 @@ class FunctionKitWebViewHost(
         label: String,
         details: JSONObject = JSONObject()
     ) {
-        dispatchEnvelope(
-            buildEnvelope(
-                type = "host.state.update",
-                replyTo = null,
-                kitId = kitId,
-                surface = surface,
-                payload =
-                    JSONObject()
-                        .put("label", label)
-                        .put("details", details)
-            )
+        dispatchTypedPayload(
+            type = "host.state.update",
+            replyTo = null,
+            kitId = kitId,
+            surface = surface,
+            payload =
+                JSONObject()
+                    .put("label", label)
+                    .put("details", details)
         )
     }
 
@@ -325,20 +429,18 @@ class FunctionKitWebViewHost(
         surface: String,
         permission: String
     ) {
-        dispatchEnvelope(
-            buildEnvelope(
-                type = "permission.denied",
-                replyTo = replyTo,
-                kitId = kitId,
-                surface = surface,
-                payload = JSONObject(),
-                error =
-                    JSONObject()
-                        .put("code", "permission_denied")
-                        .put("message", "Permission not granted: $permission")
-                        .put("retryable", false)
-                        .put("details", JSONObject().put("permission", permission))
-            )
+        dispatchTypedPayload(
+            type = "permission.denied",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = JSONObject(),
+            error =
+                JSONObject()
+                    .put("code", "permission_denied")
+                    .put("message", "Permission not granted: $permission")
+                    .put("retryable", false)
+                    .put("details", JSONObject().put("permission", permission))
         )
     }
 
@@ -351,20 +453,123 @@ class FunctionKitWebViewHost(
         retryable: Boolean,
         details: JSONObject = JSONObject()
     ) {
-        dispatchEnvelope(
-            buildEnvelope(
-                type = "bridge.error",
-                replyTo = replyTo,
-                kitId = kitId,
-                surface = surface,
-                payload = JSONObject(),
-                error =
-                    JSONObject()
-                        .put("code", code)
-                        .put("message", message)
-                        .put("retryable", retryable)
-                        .put("details", details)
-            )
+        dispatchTypedPayload(
+            type = "bridge.error",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = JSONObject(),
+            error =
+                JSONObject()
+                    .put("code", code)
+                    .put("message", message)
+                    .put("retryable", retryable)
+                    .put("details", details)
+        )
+    }
+
+    fun dispatchNetworkFetchResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "network.fetch.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchAiChatStatusSync(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "ai.chat.status.sync",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchAiChatResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "ai.chat.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchAiAgentListResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "ai.agent.list.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchAiAgentRunResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "ai.agent.run.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchComposerStateSync(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "composer.state.sync",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchComposerApplyResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "composer.apply.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
         )
     }
 

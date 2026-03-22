@@ -30,6 +30,9 @@ abstract class StatusAreaAdapter : RecyclerView.Adapter<StatusAreaAdapter.Holder
         holder.ui.root.setOnClickListener {
             onItemClick(it, entry)
         }
+        holder.ui.root.setOnLongClickListener {
+            onItemLongClick(it, entry)
+        }
     }
 
     abstract val theme: Theme
@@ -37,4 +40,6 @@ abstract class StatusAreaAdapter : RecyclerView.Adapter<StatusAreaAdapter.Holder
     override fun getItemCount() = entries.size
 
     abstract fun onItemClick(view: View, entry: StatusAreaEntry)
+
+    open fun onItemLongClick(view: View, entry: StatusAreaEntry): Boolean = false
 }

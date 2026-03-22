@@ -78,7 +78,7 @@ class DataDescriptorPlugin : Plugin<Project> {
         )
 
         @get:Incremental
-        @get:PathSensitive(PathSensitivity.NAME_ONLY)
+        @get:PathSensitive(PathSensitivity.RELATIVE)
         @get:InputDirectory
         abstract val inputDir: DirectoryProperty
 
@@ -139,8 +139,7 @@ class DataDescriptorPlugin : Plugin<Project> {
                 if (change.file.name == file.name)
                     return@forEach
                 logger.log(LogLevel.DEBUG, "${change.changeType}: ${change.normalizedPath}")
-                val relativeFile = change.file.relativeTo(file.parentFile)
-                val key = relativeFile.path.replace(File.separatorChar, '/')
+                val key = change.normalizedPath.replace(File.separatorChar, '/')
                 if (change.changeType == ChangeType.REMOVED || key in excludes.get()) {
                     map.remove(key)
                 } else {

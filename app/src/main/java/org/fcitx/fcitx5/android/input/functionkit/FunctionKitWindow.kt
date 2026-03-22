@@ -89,20 +89,51 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         val details: Any? = null
     ) : Exception(message)
 
+    private data class ComposerState(
+        val open: Boolean = false,
+        val focused: Boolean = false,
+        val text: String = "",
+        val selectionStart: Int = 0,
+        val selectionEnd: Int = 0,
+        val revision: Int = 0,
+        val mode: String = "detached",
+        val source: String = "host",
+        val lastAction: String? = null,
+        val updatedAtEpochMs: Long = 0L
+    ) {
+        fun toJson(): JSONObject =
+            JSONObject()
+                .put("open", open)
+                .put("focused", focused)
+                .put("text", text)
+                .put("selectionStart", selectionStart)
+                .put("selectionEnd", selectionEnd)
+                .put("revision", revision)
+                .put("mode", mode)
+                .put("source", source)
+                .put("lastAction", lastAction)
+                .put("updatedAtEpochMs", updatedAtEpochMs)
+    }
+
     private val service: FcitxInputMethodService by manager.inputMethodService()
     private val theme: Theme by manager.theme()
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
     private val functionKitManifest by lazy {
         FunctionKitManifest.loadFromAssets(
             context = context,
-            assetPath = ManifestAssetPath,
-            fallbackId = KitId,
-            fallbackEntryHtmlAssetPath = EntryAssetPath,
-            fallbackRuntimePermissions = SupportedPermissions
+            assetPath = FunctionKitDefaults.manifestAssetPath,
+            fallbackId = FunctionKitDefaults.kitId,
+            fallbackEntryHtmlAssetPath = FunctionKitDefaults.entryAssetPath,
+            fallbackRuntimePermissions = FunctionKitDefaults.supportedPermissions
         )
     }
 
-    private val hostConfig by lazy { FunctionKitWebViewHost.Config(expectedKitId = functionKitId) }
+    private val hostConfig by lazy {
+        FunctionKitWebViewHost.Config(
+            expectedKitId = functionKitId,
+            expectedSurface = null
+        )
+    }
     private val webView by lazy {
         WebView(context).apply {
             overScrollMode = View.OVER_SCROLL_NEVER
@@ -156,20 +187,27 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     private var panelInitialized = false
     private var renderSeed = 0
     private var sessionId = newSessionId()
-    private var requestedPermissions = functionKitManifest.runtimePermissions
-    private var grantedPermissions = functionKitManifest.runtimePermissions
+    private var requestedPermissions = emptyList<String>()
+    private var grantedPermissions = emptyList<String>()
     private var currentPackageName = ""
     private var currentSelectionStart = 0
     private var currentSelectionEnd = 0
     private var currentInputType = 0
     private var currentCandidateCount = 0
     private var currentPreeditText = ""
+    private var composerState = ComposerState(updatedAtEpochMs = System.currentTimeMillis())
     private val functionKitId: String
         get() = functionKitManifest.id
+    private val supportedRuntimePermissions: List<String>
+        get() = (functionKitManifest.runtimePermissions + FunctionKitDefaults.supportedPermissions).distinct()
 
-    override fun onCreateView(): View = rootView
+    override fun onCreateView(): View {
+        ensureManifestStateInitialized()
+        return rootView
+    }
 
     override fun onAttached() {
+        ensureManifestStateInitialized()
         syncCurrentInputState()
         refreshGrantedPermissions(notifyUi = panelInitialized)
 
@@ -190,6 +228,19 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     override fun onDetached() {
         webView.onPause()
         webView.stopLoading()
+    }
+
+    private fun ensureManifestStateInitialized() {
+        if (requestedPermissions.isNotEmpty() && grantedPermissions.isNotEmpty()) {
+            return
+        }
+        val manifestPermissions = supportedRuntimePermissions
+        if (requestedPermissions.isEmpty()) {
+            requestedPermissions = manifestPermissions
+        }
+        if (grantedPermissions.isEmpty()) {
+            grantedPermissions = manifestPermissions
+        }
     }
 
     override fun onStartInput(info: EditorInfo, capFlags: CapabilityFlags) {
@@ -219,10 +270,11 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     private fun handleUiEnvelope(envelope: JSONObject) {
         val type = envelope.optString("type")
         val replyTo = envelope.optString("messageId")
+        val surface = envelope.optString("surface").ifBlank { Surface }
         val payload = envelope.optJSONObject("payload") ?: JSONObject()
 
         when (type) {
-            "bridge.ready" -> handleBridgeReady(replyTo, payload)
+            "bridge.ready" -> handleBridgeReady(replyTo, surface, payload)
             "context.request" -> handleContextRequest(replyTo, payload)
             "candidates.regenerate" -> handleRegenerate(replyTo, payload)
             "candidate.insert" -> handleCommit(replyTo, payload, "input.insert", replace = false)
@@ -230,12 +282,23 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             "storage.get" -> handleStorageGet(replyTo, payload)
             "storage.set" -> handleStorageSet(replyTo, payload)
             "panel.state.update" -> handlePanelStateUpdate(replyTo, payload)
+            "network.fetch" -> handleNetworkFetch(replyTo, surface, payload)
+            "ai.chat.status.request" -> handleAiChatStatusRequest(replyTo, surface)
+            "ai.chat" -> handleAiChat(replyTo, surface, payload)
+            "ai.agent.list" -> handleAiAgentList(replyTo, surface)
+            "ai.agent.run" -> handleAiAgentRun(replyTo, surface, payload)
+            "composer.open" -> handleComposerOpen(replyTo, surface, payload)
+            "composer.focus" -> handleComposerFocus(replyTo, surface, payload)
+            "composer.update" -> handleComposerUpdate(replyTo, surface, payload)
+            "composer.close" -> handleComposerClose(replyTo, surface, payload)
+            "composer.apply.insert" -> handleComposerApply(replyTo, surface, payload, replace = false)
+            "composer.apply.replace" -> handleComposerApply(replyTo, surface, payload, replace = true)
             "settings.open" -> handleSettingsOpen(replyTo)
             else -> {
                 host.dispatchBridgeError(
                     replyTo = replyTo,
                     kitId = functionKitId,
-                    surface = Surface,
+                    surface = surface,
                     code = "unsupported_message_type",
                     message = "Unsupported message type: $type",
                     retryable = false,
@@ -245,12 +308,17 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         }
     }
 
-    private fun handleBridgeReady(replyTo: String, payload: JSONObject) {
+    private fun handleBridgeReady(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        val executionConfig = currentExecutionConfig()
         requestedPermissions = payload.optJSONArray("requestedPermissions")
             .toStringList()
-            .filter { it in functionKitManifest.runtimePermissions }
+            .filter { it in supportedRuntimePermissions }
             .distinct()
-            .ifEmpty { functionKitManifest.runtimePermissions }
+            .ifEmpty { supportedRuntimePermissions }
         refreshGrantedPermissions()
         renderSeed = 0
         sessionId = newSessionId()
@@ -258,16 +326,23 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         host.dispatchReadyAck(
             replyTo = replyTo,
             kitId = functionKitId,
-            surface = Surface,
+            surface = surface,
             sessionId = sessionId,
             grantedPermissions = grantedPermissions,
-            hostInfo = buildHostInfo()
+            hostInfo = buildHostInfo(executionConfig)
         )
         host.dispatchPermissionsSync(
             kitId = functionKitId,
-            surface = Surface,
+            surface = surface,
             grantedPermissions = grantedPermissions
         )
+        host.dispatchAiChatStatusSync(
+            replyTo = null,
+            kitId = functionKitId,
+            surface = surface,
+            payload = buildAiChatStatusPayload(executionConfig)
+        )
+        dispatchComposerStateSync(replyTo = null, surface = surface, reason = "bridge.ready")
         pushHostState("宿主握手完成")
     }
 
@@ -410,6 +485,594 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         )
     }
 
+    private fun handleNetworkFetch(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "network.fetch") ?: return
+
+        val rawUrl =
+            payload.optString("url")
+                .ifBlank { payload.optJSONObject("request")?.optString("url").orEmpty() }
+                .trim()
+        if (rawUrl.isBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "network_fetch_invalid_payload",
+                message = "network.fetch requires a non-empty url.",
+                retryable = false
+            )
+            return
+        }
+
+        val init = payload.optJSONObject("init") ?: JSONObject()
+        val executionConfig = currentExecutionConfig()
+        val requestSessionId = sessionId
+
+        remoteExecutor.execute {
+            try {
+                val responsePayload = executeNetworkFetch(rawUrl, init, executionConfig)
+                ContextCompat.getMainExecutor(service).execute {
+                    if (requestSessionId != sessionId) {
+                        return@execute
+                    }
+
+                    host.dispatchNetworkFetchResult(
+                        replyTo = replyTo,
+                        kitId = functionKitId,
+                        surface = surface,
+                        payload = responsePayload
+                    )
+                    host.dispatchHostStateUpdate(
+                        kitId = functionKitId,
+                        surface = surface,
+                        label = "network.fetch 已完成",
+                        details =
+                            buildHostDetails(executionConfig)
+                                .put("url", rawUrl)
+                                .put("status", responsePayload.optJSONObject("response")?.optInt("status"))
+                    )
+                }
+            } catch (error: RemoteInferenceException) {
+                ContextCompat.getMainExecutor(service).execute {
+                    if (requestSessionId != sessionId) {
+                        return@execute
+                    }
+
+                    host.dispatchBridgeError(
+                        replyTo = replyTo,
+                        kitId = functionKitId,
+                        surface = surface,
+                        code = error.code,
+                        message = error.message,
+                        retryable = error.retryable,
+                        details =
+                            JSONObject()
+                                .put("url", rawUrl)
+                                .put("statusCode", error.statusCode)
+                                .put("details", JSONObject.wrap(error.details))
+                    )
+                }
+            }
+        }
+    }
+
+    private fun handleAiChatStatusRequest(
+        replyTo: String,
+        surface: String
+    ) {
+        val executionConfig = currentExecutionConfig()
+        host.dispatchAiChatStatusSync(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload = buildAiChatStatusPayload(executionConfig)
+        )
+    }
+
+    private fun handleAiChat(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "ai.chat") ?: return
+
+        val executionConfig = currentExecutionConfig()
+        val statusPayload = buildAiChatStatusPayload(executionConfig)
+        if (statusPayload.optString("status") != "ready") {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "ai_chat_not_ready",
+                message = "Android chat backend is not ready yet.",
+                retryable = false,
+                details = statusPayload
+            )
+            return
+        }
+
+        host.dispatchBridgeError(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            code = "ai_chat_not_implemented",
+            message = "ai.chat has not been wired to a concrete Android backend yet.",
+            retryable = false,
+            details =
+                JSONObject()
+                    .put("routing", buildRoutingSnapshot(executionConfig, "ai.chat"))
+                    .put("request", JSONObject(payload.toString()))
+        )
+    }
+
+    private fun handleAiAgentList(
+        replyTo: String,
+        surface: String
+    ) {
+        val executionConfig = currentExecutionConfig()
+        host.dispatchAiAgentListResult(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload = buildAgentListPayload(executionConfig)
+        )
+    }
+
+    private fun handleAiAgentRun(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "ai.agent.run") ?: return
+
+        val executionConfig = currentExecutionConfig()
+        if (!executionConfig.remoteEnabled || executionConfig.renderEndpoint.isNullOrBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "ai_agent_not_ready",
+                message = "Desktop-backed agent routing is not configured.",
+                retryable = false,
+                details = buildAgentListPayload(executionConfig)
+            )
+            return
+        }
+
+        host.dispatchBridgeError(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            code = "ai_agent_run_not_implemented",
+            message = "Agent execution still requires a registered desktop adapter endpoint.",
+            retryable = false,
+            details =
+                JSONObject()
+                    .put("routing", buildRoutingSnapshot(executionConfig, "ai.agent.run"))
+                    .put("request", JSONObject(payload.toString()))
+        )
+    }
+
+    private fun handleComposerOpen(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "composer.control") ?: return
+
+        composerState =
+            composerState.copy(
+                open = true,
+                focused = payload.optBoolean("focused", true),
+                text = payload.optString("text").takeIf { payload.has("text") } ?: composerState.text,
+                selectionStart =
+                    payload.optInt("selectionStart").takeIf { payload.has("selectionStart") }
+                        ?: composerState.selectionStart,
+                selectionEnd =
+                    payload.optInt("selectionEnd").takeIf { payload.has("selectionEnd") }
+                        ?: composerState.selectionEnd,
+                revision = composerState.revision + 1,
+                mode = payload.optString("mode").ifBlank { composerState.mode },
+                source = "kit",
+                lastAction = "open",
+                updatedAtEpochMs = System.currentTimeMillis()
+            )
+        dispatchComposerState(replyTo, surface)
+    }
+
+    private fun handleComposerFocus(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "composer.control") ?: return
+
+        composerState =
+            composerState.copy(
+                open = true,
+                focused = payload.optBoolean("focused", true),
+                revision = composerState.revision + 1,
+                source = "kit",
+                lastAction = "focus",
+                updatedAtEpochMs = System.currentTimeMillis()
+            )
+        dispatchComposerState(replyTo, surface)
+    }
+
+    private fun handleComposerUpdate(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "composer.control") ?: return
+
+        composerState =
+            composerState.copy(
+                open = true,
+                focused = payload.optBoolean("focused", composerState.focused),
+                text = payload.optString("text").takeIf { payload.has("text") } ?: composerState.text,
+                selectionStart =
+                    payload.optInt("selectionStart").takeIf { payload.has("selectionStart") }
+                        ?: composerState.selectionStart,
+                selectionEnd =
+                    payload.optInt("selectionEnd").takeIf { payload.has("selectionEnd") }
+                        ?: composerState.selectionEnd,
+                revision = composerState.revision + 1,
+                source = "kit",
+                lastAction = "update",
+                updatedAtEpochMs = System.currentTimeMillis()
+            )
+        dispatchComposerState(replyTo, surface)
+    }
+
+    private fun handleComposerClose(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "composer.control") ?: return
+
+        composerState =
+            composerState.copy(
+                open = payload.optBoolean("open", false),
+                focused = false,
+                revision = composerState.revision + 1,
+                source = "kit",
+                lastAction = "close",
+                updatedAtEpochMs = System.currentTimeMillis()
+            )
+        dispatchComposerState(replyTo, surface)
+    }
+
+    private fun handleComposerApply(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject,
+        replace: Boolean
+    ) {
+        ensurePermission(replyTo, if (replace) "input.replace" else "input.insert") ?: return
+
+        val text =
+            payload.optString("text")
+                .takeIf { payload.has("text") }
+                ?.trim()
+                .orEmpty()
+                .ifBlank { composerState.text.trim() }
+        if (text.isBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "composer_apply_empty",
+                message = "Composer draft is empty.",
+                retryable = false
+            )
+            return
+        }
+
+        composerState =
+            composerState.copy(
+                text = text,
+                selectionStart = text.length,
+                selectionEnd = text.length,
+                revision = composerState.revision + 1,
+                source = "kit",
+                lastAction = if (replace) "apply-replace" else "apply-insert",
+                open = !payload.optBoolean("closeAfterApply", true),
+                focused = false,
+                updatedAtEpochMs = System.currentTimeMillis()
+            )
+
+        ContextCompat.getMainExecutor(service).execute {
+            service.commitText(text)
+            host.dispatchComposerApplyResult(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                payload =
+                    JSONObject()
+                        .put("applied", true)
+                        .put("mode", if (replace) "replace" else "insert")
+                        .put("text", text)
+                        .put("composer", composerState.toJson())
+            )
+            host.dispatchComposerStateSync(
+                replyTo = null,
+                kitId = functionKitId,
+                surface = surface,
+                payload = composerState.toJson()
+            )
+        }
+    }
+
+    private fun updateComposerState(
+        replyTo: String?,
+        surface: String,
+        reason: String,
+        transform: (ComposerState) -> ComposerState
+    ) {
+        composerState = normalizeComposerState(transform(composerState))
+        dispatchComposerStateSync(replyTo = replyTo, surface = surface, reason = reason)
+    }
+
+    private fun dispatchComposerStateSync(
+        replyTo: String?,
+        surface: String,
+        reason: String
+    ) {
+        host.dispatchComposerStateSync(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload = buildComposerStatePayload(reason)
+        )
+    }
+
+    private fun buildComposerStatePayload(reason: String): JSONObject =
+        JSONObject()
+            .put("reason", reason)
+            .put("composer", composerState.toJson())
+            .put(
+                "context",
+                JSONObject()
+                    .put("packageName", currentPackageName)
+                    .put("selectionStart", currentSelectionStart)
+                    .put("selectionEnd", currentSelectionEnd)
+                    .put("selectedText", currentSelectedText())
+            )
+            .put("grantedPermissions", JSONArray(grantedPermissions))
+            .put(
+                "capabilities",
+                JSONObject()
+                    .put("canInsert", "input.insert" in grantedPermissions)
+                    .put("canReplace", "input.replace" in grantedPermissions)
+            )
+
+    private fun normalizeComposerState(state: ComposerState): ComposerState {
+        val clampedStart = state.selectionStart.coerceIn(0, state.text.length)
+        val clampedEnd = state.selectionEnd.coerceIn(0, state.text.length)
+        return state.copy(
+            selectionStart = minOf(clampedStart, clampedEnd),
+            selectionEnd = maxOf(clampedStart, clampedEnd),
+            revision = state.revision + 1,
+            updatedAtEpochMs = System.currentTimeMillis()
+        )
+    }
+
+    private fun resolveComposerText(
+        payload: JSONObject,
+        fallback: String
+    ): String =
+        payload.optString("text")
+            .ifBlank { payload.optString("initialText") }
+            .ifBlank { fallback }
+
+    private fun applyComposerSelection(
+        payload: JSONObject,
+        text: String,
+        fallbackStart: Int,
+        fallbackEnd: Int
+    ): Pair<Int, Int> {
+        val rawStart =
+            if (payload.has("selectionStart")) {
+                payload.optInt("selectionStart", fallbackStart)
+            } else {
+                fallbackStart
+            }
+        val rawEnd =
+            if (payload.has("selectionEnd")) {
+                payload.optInt("selectionEnd", fallbackEnd)
+            } else {
+                fallbackEnd
+            }
+        val start = rawStart.coerceIn(0, text.length)
+        val end = rawEnd.coerceIn(0, text.length)
+        return minOf(start, end) to maxOf(start, end)
+    }
+
+    private fun currentSelectedText(): String =
+        service.currentInputConnection?.getSelectedText(0)?.toString().orEmpty()
+
+    private fun dispatchComposerState(
+        replyTo: String?,
+        surface: String
+    ) {
+        dispatchComposerStateSync(replyTo = replyTo, surface = surface, reason = "composer.sync")
+    }
+
+    private fun buildAiChatStatusPayload(executionConfig: ExecutionConfig): JSONObject {
+        val networkEnabled = functionKitPrefs.remoteInferenceEnabled.getValue()
+        val permissionGranted = "ai.chat" in grantedPermissions
+        val status =
+            when {
+                !networkEnabled -> "not_configured"
+                executionConfig.renderEndpoint.isNullOrBlank() -> "not_configured"
+                !permissionGranted -> "disabled_by_user"
+                else -> "ready"
+            }
+        val reason =
+            when {
+                !networkEnabled -> "disabled_by_user"
+                executionConfig.renderEndpoint.isNullOrBlank() -> "not_configured"
+                !permissionGranted -> "permission_denied"
+                else -> "ready"
+            }
+        return JSONObject()
+            .put("status", status)
+            .put("reason", reason)
+            .put("permissionGranted", permissionGranted)
+            .put("routing", buildRoutingSnapshot(executionConfig, "ai.chat.status"))
+            .put("hostInfo", buildHostInfo(executionConfig))
+    }
+
+    private fun buildAgentListPayload(executionConfig: ExecutionConfig): JSONObject {
+        val agents = JSONArray()
+        if (executionConfig.remoteEnabled && !executionConfig.renderEndpoint.isNullOrBlank()) {
+            agents.put(
+                JSONObject()
+                    .put("id", executionConfig.preferredAdapter ?: "desktop-agent")
+                    .put("name", executionConfig.preferredAdapter ?: "Configured Desktop Agent")
+                    .put("backendClass", executionConfig.preferredBackendClass ?: "external-agent-adapter")
+                    .put("transport", executionConfig.transport)
+                    .put("availability", "available")
+                    .put("riskLevel", "high")
+                    .put("requiresConfirmation", true)
+                    .put("intents", JSONArray(listOf("desktop.files", "desktop.messages", "workspace.automation")))
+                    .put("skills", JSONArray())
+                    .put("hostBound", true)
+            )
+        }
+        return JSONObject()
+            .put("agents", agents)
+            .put("routing", buildRoutingSnapshot(executionConfig, "ai.agent.list"))
+            .put("hostInfo", buildHostInfo(executionConfig))
+    }
+
+    private fun executeNetworkFetch(
+        rawUrl: String,
+        init: JSONObject,
+        executionConfig: ExecutionConfig
+    ): JSONObject {
+        val connection =
+            try {
+                val url = URL(rawUrl)
+                require(url.protocol == "http" || url.protocol == "https") {
+                    "Unsupported URL scheme: ${url.protocol}"
+                }
+                url.openConnection() as HttpURLConnection
+            } catch (error: Exception) {
+                throw RemoteInferenceException(
+                    code = "network_fetch_invalid_url",
+                    message = "network.fetch only supports absolute http/https URLs.",
+                    retryable = false,
+                    details = error.message ?: rawUrl
+                )
+            }
+
+        val requestMethod = init.optString("method").ifBlank { "GET" }.uppercase()
+        val timeoutMs = init.optInt("timeoutMs").takeIf { it > 0 } ?: executionConfig.timeoutMs
+        val body = init.opt("body")?.takeIf { it != JSONObject.NULL }?.toString()
+
+        try {
+            connection.requestMethod = requestMethod
+            connection.connectTimeout = timeoutMs
+            connection.readTimeout = timeoutMs
+            connection.doInput = true
+            connection.instanceFollowRedirects = init.optBoolean("followRedirects", true)
+            connection.useCaches = false
+            parseHeaderPairs(init.opt("headers")).forEach { (name, value) ->
+                connection.setRequestProperty(name, value)
+            }
+            if (!body.isNullOrEmpty()) {
+                connection.doOutput = true
+                connection.outputStream.use { output ->
+                    output.write(body.toByteArray(StandardCharsets.UTF_8))
+                }
+            }
+
+            val statusCode = connection.responseCode
+            val responseBody = readResponseBody(connection, successful = statusCode in 200..299)
+            return JSONObject()
+                .put(
+                    "request",
+                    JSONObject()
+                        .put("url", rawUrl)
+                        .put("method", requestMethod)
+                )
+                .put(
+                    "response",
+                    JSONObject()
+                        .put("ok", statusCode in 200..299)
+                        .put("status", statusCode)
+                        .put("statusText", connection.responseMessage.orEmpty())
+                        .put("url", connection.url?.toString())
+                        .put("redirected", false)
+                        .put("headers", buildResponseHeaders(connection))
+                        .put("body", responseBody)
+                )
+        } catch (error: SocketTimeoutException) {
+            throw RemoteInferenceException(
+                code = "network_fetch_timeout",
+                message = "network.fetch timed out after ${timeoutMs} ms.",
+                retryable = true,
+                details = rawUrl
+            )
+        } catch (error: IOException) {
+            throw RemoteInferenceException(
+                code = "network_fetch_io_error",
+                message = "network.fetch failed: ${error.message ?: "I/O error"}",
+                retryable = true,
+                details = rawUrl
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun parseHeaderPairs(value: Any?): List<Pair<String, String>> {
+        if (value == null || value == JSONObject.NULL) {
+            return emptyList()
+        }
+
+        if (value is JSONArray) {
+            return buildList {
+                for (index in 0 until value.length()) {
+                    val entry = value.optJSONArray(index) ?: continue
+                    val name = entry.optString(0).trim()
+                    if (name.isBlank()) continue
+                    add(name to entry.opt(1)?.toString().orEmpty())
+                }
+            }
+        }
+
+        if (value is JSONObject) {
+            return buildList {
+                val keys = value.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    add(key to value.opt(key)?.toString().orEmpty())
+                }
+            }
+        }
+
+        return emptyList()
+    }
+
+    private fun buildResponseHeaders(connection: HttpURLConnection): JSONObject {
+        val headers = JSONObject()
+        connection.headerFields.forEach { (name, values) ->
+            if (name.isNullOrBlank() || values.isNullOrEmpty()) {
+                return@forEach
+            }
+            headers.put(name, values.joinToString(", "))
+        }
+        return headers
+    }
+
     private fun ensurePermission(replyTo: String, permission: String): String? {
         refreshGrantedPermissions(notifyUi = panelInitialized)
         if (permission in grantedPermissions) {
@@ -521,6 +1184,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
 
     private fun renderCandidates(
         replyTo: String?,
+        surface: String = Surface,
         reason: String,
         preferredTone: String,
         modifiers: List<String>,
@@ -531,7 +1195,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             host.dispatchCandidatesRender(
                 replyTo = replyTo,
                 kitId = functionKitId,
-                surface = Surface,
+                surface = surface,
                 payload = buildCandidatesRenderPayload(requestContext, preferredTone, modifiers)
             )
             return
@@ -548,7 +1212,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
 
         host.dispatchHostStateUpdate(
             kitId = functionKitId,
-            surface = Surface,
+            surface = surface,
             label = "Requesting remote inference",
             details = buildHostDetails(executionConfig).put("reason", reason)
         )
@@ -570,13 +1234,13 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
                     host.dispatchCandidatesRender(
                         replyTo = replyTo,
                         kitId = functionKitId,
-                        surface = Surface,
+                        surface = surface,
                         payload = renderPayload
                     )
                     val remoteMeta = renderPayload.optJSONObject("meta")
                     host.dispatchHostStateUpdate(
                         kitId = functionKitId,
-                        surface = Surface,
+                        surface = surface,
                         label = "Remote candidates updated",
                         details =
                             buildHostDetails(executionConfig)
@@ -604,6 +1268,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
 
                     dispatchRemoteInferenceError(
                         replyTo = replyTo,
+                        surface = surface,
                         reason = reason,
                         executionConfig = executionConfig,
                         error = error
@@ -617,6 +1282,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
 
                     dispatchRemoteInferenceError(
                         replyTo = replyTo,
+                        surface = surface,
                         reason = reason,
                         executionConfig = executionConfig,
                         error =
@@ -792,6 +1458,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
 
     private fun dispatchRemoteInferenceError(
         replyTo: String?,
+        surface: String = Surface,
         reason: String,
         executionConfig: ExecutionConfig,
         error: RemoteInferenceException
@@ -809,7 +1476,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         host.dispatchBridgeError(
             replyTo = replyTo,
             kitId = functionKitId,
-            surface = Surface,
+            surface = surface,
             code = error.code,
             message = error.message,
             retryable = error.retryable,
@@ -817,7 +1484,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         )
         host.dispatchHostStateUpdate(
             kitId = functionKitId,
-            surface = Surface,
+            surface = surface,
             label = "Remote inference failed",
             details =
                 buildHostDetails(executionConfig)
@@ -974,6 +1641,9 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         JSONObject()
             .put("platform", "android")
             .put("runtime", "fcitx5-android-webview")
+            .put("protocol", FunctionKitWebViewHost.protocolInfo())
+            .put("supportedRuntimePermissions", JSONArray(supportedRuntimePermissions))
+            .put("grantedPermissions", JSONArray(grantedPermissions))
             .put("executionMode", executionConfig.executionMode)
             .put("requestedExecutionMode", executionConfig.requestedExecutionMode)
             .put("transport", executionConfig.transport)
@@ -990,6 +1660,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
                 "discovery",
                 functionKitManifest.discovery.toJson()
             )
+            .put("composer", composerState.toJson())
             .put("manifest", buildManifestSnapshot())
             .put("slash", buildSlashSnapshot())
             .apply {
@@ -1010,6 +1681,9 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             .put("kitId", functionKitId)
             .put("platform", "android")
             .put("runtime", "fcitx5-android-webview")
+            .put("protocol", FunctionKitWebViewHost.protocolInfo())
+            .put("supportedRuntimePermissions", JSONArray(supportedRuntimePermissions))
+            .put("grantedPermissions", JSONArray(grantedPermissions))
             .put("executionMode", executionConfig.executionMode)
             .put("requestedExecutionMode", executionConfig.requestedExecutionMode)
             .put("transport", executionConfig.transport)
@@ -1029,6 +1703,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
                 "discovery",
                 functionKitManifest.discovery.toJson()
             )
+            .put("composer", composerState.toJson())
             .apply {
                 executionConfig.renderEndpoint?.let { put("endpoint", it) }
                 if (executionConfig.remoteEnabled) {
@@ -1036,7 +1711,9 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
                 }
             }
 
-    private fun buildManifestSnapshot(): JSONObject = functionKitManifest.toJson()
+    private fun buildManifestSnapshot(): JSONObject =
+        JSONObject(functionKitManifest.toJson().toString())
+            .put("runtimePermissions", JSONArray(supportedRuntimePermissions))
 
     private fun buildRoutingSnapshot(
         executionConfig: ExecutionConfig,
@@ -1118,7 +1795,11 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     private fun namespacedStorageKey(key: String): String = "$functionKitId:$key"
 
     private fun refreshGrantedPermissions(notifyUi: Boolean = false) {
-        grantedPermissions = requestedPermissions.filter(::isPermissionEnabled)
+        grantedPermissions =
+            FunctionKitPermissionPolicy.grantedPermissions(
+                requestedPermissions = requestedPermissions,
+                prefs = functionKitPrefs
+            )
         if (notifyUi) {
             host.dispatchPermissionsSync(
                 kitId = functionKitId,
@@ -1127,19 +1808,6 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
             )
         }
     }
-
-    private fun isPermissionEnabled(permission: String): Boolean =
-        when (permission) {
-            "context.read" -> functionKitPrefs.allowContextRead.getValue()
-            "input.insert" -> functionKitPrefs.allowInputInsert.getValue()
-            "input.replace" -> functionKitPrefs.allowInputReplace.getValue()
-            "candidates.regenerate" -> functionKitPrefs.allowCandidatesRegenerate.getValue()
-            "settings.open" -> functionKitPrefs.allowSettingsOpen.getValue()
-            "storage.read" -> functionKitPrefs.allowStorageRead.getValue()
-            "storage.write" -> functionKitPrefs.allowStorageWrite.getValue()
-            "panel.state.write" -> functionKitPrefs.allowPanelStateWrite.getValue()
-            else -> false
-        }
 
     private fun JSONArray?.toStringList(): List<String> {
         if (this == null) {
@@ -1156,26 +1824,14 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     private fun newSessionId(): String = "android-function-kit-${UUID.randomUUID()}"
 
     companion object {
-        private const val KitId = "chat-auto-reply"
-        private const val Surface = "panel"
-        private const val ManifestAssetPath = "function-kits/chat-auto-reply/manifest.json"
-        private const val EntryAssetPath = "function-kits/chat-auto-reply/ui/app/index.html"
+        private const val Surface = FunctionKitDefaults.surface
         private const val DefaultContextRequestReason = "ui-context-request"
         private const val RemoteRegenerateReason = "ui-regenerate"
         private const val RemoteCandidateCount = 3
         private const val RemoteMaxCharsPerCandidate = 120
-
-        private val SupportedPermissions =
-            linkedSetOf(
-                "context.read",
-                "input.insert",
-                "input.replace",
-                "candidates.regenerate",
-                "settings.open",
-                "storage.read",
-                "storage.write",
-                "panel.state.write"
-            )
+        private const val MaxBridgeTextChars = 64 * 1024
+        private const val LocalDemoAgentId = "android-local-demo"
+        private const val RemoteHostAgentId = "android-remote-host"
 
         private val CandidateVariants =
             listOf(

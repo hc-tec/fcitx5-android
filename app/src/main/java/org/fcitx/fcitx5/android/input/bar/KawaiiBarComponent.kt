@@ -330,6 +330,10 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 functionKitButton.setOnClickListener {
                     windowManager.attachWindow(FunctionKitWindow())
                 }
+                functionKitButton.setOnLongClickListener {
+                    AppUtil.launchMainToFunctionKitSettings(context)
+                    true
+                }
                 moreButton.setOnClickListener {
                     windowManager.attachWindow(StatusAreaWindow())
                 }

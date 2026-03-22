@@ -18,6 +18,7 @@ sealed class StatusAreaEntry(
         StatusAreaEntry(label, icon, false) {
         enum class Type {
             FunctionKit,
+            FunctionKitSettings,
             InputMethod,
             ReloadConfig,
             Keyboard,

@@ -33,9 +33,10 @@ class MainFragment : PaddingPreferenceFragment() {
     private fun PreferenceCategory.addDestinationPreference(
         @StringRes title: Int,
         @DrawableRes icon: Int,
-        route: SettingsRoute
+        route: SettingsRoute,
+        @StringRes summary: Int? = null
     ) {
-        addPreference(title, icon = icon) {
+        addPreference(title, summary = summary, icon = icon) {
             navigateWithAnim(route)
         }
     }
@@ -71,6 +72,12 @@ class MainFragment : PaddingPreferenceFragment() {
                     SettingsRoute.VirtualKeyboard
                 )
                 addDestinationPreference(
+                    R.string.function_kit,
+                    R.drawable.ic_baseline_send_24,
+                    SettingsRoute.FunctionKit,
+                    R.string.function_kit_settings_summary
+                )
+                addDestinationPreference(
                     R.string.candidates_window,
                     R.drawable.ic_baseline_list_alt_24,
                     SettingsRoute.CandidatesWindow
@@ -79,11 +86,6 @@ class MainFragment : PaddingPreferenceFragment() {
                     R.string.clipboard,
                     R.drawable.ic_clipboard,
                     SettingsRoute.Clipboard
-                )
-                addDestinationPreference(
-                    R.string.function_kit,
-                    R.drawable.ic_baseline_extension_24,
-                    SettingsRoute.FunctionKit
                 )
                 addDestinationPreference(
                     R.string.emoji_and_symbols,

@@ -34,6 +34,7 @@ class AndroidAppConventionPlugin : AndroidBaseConventionPlugin() {
         super.apply(target)
 
         target.extensions.configure<ApplicationExtension> {
+            val envSigningConfig = signingConfigs.fromProjectEnv(target)
             defaultConfig {
                 targetSdk = Versions.targetSdk
                 versionCode = Versions.calculateVersionCode()
@@ -43,11 +44,12 @@ class AndroidAppConventionPlugin : AndroidBaseConventionPlugin() {
                 release {
                     isMinifyEnabled = true
                     isShrinkResources = true
-                    signingConfig = signingConfigs.fromProjectEnv(target)
+                    signingConfig = envSigningConfig
                     proguardFile(getDefaultProguardFile("proguard-android-optimize.txt"))
                 }
                 debug {
                     applicationIdSuffix = ".debug"
+                    signingConfig = envSigningConfig
                 }
                 all {
                     // remove META-INF/version-control-info.textproto

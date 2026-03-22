@@ -132,7 +132,7 @@ internal data class FunctionKitManifest(
 
         companion object {
             private val SlashTokenRegex =
-                Regex("""(?:^|[\s()[\]{}"'`.,!?;:<>|\\])/(?<query>[a-zA-Z0-9_-]*)$""")
+                Regex("""(?:^|[\s()\[\]{}"'`.,!?;:<>|\\])/(?<query>[a-zA-Z0-9_-]*)$""")
         }
     }
 
