@@ -16,12 +16,14 @@ import org.fcitx.fcitx5.android.data.prefs.ManagedPreferenceFragment
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitDefaults
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitManifest
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitPermissionPolicy
+import org.fcitx.fcitx5.android.ui.main.modified.MySwitchPreference
 import org.fcitx.fcitx5.android.utils.setup
 
 class FunctionKitSettingsFragment :
     ManagedPreferenceFragment(AppPrefs.getInstance().functionKit) {
 
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
+    private val keyboardPrefs = AppPrefs.getInstance().keyboard
     private val functionKitManifest by lazy(LazyThreadSafetyMode.NONE) {
         FunctionKitManifest.loadFromAssets(
             context = requireContext(),
@@ -35,6 +37,7 @@ class FunctionKitSettingsFragment :
     private lateinit var runtimePreference: Preference
     private lateinit var remoteRoutingPreference: Preference
     private lateinit var quickAccessPreference: Preference
+    private lateinit var toolbarExpandPreference: MySwitchPreference
     private lateinit var localPermissionsPreference: Preference
     private lateinit var remotePermissionsPreference: Preference
     private lateinit var composerPermissionsPreference: Preference
@@ -92,17 +95,34 @@ class FunctionKitSettingsFragment :
             }
         statusCategory.addPreference(quickAccessPreference)
 
+        toolbarExpandPreference =
+            MySwitchPreference(context).apply {
+                key = "function_kit_status_expand_toolbar_by_default"
+                order = -196
+                setup(
+                    title = getString(R.string.expand_toolbar_by_default),
+                    summary = getString(R.string.function_kit_toolbar_expand_by_default_summary)
+                )
+                isPersistent = false
+                isChecked = keyboardPrefs.expandToolbarByDefault.getValue()
+                setOnPreferenceChangeListener { _, newValue ->
+                    keyboardPrefs.expandToolbarByDefault.setValue(newValue as Boolean)
+                    true
+                }
+            }
+        statusCategory.addPreference(toolbarExpandPreference)
+
         val capabilityCategory =
             PreferenceCategory(context).apply {
                 title = getString(R.string.function_kit_status_capabilities)
-                order = -196
+                order = -195
             }
         screen.addPreference(capabilityCategory)
 
         localPermissionsPreference =
             Preference(context).apply {
                 key = "function_kit_status_permissions_local"
-                order = -195
+                order = -194
                 setup(title = getString(R.string.function_kit_status_permissions_local))
                 isSelectable = false
             }
@@ -111,7 +131,7 @@ class FunctionKitSettingsFragment :
         remotePermissionsPreference =
             Preference(context).apply {
                 key = "function_kit_status_permissions_remote"
-                order = -194
+                order = -193
                 setup(title = getString(R.string.function_kit_status_permissions_remote))
                 isSelectable = false
             }
@@ -120,7 +140,7 @@ class FunctionKitSettingsFragment :
         composerPermissionsPreference =
             Preference(context).apply {
                 key = "function_kit_status_permissions_composer"
-                order = -193
+                order = -192
                 setup(title = getString(R.string.function_kit_status_permissions_composer))
                 isSelectable = false
             }
@@ -147,7 +167,8 @@ class FunctionKitSettingsFragment :
                 remoteBaseUrl = functionKitPrefs.remoteBaseUrl.getValue(),
                 remoteAuthToken = functionKitPrefs.remoteAuthToken.getValue(),
                 timeoutSeconds = functionKitPrefs.remoteTimeoutSeconds.getValue(),
-                showToolbarButton = functionKitPrefs.showToolbarButton.getValue()
+                showToolbarButton = functionKitPrefs.showToolbarButton.getValue(),
+                expandToolbarByDefault = keyboardPrefs.expandToolbarByDefault.getValue()
             )
 
         runtimePreference.summary =
@@ -187,13 +208,25 @@ class FunctionKitSettingsFragment :
             }
 
         quickAccessPreference.summary =
-            getString(
-                if (status.showToolbarButton) {
-                    R.string.function_kit_status_quick_access_enabled_summary
-                } else {
-                    R.string.function_kit_status_quick_access_disabled_summary
-                }
-            )
+            when {
+                !status.showToolbarButton ->
+                    getString(R.string.function_kit_status_quick_access_disabled_summary)
+                status.quickAccessVisibleOnKeyboardStart ->
+                    getString(R.string.function_kit_status_quick_access_enabled_summary)
+                else ->
+                    getString(R.string.function_kit_status_quick_access_collapsed_summary)
+            }
+
+        toolbarExpandPreference.isChecked = status.expandToolbarByDefault
+        toolbarExpandPreference.summary =
+            when {
+                !status.showToolbarButton ->
+                    getString(R.string.function_kit_toolbar_expand_by_default_hidden_summary)
+                status.quickAccessVisibleOnKeyboardStart ->
+                    getString(R.string.function_kit_toolbar_expand_by_default_enabled_summary)
+                else ->
+                    getString(R.string.function_kit_toolbar_expand_by_default_disabled_summary)
+            }
 
         localPermissionsPreference.summary =
             buildPermissionSummary(status.corePermissions)

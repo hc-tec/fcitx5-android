@@ -324,7 +324,12 @@
     <string name="function_kit_status_remote_routing_token_summary">确认手机能直接访问 %1$s，并且让这里的 token 与宿主服务配置保持一致。</string>
     <string name="function_kit_status_quick_access">键盘入口</string>
     <string name="function_kit_status_quick_access_enabled_summary">工具栏快捷入口当前可见。点击可打开功能件，长按可直接跳回此设置页。</string>
+    <string name="function_kit_status_quick_access_collapsed_summary">工具栏快捷入口虽然已经固定，但键盘启动时工具栏默认仍会收起。打开下方“默认展开工具栏”后，功能件会在键盘打开时立即可见。</string>
     <string name="function_kit_status_quick_access_disabled_summary">工具栏快捷入口当前隐藏。你仍可从“更多”里打开功能件，或者在下方重新开启快捷入口。</string>
+    <string name="function_kit_toolbar_expand_by_default_summary">这是全局键盘设置，这里额外放一份，是为了不离开当前页面也能直接调整 Function Kit 快捷入口的默认可见性。</string>
+    <string name="function_kit_toolbar_expand_by_default_enabled_summary">键盘工具栏会默认展开，所以固定的 Function Kit 快捷入口会在打开键盘时立即可见。</string>
+    <string name="function_kit_toolbar_expand_by_default_disabled_summary">键盘启动时工具栏仍默认收起。如果你希望固定的 Function Kit 快捷入口一打开键盘就能看到，就把这里打开。</string>
+    <string name="function_kit_toolbar_expand_by_default_hidden_summary">这仍然是全局键盘工具栏策略，但当前 Function Kit 快捷入口本身处于隐藏状态。</string>
     <string name="function_kit_status_capabilities">已授予能力</string>
     <string name="function_kit_status_permissions_local">本地权限</string>
     <string name="function_kit_status_permissions_remote">网络与 AI 权限</string>

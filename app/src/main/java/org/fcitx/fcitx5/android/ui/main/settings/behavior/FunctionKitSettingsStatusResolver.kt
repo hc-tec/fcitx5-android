@@ -21,6 +21,8 @@ internal data class FunctionKitSettingsStatus(
     val remoteAuthConfigured: Boolean,
     val timeoutSeconds: Int,
     val showToolbarButton: Boolean,
+    val expandToolbarByDefault: Boolean,
+    val quickAccessVisibleOnKeyboardStart: Boolean,
     val remoteConfigured: Boolean,
     val remoteUsesLoopback: Boolean,
     val corePermissions: FunctionKitPermissionGroupStatus,
@@ -36,7 +38,8 @@ internal object FunctionKitSettingsStatusResolver {
         remoteBaseUrl: String,
         remoteAuthToken: String,
         timeoutSeconds: Int,
-        showToolbarButton: Boolean
+        showToolbarButton: Boolean,
+        expandToolbarByDefault: Boolean
     ): FunctionKitSettingsStatus {
         val requested = requestedPermissions.toSet()
         val enabled = enabledPermissions.toSet()
@@ -48,6 +51,8 @@ internal object FunctionKitSettingsStatusResolver {
             remoteAuthConfigured = remoteAuthToken.isNotBlank(),
             timeoutSeconds = timeoutSeconds.coerceAtLeast(1),
             showToolbarButton = showToolbarButton,
+            expandToolbarByDefault = expandToolbarByDefault,
+            quickAccessVisibleOnKeyboardStart = showToolbarButton && expandToolbarByDefault,
             remoteConfigured = remoteInferenceEnabled && normalizedRemoteBaseUrl.isNotBlank(),
             remoteUsesLoopback =
                 normalizedRemoteBaseUrl.contains("127.0.0.1")

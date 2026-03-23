@@ -324,7 +324,12 @@
     <string name="function_kit_status_remote_routing_token_summary">Make sure the phone can reach %1$s directly, and keep the token in sync with the host service configuration.</string>
     <string name="function_kit_status_quick_access">Keyboard entry</string>
     <string name="function_kit_status_quick_access_enabled_summary">Toolbar shortcut is visible. Tap it to open Function Kit, or long-press it to jump back here.</string>
+    <string name="function_kit_status_quick_access_collapsed_summary">Toolbar shortcut is pinned, but the toolbar starts collapsed. Turn on default expansion below to surface Function Kit as soon as the keyboard opens.</string>
     <string name="function_kit_status_quick_access_disabled_summary">Toolbar shortcut is hidden. Open Function Kit from More, or re-enable the toolbar shortcut below.</string>
+    <string name="function_kit_toolbar_expand_by_default_summary">Global keyboard setting, mirrored here so Function Kit quick access can be adjusted without leaving this screen.</string>
+    <string name="function_kit_toolbar_expand_by_default_enabled_summary">Keyboard toolbar opens by default, so the pinned Function Kit shortcut is visible immediately.</string>
+    <string name="function_kit_toolbar_expand_by_default_disabled_summary">Keyboard toolbar stays collapsed on start. Turn this on if you want the pinned Function Kit shortcut visible immediately.</string>
+    <string name="function_kit_toolbar_expand_by_default_hidden_summary">This is still the global keyboard toolbar policy, but the Function Kit shortcut itself is currently hidden.</string>
     <string name="function_kit_status_capabilities">Granted capabilities</string>
     <string name="function_kit_status_permissions_local">Local permissions</string>
     <string name="function_kit_status_permissions_remote">Network and AI permissions</string>

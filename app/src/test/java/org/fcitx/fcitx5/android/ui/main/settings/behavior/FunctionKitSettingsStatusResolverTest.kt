@@ -21,13 +21,15 @@ class FunctionKitSettingsStatusResolverTest {
                 remoteBaseUrl = " http://127.0.0.1:18789/ ",
                 remoteAuthToken = "",
                 timeoutSeconds = 0,
-                showToolbarButton = true
+                showToolbarButton = true,
+                expandToolbarByDefault = true
             )
 
         assertEquals("http://127.0.0.1:18789", status.normalizedRemoteBaseUrl)
         assertTrue(status.remoteConfigured)
         assertTrue(status.remoteUsesLoopback)
         assertEquals(1, status.timeoutSeconds)
+        assertTrue(status.quickAccessVisibleOnKeyboardStart)
     }
 
     @Test
@@ -53,7 +55,8 @@ class FunctionKitSettingsStatusResolverTest {
                 remoteBaseUrl = "http://100.109.100.33:18789",
                 remoteAuthToken = "token",
                 timeoutSeconds = 20,
-                showToolbarButton = false
+                showToolbarButton = false,
+                expandToolbarByDefault = false
             )
 
         assertEquals(5, status.corePermissions.enabled)
@@ -85,6 +88,8 @@ class FunctionKitSettingsStatusResolverTest {
             status.composerPermissions.disabledPermissions
         )
         assertFalse(status.showToolbarButton)
+        assertFalse(status.expandToolbarByDefault)
+        assertFalse(status.quickAccessVisibleOnKeyboardStart)
         assertTrue(status.remoteAuthConfigured)
     }
 
@@ -104,12 +109,33 @@ class FunctionKitSettingsStatusResolverTest {
                 remoteBaseUrl = "   ",
                 remoteAuthToken = "",
                 timeoutSeconds = 30,
-                showToolbarButton = true
+                showToolbarButton = true,
+                expandToolbarByDefault = false
             )
 
         assertFalse(status.remoteConfigured)
         assertFalse(status.remoteUsesLoopback)
         assertEquals(0, status.remotePermissions.total)
         assertEquals(0, status.composerPermissions.total)
+        assertFalse(status.quickAccessVisibleOnKeyboardStart)
+    }
+
+    @Test
+    fun `resolve marks pinned shortcut as hidden on start when toolbar stays collapsed`() {
+        val status =
+            FunctionKitSettingsStatusResolver.resolve(
+                requestedPermissions = FunctionKitDefaults.supportedPermissions,
+                enabledPermissions = FunctionKitDefaults.supportedPermissions,
+                remoteInferenceEnabled = false,
+                remoteBaseUrl = "",
+                remoteAuthToken = "",
+                timeoutSeconds = 20,
+                showToolbarButton = true,
+                expandToolbarByDefault = false
+            )
+
+        assertTrue(status.showToolbarButton)
+        assertFalse(status.expandToolbarByDefault)
+        assertFalse(status.quickAccessVisibleOnKeyboardStart)
     }
 }
