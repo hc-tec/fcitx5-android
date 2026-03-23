@@ -1,4 +1,6 @@
+import groovy.json.JsonSlurper
 import org.gradle.api.tasks.Sync
+import java.io.File
 
 plugins {
     id("org.fcitx.fcitx5.android.app-convention")
@@ -9,6 +11,187 @@ plugins {
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+}
+
+data class DebugAiBootstrapConfig(
+    val enabled: Boolean = false,
+    val providerType: String = "",
+    val baseUrl: String = "",
+    val apiKey: String = "",
+    val model: String = "",
+    val timeoutSeconds: Int = 20
+)
+
+data class LocalOpenClawConfig(
+    val providerId: String = "",
+    val primaryModel: String = "",
+    val baseUrl: String = "",
+    val apiKey: String = ""
+)
+
+fun buildConfigStringLiteral(value: String): String =
+    buildString {
+        append('"')
+        value.forEach { character ->
+            when (character) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> append(character)
+            }
+        }
+        append('"')
+    }
+
+fun firstNonBlank(vararg values: String?): String =
+    values.firstOrNull { !it.isNullOrBlank() }?.trim().orEmpty()
+
+fun readDotEnvFile(file: File): Map<String, String> {
+    val values = linkedMapOf<String, String>()
+    file.forEachLine { rawLine ->
+        val trimmed = rawLine.trim()
+        if (trimmed.isBlank() || trimmed.startsWith("#")) {
+            return@forEachLine
+        }
+        val separator = trimmed.indexOf('=')
+        if (separator <= 0) {
+            return@forEachLine
+        }
+        val key = trimmed.substring(0, separator).trim()
+        val value =
+            trimmed.substring(separator + 1)
+                .trim()
+                .removeSurrounding("\"")
+                .removeSurrounding("'")
+        if (key.isNotBlank()) {
+            values[key] = value
+        }
+    }
+    return values
+}
+
+fun lookupNestedString(root: Map<*, *>, vararg path: String): String {
+    var current: Any? = root
+    for (segment in path) {
+        current = (current as? Map<*, *>)?.get(segment) ?: return ""
+    }
+    return (current as? String)?.trim().orEmpty()
+}
+
+fun readOpenClawConfig(file: File): LocalOpenClawConfig {
+    val root = JsonSlurper().parse(file) as? Map<*, *> ?: return LocalOpenClawConfig()
+    val primaryRef = lookupNestedString(root, "agents", "defaults", "model", "primary")
+    val providerId = primaryRef.substringBefore('/', missingDelimiterValue = "").trim()
+    val primaryModel = primaryRef.substringAfter('/', missingDelimiterValue = primaryRef).trim()
+    val providerMap = ((root["models"] as? Map<*, *>)?.get("providers") as? Map<*, *>)?.get(providerId) as? Map<*, *>
+    return LocalOpenClawConfig(
+        providerId = providerId,
+        primaryModel = primaryModel,
+        baseUrl = (providerMap?.get("baseUrl") as? String)?.trim().orEmpty(),
+        apiKey = (providerMap?.get("apiKey") as? String)?.trim().orEmpty()
+    )
+}
+
+fun Project.resolveOptionalFile(vararg candidates: String?): File? =
+    candidates
+        .asSequence()
+        .filterNotNull()
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .map(::file)
+        .firstOrNull(File::isFile)
+
+fun Project.resolveDebugAiBootstrapConfig(): DebugAiBootstrapConfig {
+    fun propertyOrEnv(
+        propertyName: String,
+        vararg envNames: String
+    ): String =
+        firstNonBlank(
+            providers.gradleProperty(propertyName).orNull,
+            *envNames.map { providers.environmentVariable(it).orNull }.toTypedArray()
+        )
+
+    val userHome = System.getProperty("user.home")
+    val envFile =
+        resolveOptionalFile(
+            providers.gradleProperty("fcitx5AndroidAiBootstrapEnvPath").orNull,
+            providers.environmentVariable("FCITX5_ANDROID_AI_BOOTSTRAP_ENV_PATH").orNull,
+            providers.environmentVariable("OPENCLAW_DEEPSEEK_ENV_PATH").orNull,
+            userHome?.let { File(it, ".openclaw/.env").path }
+        )
+    val envValues = envFile?.let(::readDotEnvFile).orEmpty()
+
+    val openClawConfigFile =
+        resolveOptionalFile(
+            providers.gradleProperty("fcitx5AndroidAiBootstrapConfigPath").orNull,
+            providers.environmentVariable("FCITX5_ANDROID_AI_BOOTSTRAP_CONFIG_PATH").orNull,
+            providers.environmentVariable("OPENCLAW_CONFIG_PATH").orNull,
+            userHome?.let { File(it, ".openclaw/openclaw.json").path }
+        )
+    val openClawConfig =
+        runCatching {
+            openClawConfigFile?.let(::readOpenClawConfig) ?: LocalOpenClawConfig()
+        }.getOrElse {
+            logger.warn("Ignoring unreadable OpenClaw config at ${openClawConfigFile?.path}: ${it.message}")
+            LocalOpenClawConfig()
+        }
+
+    val apiKey =
+        firstNonBlank(
+            propertyOrEnv("fcitx5AndroidAiChatApiKey", "FCITX5_ANDROID_AI_CHAT_API_KEY", "FCITX5_ANDROID_AI_API_KEY"),
+            envValues["FCITX5_ANDROID_AI_CHAT_API_KEY"],
+            envValues["FCITX5_ANDROID_AI_API_KEY"],
+            envValues["OPENCLAW_DEEPSEEK_API_KEY"],
+            openClawConfig.apiKey
+        )
+    val baseUrl =
+        firstNonBlank(
+            propertyOrEnv("fcitx5AndroidAiChatBaseUrl", "FCITX5_ANDROID_AI_CHAT_BASE_URL", "FCITX5_ANDROID_AI_BASE_URL"),
+            envValues["FCITX5_ANDROID_AI_CHAT_BASE_URL"],
+            envValues["FCITX5_ANDROID_AI_BASE_URL"],
+            envValues["OPENCLAW_DEEPSEEK_BASE_URL"],
+            openClawConfig.baseUrl,
+            if (apiKey.isNotBlank()) "https://api.deepseek.com/v1" else null
+        )
+    val model =
+        firstNonBlank(
+            propertyOrEnv("fcitx5AndroidAiChatModel", "FCITX5_ANDROID_AI_CHAT_MODEL", "FCITX5_ANDROID_AI_MODEL"),
+            envValues["FCITX5_ANDROID_AI_CHAT_MODEL"],
+            envValues["FCITX5_ANDROID_AI_MODEL"],
+            envValues["OPENCLAW_DEEPSEEK_MODEL"],
+            openClawConfig.primaryModel,
+            if (baseUrl.isNotBlank() || apiKey.isNotBlank()) "deepseek-chat" else null
+        )
+    val enabledOverride =
+        firstNonBlank(
+            propertyOrEnv("fcitx5AndroidAiBootstrapEnabled", "FCITX5_ANDROID_AI_BOOTSTRAP_ENABLED"),
+            envValues["FCITX5_ANDROID_AI_BOOTSTRAP_ENABLED"]
+        )
+    val enabled =
+        enabledOverride.toBooleanStrictOrNull()
+            ?: (baseUrl.isNotBlank() && model.isNotBlank())
+
+    return DebugAiBootstrapConfig(
+        enabled = enabled && baseUrl.isNotBlank() && model.isNotBlank(),
+        providerType =
+            firstNonBlank(
+                propertyOrEnv("fcitx5AndroidAiChatProviderType", "FCITX5_ANDROID_AI_CHAT_PROVIDER_TYPE"),
+                envValues["FCITX5_ANDROID_AI_CHAT_PROVIDER_TYPE"],
+                if (openClawConfig.providerId.isNotBlank()) "openai-compatible" else null,
+                "openai-compatible"
+            ),
+        baseUrl = baseUrl,
+        apiKey = apiKey,
+        model = model,
+        timeoutSeconds =
+            firstNonBlank(
+                propertyOrEnv("fcitx5AndroidAiChatTimeoutSeconds", "FCITX5_ANDROID_AI_CHAT_TIMEOUT_SECONDS", "FCITX5_ANDROID_AI_TIMEOUT_SECONDS"),
+                envValues["FCITX5_ANDROID_AI_CHAT_TIMEOUT_SECONDS"],
+                envValues["FCITX5_ANDROID_AI_TIMEOUT_SECONDS"]
+            ).toIntOrNull()?.coerceIn(1, 300) ?: 20
+    )
 }
 
 val functionKitWorkspaceRoot =
@@ -23,6 +206,10 @@ val functionKitDirectories =
         .sortedBy { it.name }
 val functionKitAssetsDir = layout.buildDirectory.dir("generated/function-kit-assets")
 val functionKitTestAssetsDir = layout.buildDirectory.dir("generated/function-kit-test-assets")
+val debugAiBootstrapConfig = resolveDebugAiBootstrapConfig()
+val effectiveDebugAiBootstrapConfig = debugAiBootstrapConfig.takeIf { it.enabled } ?: DebugAiBootstrapConfig()
+val debugShortCommitHash = buildCommitHash.trim().takeIf { it.isNotBlank() }?.take(7).orEmpty()
+val debugAppLabel = listOf("Fcitx5 Debug", buildVersionName, debugShortCommitHash).filter { it.isNotBlank() }.joinToString(" ")
 
 val syncFunctionKitAssets by tasks.registering(Sync::class) {
     group = "function-kit"
@@ -104,12 +291,48 @@ android {
             resValue("mipmap", "app_icon", "@mipmap/ic_launcher")
             resValue("mipmap", "app_icon_round", "@mipmap/ic_launcher_round")
             resValue("string", "app_name", "@string/app_name_release")
+            buildConfigField("boolean", "FUNCTION_KIT_DEBUG_AI_BOOTSTRAP_ENABLED", "false")
+            buildConfigField("String", "FUNCTION_KIT_DEBUG_AI_PROVIDER_TYPE", buildConfigStringLiteral(""))
+            buildConfigField("String", "FUNCTION_KIT_DEBUG_AI_BASE_URL", buildConfigStringLiteral(""))
+            buildConfigField("String", "FUNCTION_KIT_DEBUG_AI_API_KEY", buildConfigStringLiteral(""))
+            buildConfigField("String", "FUNCTION_KIT_DEBUG_AI_MODEL", buildConfigStringLiteral(""))
+            buildConfigField("int", "FUNCTION_KIT_DEBUG_AI_TIMEOUT_SECONDS", "20")
             proguardFile("proguard-rules.pro")
         }
         debug {
             resValue("mipmap", "app_icon", "@mipmap/ic_launcher_debug")
             resValue("mipmap", "app_icon_round", "@mipmap/ic_launcher_round_debug")
-            resValue("string", "app_name", "@string/app_name_debug")
+            resValue("string", "app_name", buildConfigStringLiteral(debugAppLabel))
+            buildConfigField(
+                "boolean",
+                "FUNCTION_KIT_DEBUG_AI_BOOTSTRAP_ENABLED",
+                effectiveDebugAiBootstrapConfig.enabled.toString()
+            )
+            buildConfigField(
+                "String",
+                "FUNCTION_KIT_DEBUG_AI_PROVIDER_TYPE",
+                buildConfigStringLiteral(effectiveDebugAiBootstrapConfig.providerType)
+            )
+            buildConfigField(
+                "String",
+                "FUNCTION_KIT_DEBUG_AI_BASE_URL",
+                buildConfigStringLiteral(effectiveDebugAiBootstrapConfig.baseUrl)
+            )
+            buildConfigField(
+                "String",
+                "FUNCTION_KIT_DEBUG_AI_API_KEY",
+                buildConfigStringLiteral(effectiveDebugAiBootstrapConfig.apiKey)
+            )
+            buildConfigField(
+                "String",
+                "FUNCTION_KIT_DEBUG_AI_MODEL",
+                buildConfigStringLiteral(effectiveDebugAiBootstrapConfig.model)
+            )
+            buildConfigField(
+                "int",
+                "FUNCTION_KIT_DEBUG_AI_TIMEOUT_SECONDS",
+                effectiveDebugAiBootstrapConfig.timeoutSeconds.toString()
+            )
         }
     }
 
@@ -200,6 +423,8 @@ dependencies {
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.lifecycle.testing)
     androidTestImplementation(libs.junit)
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
 
 configurations {

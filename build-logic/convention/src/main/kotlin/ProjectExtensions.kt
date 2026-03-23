@@ -78,9 +78,7 @@ val Project.signKey: File?
             if (signKeyTempFile?.exists() == true) {
                 return signKeyTempFile
             }
-            val buildDir = layout.buildDirectory.asFile.get()
-            buildDir.mkdirs()
-            val file = File.createTempFile("sign-", ".ks", buildDir)
+            val file = File.createTempFile("sign-", ".ks")
             try {
                 file.writeBytes(Base64.decode(it))
                 file.deleteOnExit()

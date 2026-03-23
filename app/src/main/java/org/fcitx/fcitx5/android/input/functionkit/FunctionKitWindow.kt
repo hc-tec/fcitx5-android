@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.text.InputType
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -19,6 +20,7 @@ import androidx.appcompat.widget.AppCompatEditText
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.content.ContextCompat
 import androidx.core.widget.addTextChangedListener
+import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.core.CapabilityFlags
 import org.fcitx.fcitx5.android.core.FcitxEvent
@@ -31,6 +33,7 @@ import org.fcitx.fcitx5.android.input.broadcast.InputBroadcastReceiver
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.utils.AppUtil
+import org.fcitx.fcitx5.android.utils.Const
 import org.json.JSONArray
 import org.json.JSONObject
 import splitties.dimensions.dp
@@ -183,6 +186,7 @@ class FunctionKitWindow(
     }
     private val composerEditText by lazy {
         FunctionKitComposerEditText(context).apply {
+            id = R.id.function_kit_detached_composer_editor
             setTextColor(theme.keyTextColor)
             setHintTextColor(theme.candidateCommentColor)
             hint = context.getString(R.string.function_kit_detached_composer_hint)
@@ -208,6 +212,7 @@ class FunctionKitWindow(
     }
     private val composerInsertButton by lazy {
         AppCompatButton(context).apply {
+            id = R.id.function_kit_detached_composer_insert
             text = context.getString(R.string.function_kit_detached_composer_insert)
             setOnClickListener {
                 performComposerApply(replyTo = null, surface = Surface, payload = JSONObject(), replace = false)
@@ -216,6 +221,7 @@ class FunctionKitWindow(
     }
     private val composerReplaceButton by lazy {
         AppCompatButton(context).apply {
+            id = R.id.function_kit_detached_composer_replace
             text = context.getString(R.string.function_kit_detached_composer_replace)
             setOnClickListener {
                 performComposerApply(replyTo = null, surface = Surface, payload = JSONObject(), replace = true)
@@ -224,6 +230,7 @@ class FunctionKitWindow(
     }
     private val composerCloseButton by lazy {
         AppCompatButton(context).apply {
+            id = R.id.function_kit_detached_composer_close
             text = context.getString(R.string.function_kit_detached_composer_close)
             setOnClickListener {
                 updateComposerState(replyTo = null, surface = Surface, reason = "composer.view.close") { current ->
@@ -239,6 +246,7 @@ class FunctionKitWindow(
     }
     private val composerContainer by lazy {
         LinearLayout(context).apply {
+            id = R.id.function_kit_detached_composer_container
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(theme.backgroundColor)
             val padding = context.dp(8)
@@ -378,10 +386,11 @@ class FunctionKitWindow(
         }
 
         webView.onResume()
+        FunctionKitTestRegistry.onWindowAttached(functionKitId, webView)
         host.dispatchHostStateUpdate(
             kitId = functionKitId,
             surface = Surface,
-            label = "Android Function Kit 面板已打开",
+            label = "Android Function Kit 面板已打开 · ${FunctionKitHostDiagnostics.buildDisplayName(Const.versionName, BuildConfig.BUILD_GIT_HASH)}",
             details = buildHostDetails()
         )
     }
@@ -393,6 +402,7 @@ class FunctionKitWindow(
         composerEditText.clearFocus()
         webView.onPause()
         webView.stopLoading()
+        FunctionKitTestRegistry.onWindowDetached(functionKitId)
     }
 
     private fun ensureManifestStateInitialized() {
@@ -434,6 +444,7 @@ class FunctionKitWindow(
     override fun onCreateBarExtension(): View = barExtension
 
     private fun handleUiEnvelope(envelope: JSONObject) {
+        FunctionKitEnvelopeProbe.recordInbound(envelope)
         val type = envelope.optString("type")
         val replyTo = envelope.optString("messageId")
         val surface = envelope.optString("surface").ifBlank { Surface }
@@ -584,7 +595,7 @@ class FunctionKitWindow(
         }
 
         ContextCompat.getMainExecutor(service).execute {
-            service.commitText(text)
+            service.commitText(text, bypassLocalInputTarget = true)
             host.dispatchHostStateUpdate(
                 kitId = functionKitId,
                 surface = Surface,
@@ -1149,7 +1160,7 @@ class FunctionKitWindow(
         }
 
         ContextCompat.getMainExecutor(service).execute {
-            service.commitText(text)
+            service.commitText(text, bypassLocalInputTarget = true)
             host.dispatchComposerApplyResult(
                 replyTo = replyTo,
                 kitId = functionKitId,
@@ -2596,6 +2607,7 @@ class FunctionKitWindow(
                     .put("model", aiChatConfig.model)
                     .put("baseUrl", aiChatConfig.configuredBaseUrl)
             )
+            .put("build", buildDebugInfo())
             .put(
                 "discovery",
                 functionKitManifest.discovery.toJson()
@@ -2637,6 +2649,7 @@ class FunctionKitWindow(
             .put("latencyTier", executionConfig.latencyTier)
             .put("requireStructuredJson", executionConfig.requireStructuredJson)
             .put("requiredCapabilities", JSONArray(executionConfig.requiredCapabilities))
+            .put("build", buildDebugInfo())
             .put("manifest", buildManifestSnapshot())
             .put("routing", buildRoutingSnapshot(executionConfig, "host-state"))
             .put("slash", buildSlashSnapshot())
@@ -2691,7 +2704,11 @@ class FunctionKitWindow(
     }
 
     private fun handleHostEvent(message: String) {
+        Log.d("FunctionKitWindow", "[$functionKitId] $message")
         if (!panelInitialized) {
+            return
+        }
+        if (!FunctionKitHostDiagnostics.shouldSurfaceHostEventToUi(message)) {
             return
         }
 
@@ -2763,6 +2780,19 @@ class FunctionKitWindow(
     }
 
     private fun newSessionId(): String = "android-function-kit-${UUID.randomUUID()}"
+
+    private fun buildDebugInfo(): JSONObject =
+        JSONObject()
+            .put("applicationId", BuildConfig.APPLICATION_ID)
+            .put("buildType", BuildConfig.BUILD_TYPE)
+            .put("versionName", Const.versionName)
+            .put("gitHash", BuildConfig.BUILD_GIT_HASH)
+            .put("shortGitHash", FunctionKitHostDiagnostics.shortGitHash(BuildConfig.BUILD_GIT_HASH))
+            .put("buildTime", BuildConfig.BUILD_TIME)
+            .put(
+                "displayName",
+                FunctionKitHostDiagnostics.buildDisplayName(Const.versionName, BuildConfig.BUILD_GIT_HASH)
+            )
 
     companion object {
         private const val Surface = FunctionKitDefaults.surface

@@ -83,6 +83,7 @@ class FcitxComponentPlugin : Plugin<Project> {
             buildTarget.set(target)
             installComponent.set(component)
             destDir.set(project.assetsDir)
+            dependsOn(sourceProject.tasks.withType<ExternalNativeBuildJsonTask>())
             mustRunAfter(sourceProject.tasks.withType<ExternalNativeBuildJsonTask>())
             doLast {
                 val ext = project.extensions.getByName<FcitxComponentExtension>(EXTENSION)

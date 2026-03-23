@@ -447,8 +447,12 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
         currentInputConnection.setSelection(target, target)
     }
 
-    fun commitText(text: String, cursor: Int = -1) {
-        if (localInputTarget?.takeIf { it.isActive() }?.commitText(text, cursor) == true) {
+    fun commitText(
+        text: String,
+        cursor: Int = -1,
+        bypassLocalInputTarget: Boolean = false
+    ) {
+        if (!bypassLocalInputTarget && localInputTarget?.takeIf { it.isActive() }?.commitText(text, cursor) == true) {
             return
         }
         val ic = currentInputConnection ?: return

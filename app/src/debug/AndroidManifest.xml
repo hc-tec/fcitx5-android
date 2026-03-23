@@ -3,5 +3,10 @@
         <activity
             android:name="org.fcitx.fcitx5.android.input.functionkit.FunctionKitContractTestActivity"
             android:exported="false" />
+        <activity
+            android:name="org.fcitx.fcitx5.android.input.functionkit.FunctionKitImeE2EPlaygroundActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="stateAlwaysVisible|adjustResize" />
     </application>
 </manifest>

@@ -13,6 +13,7 @@ import androidx.preference.PreferenceScreen
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.data.prefs.ManagedPreferenceFragment
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitAiChatBackend
 import org.fcitx.fcitx5.android.utils.setup
 
 class AiSettingsFragment : ManagedPreferenceFragment(AppPrefs.getInstance().ai) {
@@ -74,12 +75,17 @@ class AiSettingsFragment : ManagedPreferenceFragment(AppPrefs.getInstance().ai) 
             return
         }
 
-        val baseUrl = aiPrefs.chatBaseUrl.getValue().trim().trimEnd('/')
-        val model = aiPrefs.chatModel.getValue().trim()
+        val config = FunctionKitAiChatBackend.fromPrefs(aiPrefs)
+        val baseUrl = config.normalizedBaseUrl.trim()
+        val model = config.model.trim()
 
         runtimePreference.summary =
             when {
-                !aiPrefs.chatEnabled.getValue() ->
+                !config.enabled && config.bootstrapAvailable ->
+                    "Android AI chat is disabled. Shared debug defaults are available."
+                config.usesBootstrapDefaults && config.isConfigured ->
+                    "Using shared debug AI defaults: $baseUrl | $model | ${config.timeoutSeconds}s"
+                !config.enabled ->
                     getString(R.string.ai_status_runtime_disabled_summary)
                 baseUrl.isBlank() ->
                     getString(R.string.ai_status_runtime_missing_url_summary)
@@ -90,11 +96,19 @@ class AiSettingsFragment : ManagedPreferenceFragment(AppPrefs.getInstance().ai) 
                         R.string.ai_status_runtime_ready_summary,
                         baseUrl,
                         model,
-                        aiPrefs.chatTimeoutSeconds.getValue()
+                        config.timeoutSeconds
                     )
             }
 
         usagePreference.summary =
-            getString(R.string.ai_status_usage_summary)
+            buildString {
+                append(getString(R.string.ai_status_usage_summary))
+                when {
+                    config.usesBootstrapDefaults ->
+                        append("\n\nUnset AI settings are currently being filled from the shared debug bootstrap.")
+                    config.bootstrapAvailable ->
+                        append("\n\nShared debug defaults are available for this debug build.")
+                }
+            }
     }
 }

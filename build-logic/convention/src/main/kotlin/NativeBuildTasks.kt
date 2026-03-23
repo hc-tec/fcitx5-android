@@ -12,10 +12,11 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
-import org.gradle.kotlin.dsl.property
 import org.gradle.kotlin.dsl.withType
 import org.gradle.process.ExecSpec
 import java.io.File
@@ -30,26 +31,26 @@ fun ExternalNativeBuildJsonTask.abiModel(): CxxAbiModel {
  * This function contains `configureEach` call, to avoid "task warming-up failure",
  * **DO NOT** call this during other tasks' configuration
  */
-fun Project.getCxxAbiModelProperty(): Property<CxxAbiModel> {
-    val abiModel: Property<CxxAbiModel> = project.objects.property()
-    tasks.withType<ExternalNativeBuildJsonTask>().configureEach {
-        doFirst {
-            // `CxxAbiModel.rewriteWithLocations` requires a "Non-default logger"
-            // https://cs.android.com/android-studio/platform/tools/base/+/mirror-goog-studio-main:build-system/gradle-core/src/main/java/com/android/build/gradle/internal/cxx/configure/NativeLocationsBuildService.kt;drc=b5516899015633c99dc64b510d9729c4e001e89c;l=67
-            // just supply a random LoggingEnvironment or whatever this is
-            PassThroughRecordingLoggingEnvironment().use {
-                abiModel.set(
-                    abiModel().rewriteWithLocations(nativeLocationsBuildService.get())
-                )
-            }
+fun Project.getCxxAbiModelProperty(): Provider<CxxAbiModel> =
+    providers.provider {
+        val jsonTask =
+            tasks.withType<ExternalNativeBuildJsonTask>()
+                .sortedBy { it.name }
+                .lastOrNull { task ->
+                    task.state.executed || task.state.upToDate || task.state.skipped
+                }
+                ?: error("No ExternalNativeBuildJsonTask has completed for $path")
+        // `CxxAbiModel.rewriteWithLocations` requires a "Non-default logger"
+        // https://cs.android.com/android-studio/platform/tools/base/+/mirror-goog-studio-main:build-system/gradle-core/src/main/java/com/android/build/gradle/internal/cxx/configure/NativeLocationsBuildService.kt;drc=b5516899015633c99dc64b510d9729c4e001e89c;l=67
+        PassThroughRecordingLoggingEnvironment().use {
+            jsonTask.abiModel().rewriteWithLocations(jsonTask.nativeLocationsBuildService.get())
         }
     }
-    return abiModel
-}
 
 abstract class CMakeBuildInstallTask : DefaultTask() {
-    @get:Input
-    @get:Optional
+    // The ABI model is discovered from AGP's configureCMake task at execution time.
+    // Treat it as internal state so Gradle does not require the value during task graph calculation.
+    @get:Internal
     abstract val cxxAbiModel: Property<CxxAbiModel>
 
     @get:Input

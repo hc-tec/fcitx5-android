@@ -9,6 +9,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Message
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
@@ -28,6 +29,7 @@ import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.time.OffsetDateTime
+import java.util.LinkedHashMap
 import java.util.UUID
 
 private const val ProtocolVersion = "1.0.0"
@@ -35,6 +37,8 @@ private const val DefaultLocalDomain = "function-kit.local"
 private const val DefaultAssetPathPrefix = "/assets/"
 private const val DefaultBridgeName = "AndroidFunctionKitHost"
 private const val DefaultLegacyBridgeName = "AndroidFunctionKitLegacyHost"
+private const val LogTag = "FunctionKitWebViewHost"
+private const val RecentReplyProxyLimit = 64
 
 private val AllowedSurfaces = setOf("inline", "panel", "editor")
 private val AllowedInboundTypes =
@@ -106,6 +110,12 @@ class FunctionKitWebViewHost(
     }
 
     private var bridgeInstalled = false
+    private var hasReceivedUiEnvelope = false
+    private val replyProxyByUiMessageId =
+        object : LinkedHashMap<String, JavaScriptReplyProxy>(RecentReplyProxyLimit, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, JavaScriptReplyProxy>?): Boolean =
+                size > RecentReplyProxyLimit
+        }
     private val legacyBridge =
         object {
             @JavascriptInterface
@@ -116,7 +126,7 @@ class FunctionKitWebViewHost(
                 }
 
                 webView.post {
-                    parseInboundEnvelope(rawEnvelope)?.let(onUiEnvelope)
+                    dispatchInboundEnvelope(rawEnvelope)
                 }
             }
         }
@@ -254,19 +264,26 @@ class FunctionKitWebViewHost(
             }
 
         WebView.setWebContentsDebuggingEnabled(config.enableDevTools)
+        hasReceivedUiEnvelope = false
+        synchronized(replyProxyByUiMessageId) {
+            replyProxyByUiMessageId.clear()
+        }
         installBridgeIfNeeded()
         webView.loadUrl(buildEntryUrl(entryRelativePath))
     }
 
     fun dispatchEnvelope(envelope: JSONObject) {
+        FunctionKitEnvelopeProbe.recordOutbound(envelope)
         val serializedEnvelope = envelope.toString()
+        val messageType = envelope.optString("type")
         webView.post {
-            WebViewCompat.postWebMessage(
-                webView,
-                WebMessageCompat(serializedEnvelope),
-                Uri.parse(config.localOrigin)
-            )
-            dispatchEnvelopeViaJavascript(serializedEnvelope)
+            if (hasReceivedUiEnvelope) {
+                Log.d(LogTag, "Dispatching envelope type=$messageType via javascript")
+                dispatchEnvelopeViaJavascript(serializedEnvelope)
+            } else {
+                Log.d(LogTag, "Dispatching envelope type=$messageType via webmessage")
+                dispatchEnvelopeViaWebMessage(serializedEnvelope)
+            }
         }
     }
 
@@ -291,6 +308,49 @@ class FunctionKitWebViewHost(
         )
     }
 
+    private fun dispatchEnvelopeViaWebMessage(serializedEnvelope: String) {
+        try {
+            WebViewCompat.postWebMessage(
+                webView,
+                WebMessageCompat(serializedEnvelope),
+                Uri.parse(config.localOrigin)
+            )
+        } catch (error: Throwable) {
+            Log.w(LogTag, "postWebMessage failed, falling back to JavaScript dispatch", error)
+            dispatchEnvelopeViaJavascript(serializedEnvelope)
+        }
+    }
+
+    private fun dispatchEnvelopeViaReplyProxy(
+        replyTo: String,
+        serializedEnvelope: String,
+        envelope: JSONObject
+    ): Boolean {
+        val replyProxy =
+            synchronized(replyProxyByUiMessageId) {
+                replyProxyByUiMessageId[replyTo]
+            } ?: return false
+
+        return try {
+            replyProxy.postMessage(serializedEnvelope)
+            Log.d(
+                LogTag,
+                "Dispatched envelope type=${envelope.optString("type")} via replyProxy replyTo=$replyTo"
+            )
+            true
+        } catch (error: Throwable) {
+            synchronized(replyProxyByUiMessageId) {
+                replyProxyByUiMessageId.remove(replyTo)
+            }
+            Log.w(
+                LogTag,
+                "replyProxy dispatch failed for type=${envelope.optString("type")} replyTo=$replyTo",
+                error
+            )
+            false
+        }
+    }
+
     private fun dispatchEnvelopeViaJavascript(serializedEnvelope: String) {
         val quotedEnvelope = JSONObject.quote(serializedEnvelope)
         val script =
@@ -310,6 +370,37 @@ class FunctionKitWebViewHost(
         webView.evaluateJavascript(script, null)
     }
 
+    private fun dispatchInboundEnvelope(
+        rawEnvelope: String,
+        replyProxy: JavaScriptReplyProxy? = null
+    ) {
+        parseInboundEnvelope(rawEnvelope)?.let { envelope ->
+            hasReceivedUiEnvelope = true
+            rememberReplyProxy(envelope, replyProxy)
+            Log.d(
+                LogTag,
+                "Inbound envelope type=${envelope.optString("type")} kitId=${envelope.optString("kitId")} surface=${envelope.optString("surface")}"
+            )
+            onUiEnvelope(envelope)
+        }
+    }
+
+    private fun rememberReplyProxy(
+        envelope: JSONObject,
+        replyProxy: JavaScriptReplyProxy?
+    ) {
+        if (replyProxy == null) {
+            return
+        }
+        val messageId = envelope.optString("messageId")
+        if (messageId.isBlank()) {
+            return
+        }
+        synchronized(replyProxyByUiMessageId) {
+            replyProxyByUiMessageId[messageId] = replyProxy
+        }
+    }
+
     fun dispatchReadyAck(
         replyTo: String?,
         kitId: String,
@@ -326,7 +417,9 @@ class FunctionKitWebViewHost(
             payload =
                 JSONObject()
                     .put("sessionId", sessionId)
-                    .put("grantedPermissions", grantedPermissions)
+                    // org.json does not reliably serialize Kotlin/Java lists into JSON arrays across API levels.
+                    // Force a JSONArray so the WebView runtime sees an array instead of a string like "[a, b]".
+                    .put("grantedPermissions", JSONArray(grantedPermissions))
                     .put("hostInfo", hostInfo)
         )
     }
@@ -341,7 +434,7 @@ class FunctionKitWebViewHost(
             replyTo = null,
             kitId = kitId,
             surface = surface,
-            payload = JSONObject().put("grantedPermissions", grantedPermissions)
+            payload = JSONObject().put("grantedPermissions", JSONArray(grantedPermissions))
         )
     }
 
@@ -606,7 +699,7 @@ class FunctionKitWebViewHost(
                         return
                     }
 
-                    parseInboundEnvelope(rawEnvelope)?.let(onUiEnvelope)
+                    dispatchInboundEnvelope(rawEnvelope, replyProxy)
                 }
             }
         )

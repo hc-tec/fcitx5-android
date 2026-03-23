@@ -4,6 +4,7 @@
  */
 package org.fcitx.fcitx5.android.input.functionkit
 
+import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,7 +17,9 @@ internal data class HostAiChatConfig(
     val apiKey: String,
     val model: String,
     val timeoutSeconds: Int,
-    val maxContextChars: Int
+    val maxContextChars: Int,
+    val bootstrapAvailable: Boolean = false,
+    val usesBootstrapDefaults: Boolean = false
 ) {
     val endpoint: String? =
         normalizedBaseUrl.takeIf { it.isNotBlank() }?.let {
@@ -36,21 +39,128 @@ internal data class HostAiChatCompletion(
     val usage: JSONObject?
 )
 
+internal data class HostAiChatPrefsSnapshot(
+    val enabled: Boolean,
+    val enabledSet: Boolean,
+    val baseUrl: String,
+    val baseUrlSet: Boolean,
+    val apiKey: String,
+    val apiKeySet: Boolean,
+    val model: String,
+    val modelSet: Boolean,
+    val timeoutSeconds: Int,
+    val timeoutSecondsSet: Boolean
+)
+
+internal data class HostAiChatBootstrapConfig(
+    val enabled: Boolean,
+    val providerType: String,
+    val baseUrl: String,
+    val apiKey: String,
+    val model: String,
+    val timeoutSeconds: Int
+) {
+    val isConfigured: Boolean =
+        enabled && baseUrl.isNotBlank() && model.isNotBlank()
+
+    companion object {
+        fun fromBuildConfig(): HostAiChatBootstrapConfig =
+            HostAiChatBootstrapConfig(
+                enabled = BuildConfig.FUNCTION_KIT_DEBUG_AI_BOOTSTRAP_ENABLED,
+                providerType =
+                    BuildConfig.FUNCTION_KIT_DEBUG_AI_PROVIDER_TYPE
+                        .trim()
+                        .ifBlank { "openai-compatible" },
+                baseUrl = BuildConfig.FUNCTION_KIT_DEBUG_AI_BASE_URL.trim(),
+                apiKey = BuildConfig.FUNCTION_KIT_DEBUG_AI_API_KEY.trim(),
+                model = BuildConfig.FUNCTION_KIT_DEBUG_AI_MODEL.trim(),
+                timeoutSeconds = BuildConfig.FUNCTION_KIT_DEBUG_AI_TIMEOUT_SECONDS
+            )
+    }
+}
+
 internal object FunctionKitAiChatBackend {
     private const val DefaultMaxContextChars = 12_000
-    private val JsonFenceRegex = Regex("""```(?:json)?\s*(\{.*?})\s*```""", RegexOption.DOT_MATCHES_ALL)
 
-    fun fromPrefs(prefs: AppPrefs.Ai): HostAiChatConfig {
-        val baseUrl = prefs.chatBaseUrl.getValue().trim()
+    fun fromPrefs(
+        prefs: AppPrefs.Ai,
+        bootstrapConfig: HostAiChatBootstrapConfig = HostAiChatBootstrapConfig.fromBuildConfig()
+    ): HostAiChatConfig =
+        resolveConfig(
+            prefs =
+                HostAiChatPrefsSnapshot(
+                    enabled = prefs.chatEnabled.getValue(),
+                    enabledSet = prefs.chatEnabled.sharedPreferences.contains(prefs.chatEnabled.key),
+                    baseUrl = prefs.chatBaseUrl.getValue().trim(),
+                    baseUrlSet = prefs.chatBaseUrl.sharedPreferences.contains(prefs.chatBaseUrl.key),
+                    apiKey = prefs.chatApiKey.getValue().trim(),
+                    apiKeySet = prefs.chatApiKey.sharedPreferences.contains(prefs.chatApiKey.key),
+                    model = prefs.chatModel.getValue().trim(),
+                    modelSet = prefs.chatModel.sharedPreferences.contains(prefs.chatModel.key),
+                    timeoutSeconds = prefs.chatTimeoutSeconds.getValue(),
+                    timeoutSecondsSet =
+                        prefs.chatTimeoutSeconds.sharedPreferences.contains(prefs.chatTimeoutSeconds.key)
+                ),
+            bootstrapConfig = bootstrapConfig
+        )
+
+    internal fun resolveConfig(
+        prefs: HostAiChatPrefsSnapshot,
+        bootstrapConfig: HostAiChatBootstrapConfig = HostAiChatBootstrapConfig.fromBuildConfig()
+    ): HostAiChatConfig {
+        val bootstrapAvailable = bootstrapConfig.isConfigured
+        val baseUrl =
+            when {
+                prefs.baseUrlSet -> prefs.baseUrl.trim()
+                bootstrapAvailable -> bootstrapConfig.baseUrl.trim()
+                else -> prefs.baseUrl.trim()
+            }
+        val apiKey =
+            when {
+                prefs.apiKeySet -> prefs.apiKey.trim()
+                bootstrapAvailable -> bootstrapConfig.apiKey.trim()
+                else -> prefs.apiKey.trim()
+            }
+        val model =
+            when {
+                prefs.modelSet -> prefs.model.trim()
+                bootstrapAvailable -> bootstrapConfig.model.trim()
+                else -> prefs.model.trim()
+            }
+        val timeoutSeconds =
+            when {
+                prefs.timeoutSecondsSet -> prefs.timeoutSeconds.coerceAtLeast(1)
+                bootstrapAvailable -> bootstrapConfig.timeoutSeconds.coerceAtLeast(1)
+                else -> prefs.timeoutSeconds.coerceAtLeast(1)
+            }
+        val enabled =
+            when {
+                prefs.enabledSet -> prefs.enabled
+                bootstrapAvailable -> true
+                else -> prefs.enabled
+            }
+        val usesBootstrapDefaults =
+            bootstrapAvailable &&
+                (
+                    (!prefs.enabledSet && enabled) ||
+                        (!prefs.baseUrlSet && baseUrl == bootstrapConfig.baseUrl.trim()) ||
+                        (!prefs.apiKeySet && apiKey == bootstrapConfig.apiKey.trim()) ||
+                        (!prefs.modelSet && model == bootstrapConfig.model.trim()) ||
+                        (!prefs.timeoutSecondsSet &&
+                            timeoutSeconds == bootstrapConfig.timeoutSeconds.coerceAtLeast(1))
+                )
+
         return HostAiChatConfig(
-            enabled = prefs.chatEnabled.getValue(),
-            providerType = "openai-compatible",
+            enabled = enabled,
+            providerType = bootstrapConfig.providerType.ifBlank { "openai-compatible" },
             configuredBaseUrl = baseUrl,
             normalizedBaseUrl = baseUrl.trimEnd('/'),
-            apiKey = prefs.chatApiKey.getValue().trim(),
-            model = prefs.chatModel.getValue().trim(),
-            timeoutSeconds = prefs.chatTimeoutSeconds.getValue().coerceAtLeast(1),
-            maxContextChars = DefaultMaxContextChars
+            apiKey = apiKey,
+            model = model,
+            timeoutSeconds = timeoutSeconds,
+            maxContextChars = DefaultMaxContextChars,
+            bootstrapAvailable = bootstrapAvailable,
+            usesBootstrapDefaults = usesBootstrapDefaults
         )
     }
 
@@ -84,7 +194,7 @@ internal object FunctionKitAiChatBackend {
         }
 
         parseJsonObject(trimmed)?.let { return it }
-        JsonFenceRegex.find(trimmed)?.groupValues?.getOrNull(1)?.let(::parseJsonObject)?.let { return it }
+        extractFencedJsonObject(trimmed)?.let(::parseJsonObject)?.let { return it }
 
         val start = trimmed.indexOf('{')
         val end = trimmed.lastIndexOf('}')
@@ -173,6 +283,36 @@ internal object FunctionKitAiChatBackend {
                 }
             else -> ""
         }.trim()
+
+    private fun extractFencedJsonObject(rawText: String): String? {
+        var searchStart = 0
+        while (searchStart < rawText.length) {
+            val fenceStart = rawText.indexOf("```", startIndex = searchStart)
+            if (fenceStart < 0) {
+                return null
+            }
+
+            val headerEnd = rawText.indexOf('\n', startIndex = fenceStart)
+            if (headerEnd < 0) {
+                return null
+            }
+
+            val header = rawText.substring(fenceStart + 3, headerEnd).trim()
+            val contentStart = headerEnd + 1
+            val fenceEnd = rawText.indexOf("```", startIndex = contentStart)
+            if (fenceEnd < 0) {
+                return null
+            }
+
+            if (header.isBlank() || header.equals("json", ignoreCase = true)) {
+                return rawText.substring(contentStart, fenceEnd).trim()
+            }
+
+            searchStart = fenceEnd + 3
+        }
+
+        return null
+    }
 
     private fun parseJsonObject(raw: String): JSONObject? =
         try {

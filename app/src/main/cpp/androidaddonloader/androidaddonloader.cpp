@@ -48,16 +48,25 @@ AddonInstance *AndroidSharedLibraryLoader::load(const AddonInfo &info,
             }
             const auto file =
                     stringutils::concat(libname, FCITX_LIBRARY_SUFFIX);
+            FCITX_INFO() << "Resolving addon library " << file << " for addon "
+                         << info.uniqueName() << " in addon dirs "
+                         << standardPaths_.directories(StandardPathsType::Addon);
             const auto libraryPaths = standardPaths_.locateAll(
                     StandardPathsType::Addon, file);
             if (libraryPaths.empty()) {
                 FCITX_ERROR() << "Could not locate library " << file
-                              << " for addon " << info.uniqueName() << ".";
+                              << " for addon " << info.uniqueName()
+                              << ". Addon dirs="
+                              << standardPaths_.directories(StandardPathsType::Addon);
             }
             bool loaded = false;
             for (const auto &libraryPath: libraryPaths) {
+                FCITX_INFO() << "Trying addon library path " << libraryPath
+                             << " for addon " << info.uniqueName();
                 Library library(libraryPath);
                 if (library.load(flag)) {
+                    FCITX_INFO() << "Loaded addon library " << libraryPath
+                                 << " for addon " << info.uniqueName();
                     libraries.push_back(std::move(library));
                     loaded = true;
                     break;
@@ -89,7 +98,10 @@ AddonInstance *AndroidSharedLibraryLoader::load(const AddonInfo &info,
     }
 
     try {
-        return iter->second->factory()->create(manager);
+        auto *instance = iter->second->factory()->create(manager);
+        FCITX_INFO() << "Created addon instance for " << info.uniqueName()
+                     << ": " << instance;
+        return instance;
     } catch (const std::exception &e) {
         FCITX_ERROR() << "Failed to create addon: " << info.uniqueName() << " "
                       << e.what();

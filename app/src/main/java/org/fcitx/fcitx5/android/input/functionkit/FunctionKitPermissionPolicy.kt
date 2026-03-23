@@ -19,6 +19,7 @@ internal object FunctionKitPermissionPolicy {
             "panel.state.write" -> prefs.allowPanelStateWrite.getValue()
             "network.fetch" -> prefs.allowNetworkFetch.getValue()
             "ai.chat" -> prefs.allowAiChat.getValue()
+            "ai.chat.status.request" -> prefs.allowAiChat.getValue()
             "ai.agent.list" -> prefs.remoteInferenceEnabled.getValue() && prefs.allowAiAgentAccess.getValue()
             "ai.agent.run" -> prefs.remoteInferenceEnabled.getValue() && prefs.allowAiAgentAccess.getValue()
             "composer.open" -> prefs.allowPanelStateWrite.getValue()

@@ -62,6 +62,7 @@ class FcitxHeadersPlugin : Plugin<Project> {
             cxxAbiModel.set(abiModel)
             installComponent.set(component)
             destDir.set(dest)
+            dependsOn(project.tasks.withType<ExternalNativeBuildJsonTask>())
             mustRunAfter(project.tasks.withType<ExternalNativeBuildJsonTask>())
         }
         // Make sure headers have been installed before configuring prefab package

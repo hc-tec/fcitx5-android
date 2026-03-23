@@ -6,9 +6,13 @@
 
 #include <sys/stat.h>
 
+#include <filesystem>
 #include <memory>
 #include <future>
 #include <fstream>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
 
 #include <android/log.h>
 
@@ -47,6 +51,44 @@
 #include "helper-types.h"
 #include "object-conversion.h"
 
+namespace {
+
+void logPathExists(std::string_view label, const std::filesystem::path &path) {
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    FCITX_INFO() << label << ": " << path << " exists=" << exists
+                 << " ec=" << ec.value();
+}
+
+void logStartupPathDiagnostics(const std::string &appData,
+                               const std::string &appLib) {
+    const auto &globalPaths = fcitx::StandardPaths::global();
+    fcitx::StandardPaths freshPaths(
+            "fcitx5",
+            std::unordered_map<std::string, std::vector<std::filesystem::path>>{},
+            fcitx::Flags<fcitx::StandardPathsOption>(fcitx::StandardPathsOption::SkipBuiltInPath)
+    );
+    FCITX_INFO() << "Global pkgdata dirs: "
+                 << globalPaths.directories(fcitx::StandardPathsType::PkgData);
+    FCITX_INFO() << "Fresh pkgdata dirs: "
+                 << freshPaths.directories(fcitx::StandardPathsType::PkgData);
+    FCITX_INFO() << "Global addon dirs: "
+                 << globalPaths.directories(fcitx::StandardPathsType::Addon);
+    FCITX_INFO() << "Fresh addon dirs: "
+                 << freshPaths.directories(fcitx::StandardPathsType::Addon);
+    logPathExists("Expected addon config androidfrontend",
+                  std::filesystem::path(appData) /
+                          "usr/share/fcitx5/addon/androidfrontend.conf");
+    logPathExists("Expected addon config androidkeyboard",
+                  std::filesystem::path(appData) /
+                          "usr/share/fcitx5/addon/androidkeyboard.conf");
+    logPathExists("Expected addon library libandroidfrontend.so",
+                  std::filesystem::path(appLib) / "libandroidfrontend.so");
+    logPathExists("Expected addon library libandroidkeyboard.so",
+                  std::filesystem::path(appLib) / "libandroidkeyboard.so");
+}
+
+} // namespace
 
 class Fcitx {
 public:
@@ -88,10 +130,20 @@ public:
         p_dispatcher->attach(&p_instance->eventLoop());
         p_instance->initialize();
         auto &addonMgr = p_instance->addonManager();
+        FCITX_INFO() << "Loaded addons after initialize: "
+                     << addonMgr.loadedAddonNames();
+        FCITX_INFO() << "Known frontend addons after initialize: "
+                     << addonMgr.addonNames(fcitx::AddonCategory::Frontend);
+        FCITX_INFO() << "Known input method addons after initialize: "
+                     << addonMgr.addonNames(fcitx::AddonCategory::InputMethod);
         p_frontend = addonMgr.addon("androidfrontend");
         p_quickphrase = addonMgr.addon("quickphrase");
         p_unicode = addonMgr.addon("unicode");
         p_clipboard = addonMgr.addon("clipboard", true);
+        FCITX_INFO() << "Resolved addon instance androidfrontend=" << p_frontend;
+        FCITX_INFO() << "Resolved addon instance quickphrase=" << p_quickphrase;
+        FCITX_INFO() << "Resolved addon instance unicode=" << p_unicode;
+        FCITX_INFO() << "Resolved addon instance clipboard=" << p_clipboard;
         setupCallback(p_frontend);
     }
 
@@ -587,6 +639,8 @@ Java_org_fcitx_fcitx5_android_core_Fcitx_startupFcitx(
         fcitx::registerDomain(CString(env, domain), locale_dir_char);
     }
 
+    logStartupPathDiagnostics(*appData_, *appLib_);
+
     auto candidateListCallback = [](const std::vector<std::string> &candidates, const int size) {
         auto env = GlobalRef->AttachEnv();
         auto candidatesArray = JRef<jobjectArray>(env, env->NewObjectArray(static_cast<int>(candidates.size()), GlobalRef->String, nullptr));
@@ -709,6 +763,10 @@ Java_org_fcitx_fcitx5_android_core_Fcitx_startupFcitx(
 
     Fcitx::Instance().startup([&](auto *androidfrontend) {
         FCITX_INFO() << "Setting up callback";
+        if (!androidfrontend) {
+            FCITX_ERROR() << "androidfrontend addon instance is null during startup; skipping callback setup.";
+            return;
+        }
         readyCallback();
         androidfrontend->template call<fcitx::IAndroidFrontend::setCandidateListCallback>(candidateListCallback);
         androidfrontend->template call<fcitx::IAndroidFrontend::setCommitStringCallback>(commitStringCallback);
