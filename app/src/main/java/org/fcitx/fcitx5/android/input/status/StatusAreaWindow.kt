@@ -26,7 +26,7 @@ import org.fcitx.fcitx5.android.input.dependency.fcitx
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editorinfo.EditorInfoWindow
-import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessSpec
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.InputMethod
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKit
@@ -59,17 +59,30 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
 
     private val editorInfoInspector by AppPrefs.getInstance().internal.editorInfoInspector
 
-    private val staticEntries by lazy {
-        arrayOf(
-            *FunctionKitQuickAccessSpec.statusEntries()
-                .map {
-                    StatusAreaEntry.Android(
-                        context.getString(it.label),
-                        it.icon,
-                        it.type
+    private fun staticEntries(): Array<StatusAreaEntry.Android> {
+        val kitEntries =
+            FunctionKitRegistry.listInstalled(context)
+                .ifEmpty {
+                    listOf(
+                        FunctionKitRegistry.resolve(context)
                     )
                 }
-                .toTypedArray(),
+                .map { kit ->
+                    StatusAreaEntry.Android(
+                        label = FunctionKitRegistry.displayName(context, kit),
+                        icon = R.drawable.ic_baseline_extension_24,
+                        type = FunctionKit,
+                        functionKitId = kit.id
+                    )
+                }
+
+        return arrayOf(
+            *kitEntries.toTypedArray(),
+            StatusAreaEntry.Android(
+                context.getString(R.string.function_kit_settings),
+                R.drawable.ic_baseline_settings_24,
+                FunctionKitSettings
+            ),
             StatusAreaEntry.Android(
                 context.getString(R.string.theme),
                 R.drawable.ic_baseline_palette_24,
@@ -149,7 +162,7 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                         popup.show()
                     }
                     is StatusAreaEntry.Android -> when (entry.type) {
-                        FunctionKit -> windowManager.attachWindow(FunctionKitWindow())
+                        FunctionKit -> windowManager.attachWindow(FunctionKitWindow(entry.functionKitId))
                         FunctionKitSettings -> AppUtil.launchMainToFunctionKitSettings(context)
                         InputMethod -> fcitx.runImmediately { inputMethodEntryCached }.let {
                             AppUtil.launchMainToInputMethodConfig(
@@ -202,7 +215,7 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
 
     override fun onStatusAreaUpdate(actions: Array<Action>) {
         adapter.entries = arrayOf(
-            *staticEntries,
+            *staticEntries(),
             *Array(actions.size) { StatusAreaEntry.fromAction(actions[it]) }
         )
     }

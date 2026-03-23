@@ -14,7 +14,12 @@ sealed class StatusAreaEntry(
     val icon: Int,
     val active: Boolean
 ) {
-    class Android(label: String, icon: Int, val type: Type) :
+    class Android(
+        label: String,
+        icon: Int,
+        val type: Type,
+        val functionKitId: String? = null
+    ) :
         StatusAreaEntry(label, icon, false) {
         enum class Type {
             FunctionKit,

@@ -60,7 +60,9 @@ private class FunctionKitComposerEditText(context: Context) : AppCompatEditText(
     }
 }
 
-class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.ExtendedInputWindow<FunctionKitWindow>(),
+class FunctionKitWindow(
+    private val requestedKitId: String? = null
+) : org.fcitx.fcitx5.android.input.wm.InputWindow.ExtendedInputWindow<FunctionKitWindow>(),
     InputBroadcastReceiver,
     FcitxInputMethodService.LocalInputTarget {
 
@@ -142,13 +144,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
     private val aiPrefs = AppPrefs.getInstance().ai
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
     private val functionKitManifest by lazy {
-        FunctionKitManifest.loadFromAssets(
-            context = context,
-            assetPath = FunctionKitDefaults.manifestAssetPath,
-            fallbackId = FunctionKitDefaults.kitId,
-            fallbackEntryHtmlAssetPath = FunctionKitDefaults.entryAssetPath,
-            fallbackRuntimePermissions = FunctionKitDefaults.supportedPermissions
-        )
+        FunctionKitRegistry.resolve(context, requestedKitId)
     }
 
     private val hostConfig by lazy {
@@ -433,7 +429,7 @@ class FunctionKitWindow : org.fcitx.fcitx5.android.input.wm.InputWindow.Extended
         currentPreeditText = data.toString()
     }
 
-    override val title: String by lazy { context.getString(R.string.function_kit_auto_reply) }
+    override val title: String by lazy { FunctionKitRegistry.displayName(context, functionKitManifest) }
 
     override fun onCreateBarExtension(): View = barExtension
 

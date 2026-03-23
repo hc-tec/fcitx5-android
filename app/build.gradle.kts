@@ -16,6 +16,11 @@ val functionKitWorkspaceRoot =
         ?: rootDir.resolve("../../../")
 val functionKitRuntimeSdkDir = functionKitWorkspaceRoot.resolve("function-kit-runtime-sdk")
 val functionKitCatalogDir = functionKitWorkspaceRoot.resolve("function-kits")
+val functionKitDirectories =
+    functionKitCatalogDir.listFiles()
+        ?.filter { it.isDirectory && it.resolve("manifest.json").isFile }
+        .orEmpty()
+        .sortedBy { it.name }
 val functionKitAssetsDir = layout.buildDirectory.dir("generated/function-kit-assets")
 val functionKitTestAssetsDir = layout.buildDirectory.dir("generated/function-kit-test-assets")
 
@@ -27,18 +32,21 @@ val syncFunctionKitAssets by tasks.registering(Sync::class) {
         check(functionKitRuntimeSdkDir.resolve("dist").isDirectory) {
             "Missing Function Kit runtime bundle directory: ${functionKitRuntimeSdkDir.resolve("dist")}"
         }
-        check(functionKitCatalogDir.resolve("chat-auto-reply/ui/app").isDirectory) {
-            "Missing Function Kit UI directory: ${functionKitCatalogDir.resolve("chat-auto-reply/ui/app")}"
+        check(functionKitDirectories.isNotEmpty()) {
+            "Missing Function Kit directories under: $functionKitCatalogDir"
         }
     }
     from(functionKitRuntimeSdkDir.resolve("dist")) {
         into("function-kit-runtime-sdk/dist")
     }
-    from(functionKitCatalogDir.resolve("chat-auto-reply/manifest.json")) {
-        into("function-kits/chat-auto-reply")
-    }
-    from(functionKitCatalogDir.resolve("chat-auto-reply/ui/app")) {
-        into("function-kits/chat-auto-reply/ui/app")
+    functionKitDirectories.forEach { kitDir ->
+        val kitId = kitDir.name
+        from(kitDir.resolve("manifest.json")) {
+            into("function-kits/$kitId")
+        }
+        from(kitDir.resolve("ui/app")) {
+            into("function-kits/$kitId/ui/app")
+        }
     }
 }
 
@@ -47,12 +55,17 @@ val syncFunctionKitTestAssets by tasks.registering(Sync::class) {
     description = "Sync browser Function Kit test fixtures into the Android test assets."
     into(functionKitTestAssetsDir)
     doFirst {
-        check(functionKitCatalogDir.resolve("chat-auto-reply/tests/fixtures").isDirectory) {
-            "Missing Function Kit fixture directory: ${functionKitCatalogDir.resolve("chat-auto-reply/tests/fixtures")}"
+        check(functionKitDirectories.isNotEmpty()) {
+            "Missing Function Kit directories under: $functionKitCatalogDir"
         }
     }
-    from(functionKitCatalogDir.resolve("chat-auto-reply/tests/fixtures")) {
-        into("function-kits/chat-auto-reply/tests/fixtures")
+    functionKitDirectories.forEach { kitDir ->
+        val fixturesDir = kitDir.resolve("tests/fixtures")
+        if (fixturesDir.isDirectory) {
+            from(fixturesDir) {
+                into("function-kits/${kitDir.name}/tests/fixtures")
+            }
+        }
     }
 }
 

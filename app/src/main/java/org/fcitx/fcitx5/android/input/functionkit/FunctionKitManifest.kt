@@ -11,6 +11,8 @@ import java.nio.charset.StandardCharsets
 
 internal data class FunctionKitManifest(
     val id: String,
+    val name: String,
+    val description: String?,
     val entryHtmlAssetPath: String,
     val runtimePermissions: List<String>,
     val ai: AiConfig,
@@ -20,13 +22,15 @@ internal data class FunctionKitManifest(
     val remoteRenderPath: String = "/v1/function-kits/$id/render"
 
     fun toJson(): JSONObject =
-        JSONObject()
-            .put("id", id)
-            .put("entryHtmlAssetPath", entryHtmlAssetPath)
-            .put("runtimePermissions", JSONArray(runtimePermissions))
-            .put("remoteRenderPath", remoteRenderPath)
-            .put("manifestAssetPath", manifestAssetPath)
-            .put("ai", ai.toJson())
+            JSONObject()
+                .put("id", id)
+                .put("name", name)
+                .put("description", description)
+                .put("entryHtmlAssetPath", entryHtmlAssetPath)
+                .put("runtimePermissions", JSONArray(runtimePermissions))
+                .put("remoteRenderPath", remoteRenderPath)
+                .put("manifestAssetPath", manifestAssetPath)
+                .put("ai", ai.toJson())
             .put("discovery", discovery.toJson())
 
     data class AiConfig(
@@ -180,6 +184,8 @@ internal data class FunctionKitManifest(
 
             return FunctionKitManifest(
                 id = id,
+                name = root.optString("name").ifBlank { id },
+                description = root.optString("description").nullIfBlank(),
                 entryHtmlAssetPath =
                     bundle?.optString("html")
                         ?.takeUnless { it.isNullOrBlank() }
@@ -223,6 +229,8 @@ internal data class FunctionKitManifest(
         ): FunctionKitManifest =
             FunctionKitManifest(
                 id = fallbackId,
+                name = fallbackId,
+                description = null,
                 entryHtmlAssetPath = fallbackEntryHtmlAssetPath,
                 runtimePermissions = fallbackRuntimePermissions.toList(),
                 ai =

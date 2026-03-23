@@ -14,8 +14,8 @@ import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.data.prefs.ManagedPreferenceFragment
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitDefaults
-import org.fcitx.fcitx5.android.input.functionkit.FunctionKitManifest
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitPermissionPolicy
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.ui.main.modified.MySwitchPreference
 import org.fcitx.fcitx5.android.utils.setup
 
@@ -25,13 +25,7 @@ class FunctionKitSettingsFragment :
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
     private val keyboardPrefs = AppPrefs.getInstance().keyboard
     private val functionKitManifest by lazy(LazyThreadSafetyMode.NONE) {
-        FunctionKitManifest.loadFromAssets(
-            context = requireContext(),
-            assetPath = FunctionKitDefaults.manifestAssetPath,
-            fallbackId = FunctionKitDefaults.kitId,
-            fallbackEntryHtmlAssetPath = FunctionKitDefaults.entryAssetPath,
-            fallbackRuntimePermissions = FunctionKitDefaults.supportedPermissions
-        )
+        FunctionKitRegistry.resolve(requireContext())
     }
 
     private lateinit var runtimePreference: Preference
