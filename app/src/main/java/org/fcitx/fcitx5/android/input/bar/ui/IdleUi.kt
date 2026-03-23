@@ -20,6 +20,7 @@ import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.bar.KawaiiBarComponent
 import org.fcitx.fcitx5.android.input.bar.ui.idle.ButtonsBarUi
+import org.fcitx.fcitx5.android.input.bar.ui.idle.ButtonsBarUi.FunctionKitToolbarButtonEntry
 import org.fcitx.fcitx5.android.input.bar.ui.idle.ClipboardSuggestionUi
 import org.fcitx.fcitx5.android.input.bar.ui.idle.InlineSuggestionsUi
 import org.fcitx.fcitx5.android.input.bar.ui.idle.NumberRow
@@ -46,7 +47,8 @@ class IdleUi(
     override val ctx: Context,
     private val theme: Theme,
     private val popup: PopupComponent,
-    private val commonKeyActionListener: CommonKeyActionListener
+    private val commonKeyActionListener: CommonKeyActionListener,
+    functionKitEntries: List<FunctionKitToolbarButtonEntry>
 ) : Ui {
 
     enum class State {
@@ -79,7 +81,7 @@ class IdleUi(
 
     val emptyBar = Space(ctx)
 
-    val buttonsUi = ButtonsBarUi(ctx, theme)
+    val buttonsUi = ButtonsBarUi(ctx, theme, functionKitEntries)
 
     val clipboardUi = ClipboardSuggestionUi(ctx, theme)
 

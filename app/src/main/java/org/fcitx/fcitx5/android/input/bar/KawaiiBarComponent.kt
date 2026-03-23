@@ -57,6 +57,7 @@ import org.fcitx.fcitx5.android.input.dependency.context
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editing.TextEditingWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.keyboard.CommonKeyActionListener
 import org.fcitx.fcitx5.android.input.keyboard.CustomGestureView
@@ -122,6 +123,17 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
 
     private var numberRowState = NumberRowState.Auto
 
+    private val toolbarFunctionKitEntries by lazy {
+        FunctionKitRegistry.listInstalled(context)
+            .ifEmpty { listOf(FunctionKitRegistry.resolve(context)) }
+            .map { kit ->
+                org.fcitx.fcitx5.android.input.bar.ui.idle.ButtonsBarUi.FunctionKitToolbarButtonEntry(
+                    kitId = kit.id,
+                    label = FunctionKitRegistry.displayName(context, kit)
+                )
+            }
+    }
+
     @Keep
     private val onClipboardUpdateListener =
         ClipboardManager.OnClipboardUpdateListener {
@@ -184,8 +196,10 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     }
 
     private fun updateFunctionKitToolbarButtonVisibility() {
-        idleUi.buttonsUi.functionKitButton.visibility =
-            if (showFunctionKitToolbarButton) View.VISIBLE else View.GONE
+        val visibility = if (showFunctionKitToolbarButton) View.VISIBLE else View.GONE
+        idleUi.buttonsUi.functionKitButtons.forEach {
+            it.button.visibility = visibility
+        }
     }
 
     private fun evalIdleUiState(fromUser: Boolean = false) {
@@ -286,7 +300,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     }
 
     private val idleUi: IdleUi by lazy {
-        IdleUi(context, theme, popup, commonKeyActionListener).apply {
+        IdleUi(context, theme, popup, commonKeyActionListener, toolbarFunctionKitEntries).apply {
             menuButton.setOnClickListener {
                 when (idleUi.currentState) {
                     IdleUi.State.Empty -> {
@@ -327,12 +341,14 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 clipboardButton.setOnClickListener {
                     windowManager.attachWindow(ClipboardWindow())
                 }
-                functionKitButton.setOnClickListener {
-                    windowManager.attachWindow(FunctionKitWindow())
-                }
-                functionKitButton.setOnLongClickListener {
-                    AppUtil.launchMainToFunctionKitSettings(context)
-                    true
+                functionKitButtons.forEach { kitButton ->
+                    kitButton.button.setOnClickListener {
+                        windowManager.attachWindow(FunctionKitWindow(kitButton.entry.kitId))
+                    }
+                    kitButton.button.setOnLongClickListener {
+                        AppUtil.launchMainToFunctionKitSettings(context)
+                        true
+                    }
                 }
                 moreButton.setOnClickListener {
                     windowManager.attachWindow(StatusAreaWindow())

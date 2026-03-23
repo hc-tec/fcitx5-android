@@ -11,21 +11,40 @@ import com.google.android.flexbox.JustifyContent
 import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.bar.ui.ToolButton
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessSpec
-import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessSpec.ToolbarShortcut
 import splitties.dimensions.dp
 import splitties.views.dsl.core.Ui
 import splitties.views.dsl.core.view
 
-class ButtonsBarUi(override val ctx: Context, private val theme: Theme) : Ui {
+class ButtonsBarUi(
+    override val ctx: Context,
+    private val theme: Theme,
+    functionKitEntries: List<FunctionKitToolbarButtonEntry>
+) : Ui {
+    data class FunctionKitToolbarButtonEntry(
+        val kitId: String,
+        val label: String
+    )
+
+    data class FunctionKitToolbarButtonUi(
+        val entry: FunctionKitToolbarButtonEntry,
+        val button: ToolButton
+    )
 
     override val root = view(::FlexboxLayout) {
         alignItems = AlignItems.CENTER
         justifyContent = JustifyContent.SPACE_AROUND
     }
 
-    private fun toolButton(spec: FunctionKitQuickAccessSpec.ToolbarButtonSpec) =
-        ToolButton(ctx, spec.icon, theme).apply {
-            contentDescription = ctx.getString(spec.label)
+    private fun fixedToolButton(shortcut: FunctionKitQuickAccessSpec.ToolbarShortcut) =
+        FunctionKitQuickAccessSpec.toolbarButton(shortcut).let { spec ->
+            ToolButton(ctx, spec.icon, theme).apply {
+                contentDescription = ctx.getString(spec.label)
+            }
+        }
+
+    private fun functionKitToolButton(entry: FunctionKitToolbarButtonEntry) =
+        ToolButton(ctx, FunctionKitQuickAccessSpec.functionKitIcon, theme).apply {
+            contentDescription = entry.label
         }
 
     private fun addToolButton(button: ToolButton) {
@@ -33,32 +52,40 @@ class ButtonsBarUi(override val ctx: Context, private val theme: Theme) : Ui {
         root.addView(button, FlexboxLayout.LayoutParams(size, size))
     }
 
-    val undoButton = toolButton(FunctionKitQuickAccessSpec.toolbarButton(ToolbarShortcut.Undo))
+    val undoButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.Undo)
 
-    val redoButton = toolButton(FunctionKitQuickAccessSpec.toolbarButton(ToolbarShortcut.Redo))
+    val redoButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.Redo)
 
-    val cursorMoveButton =
-        toolButton(FunctionKitQuickAccessSpec.toolbarButton(ToolbarShortcut.CursorMove))
+    val cursorMoveButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove)
 
-    val clipboardButton = toolButton(FunctionKitQuickAccessSpec.toolbarButton(ToolbarShortcut.Clipboard))
+    val clipboardButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard)
 
-    val functionKitButton =
-        toolButton(FunctionKitQuickAccessSpec.toolbarButton(ToolbarShortcut.FunctionKit))
+    val functionKitButtons =
+        functionKitEntries.map { entry ->
+            FunctionKitToolbarButtonUi(entry, functionKitToolButton(entry))
+        }
 
-    val moreButton = toolButton(FunctionKitQuickAccessSpec.toolbarButton(ToolbarShortcut.More))
+    val moreButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.More)
 
     init {
-        FunctionKitQuickAccessSpec.toolbarOrder.forEach { shortcut ->
-            val button =
-                when (shortcut) {
-                    ToolbarShortcut.FunctionKit -> functionKitButton
-                    ToolbarShortcut.Clipboard -> clipboardButton
-                    ToolbarShortcut.CursorMove -> cursorMoveButton
-                    ToolbarShortcut.Undo -> undoButton
-                    ToolbarShortcut.Redo -> redoButton
-                    ToolbarShortcut.More -> moreButton
+        val functionKitButtonsById = functionKitButtons.associateBy { it.entry.kitId }
+        FunctionKitQuickAccessSpec.buildToolbarSlots(functionKitEntries.map { it.kitId }).forEach { slot ->
+            when (slot) {
+                is FunctionKitQuickAccessSpec.ToolbarSlot.FunctionKit -> {
+                    functionKitButtonsById[slot.kitId]?.button?.let(::addToolButton)
                 }
-            addToolButton(button)
+                is FunctionKitQuickAccessSpec.ToolbarSlot.Fixed -> {
+                    val button =
+                        when (slot.shortcut) {
+                            FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard -> clipboardButton
+                            FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove -> cursorMoveButton
+                            FunctionKitQuickAccessSpec.ToolbarShortcut.Undo -> undoButton
+                            FunctionKitQuickAccessSpec.ToolbarShortcut.Redo -> redoButton
+                            FunctionKitQuickAccessSpec.ToolbarShortcut.More -> moreButton
+                        }
+                    addToolButton(button)
+                }
+            }
         }
     }
 }
