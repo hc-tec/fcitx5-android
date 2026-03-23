@@ -10,6 +10,7 @@ import com.google.android.flexbox.FlexboxLayout
 import com.google.android.flexbox.JustifyContent
 import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.bar.ui.ToolButton
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitIconLoader
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessSpec
 import splitties.dimensions.dp
 import splitties.views.dsl.core.Ui
@@ -22,7 +23,8 @@ class ButtonsBarUi(
 ) : Ui {
     data class FunctionKitToolbarButtonEntry(
         val kitId: String,
-        val label: String
+        val label: String,
+        val iconAssetPath: String? = null
     )
 
     data class FunctionKitToolbarButtonUi(
@@ -44,7 +46,8 @@ class ButtonsBarUi(
 
     private fun functionKitToolButton(entry: FunctionKitToolbarButtonEntry) =
         ToolButton(ctx, FunctionKitQuickAccessSpec.functionKitIcon, theme).apply {
-            setMonogram(FunctionKitQuickAccessSpec.functionKitMonogram(entry.label))
+            FunctionKitIconLoader.loadDrawable(ctx, entry.iconAssetPath)?.let(::setAssetIcon)
+                ?: setMonogram(FunctionKitQuickAccessSpec.functionKitMonogram(entry.label))
             contentDescription = entry.label
         }
 

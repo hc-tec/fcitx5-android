@@ -7,6 +7,7 @@ package org.fcitx.fcitx5.android.input.bar.ui
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.widget.ImageView
@@ -40,6 +41,8 @@ class ToolButton(context: Context) : CustomGestureView(context) {
         scaleType = ImageView.ScaleType.CENTER_INSIDE
     }
 
+    private var defaultImageTintList: ColorStateList? = null
+
     private val monogramView =
         AppCompatTextView(context).apply {
             isClickable = false
@@ -59,14 +62,25 @@ class ToolButton(context: Context) : CustomGestureView(context) {
     }
 
     constructor(context: Context, @DrawableRes icon: Int, theme: Theme) : this(context) {
-        image.imageTintList = ColorStateList.valueOf(theme.altKeyTextColor)
+        defaultImageTintList = ColorStateList.valueOf(theme.altKeyTextColor)
+        image.imageTintList = defaultImageTintList
         setMonogramTextColor(theme.altKeyTextColor)
         setIcon(icon)
         setPressHighlightColor(theme.keyPressHighlightColor)
     }
 
     fun setIcon(@DrawableRes icon: Int) {
+        image.imageTintList = defaultImageTintList
         image.imageResource = icon
+        image.visibility = VISIBLE
+        monogramView.visibility = GONE
+    }
+
+    fun setAssetIcon(drawable: Drawable) {
+        image.imageTintList = null
+        image.setImageDrawable(drawable)
+        image.visibility = VISIBLE
+        monogramView.visibility = GONE
     }
 
     fun setMonogram(text: String?) {

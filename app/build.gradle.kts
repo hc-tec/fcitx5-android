@@ -41,11 +41,12 @@ val syncFunctionKitAssets by tasks.registering(Sync::class) {
     }
     functionKitDirectories.forEach { kitDir ->
         val kitId = kitDir.name
-        from(kitDir.resolve("manifest.json")) {
+        from(kitDir) {
             into("function-kits/$kitId")
-        }
-        from(kitDir.resolve("ui/app")) {
-            into("function-kits/$kitId/ui/app")
+            exclude("README.md")
+            exclude("skills/**")
+            exclude("tools/**")
+            exclude("tests/**")
         }
     }
 }

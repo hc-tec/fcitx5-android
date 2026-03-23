@@ -16,6 +16,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.AutoScaleTextView
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitIconLoader
 import org.fcitx.fcitx5.android.input.keyboard.CustomGestureView
 import splitties.dimensions.dp
 import splitties.resources.drawable
@@ -95,7 +96,12 @@ class StatusAreaEntryUi(override val ctx: Context, private val theme: Theme) : U
     fun setEntry(entry: StatusAreaEntry) {
         val contentColor =
             if (entry.active) theme.genericActiveForegroundColor else theme.keyTextColor
-        if (entry.icon != 0) {
+        val customIcon = FunctionKitIconLoader.loadDrawable(ctx, entry.iconAssetPath)
+        if (customIcon != null) {
+            icon.visibility = View.VISIBLE
+            textIcon.visibility = View.GONE
+            icon.imageDrawable = customIcon
+        } else if (entry.icon != 0) {
             icon.visibility = View.VISIBLE
             textIcon.visibility = View.GONE
             icon.imageDrawable = ctx.drawable(entry.icon)!!.apply {

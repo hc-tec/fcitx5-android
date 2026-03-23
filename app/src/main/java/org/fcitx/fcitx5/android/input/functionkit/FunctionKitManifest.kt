@@ -13,19 +13,65 @@ internal data class FunctionKitManifest(
     val id: String,
     val name: String,
     val description: String?,
+    val iconAssets: List<IconAsset>,
     val entryHtmlAssetPath: String,
     val runtimePermissions: List<String>,
     val ai: AiConfig,
     val discovery: DiscoveryConfig,
     val manifestAssetPath: String
 ) {
+    data class IconAsset(
+        val assetPath: String,
+        val sizes: List<Int> = emptyList(),
+        val mimeType: String? = null
+    ) {
+        val largestDeclaredSize: Int? = sizes.maxOrNull()
+    }
+
     val remoteRenderPath: String = "/v1/function-kits/$id/render"
+
+    fun preferredIconAssetPath(targetSizePx: Int? = null): String? {
+        if (iconAssets.isEmpty()) {
+            return null
+        }
+
+        val sizedIcons = iconAssets.filter { it.largestDeclaredSize != null }
+        if (targetSizePx != null && sizedIcons.isNotEmpty()) {
+            return sizedIcons.minWithOrNull(
+                compareBy<IconAsset>(
+                    { icon ->
+                        val size = icon.largestDeclaredSize ?: Int.MAX_VALUE
+                        if (size >= targetSizePx) 0 else 1
+                    },
+                    { icon ->
+                        kotlin.math.abs((icon.largestDeclaredSize ?: targetSizePx) - targetSizePx)
+                    },
+                    { icon -> -(icon.largestDeclaredSize ?: 0) }
+                )
+            )?.assetPath
+        }
+
+        return sizedIcons.maxByOrNull { it.largestDeclaredSize ?: 0 }?.assetPath
+            ?: iconAssets.firstOrNull()?.assetPath
+    }
 
     fun toJson(): JSONObject =
             JSONObject()
                 .put("id", id)
                 .put("name", name)
                 .put("description", description)
+                .put(
+                    "iconAssets",
+                    JSONArray(
+                        iconAssets.map { icon ->
+                            JSONObject()
+                                .put("assetPath", icon.assetPath)
+                                .put("sizes", JSONArray(icon.sizes))
+                                .put("mimeType", icon.mimeType)
+                        }
+                    )
+                )
+                .put("preferredIconAssetPath", preferredIconAssetPath())
                 .put("entryHtmlAssetPath", entryHtmlAssetPath)
                 .put("runtimePermissions", JSONArray(runtimePermissions))
                 .put("remoteRenderPath", remoteRenderPath)
@@ -166,7 +212,7 @@ internal data class FunctionKitManifest(
             }
         }
 
-        private fun parse(
+        internal fun parse(
             root: JSONObject,
             assetPath: String,
             fallbackId: String,
@@ -186,6 +232,7 @@ internal data class FunctionKitManifest(
                 id = id,
                 name = root.optString("name").ifBlank { id },
                 description = root.optString("description").nullIfBlank(),
+                iconAssets = parseIconAssets(root, manifestAssetDirectory),
                 entryHtmlAssetPath =
                     bundle?.optString("html")
                         ?.takeUnless { it.isNullOrBlank() }
@@ -231,6 +278,7 @@ internal data class FunctionKitManifest(
                 id = fallbackId,
                 name = fallbackId,
                 description = null,
+                iconAssets = emptyList(),
                 entryHtmlAssetPath = fallbackEntryHtmlAssetPath,
                 runtimePermissions = fallbackRuntimePermissions.toList(),
                 ai =
@@ -257,6 +305,95 @@ internal data class FunctionKitManifest(
                     ),
                 manifestAssetPath = assetPath
             )
+
+        private fun parseIconAssets(
+            root: JSONObject,
+            manifestAssetDirectory: String
+        ): List<IconAsset> {
+            val icons = mutableListOf<IconAsset>()
+
+            root.optString("icon")
+                .takeIf { it.isNotBlank() }
+                ?.let { path ->
+                    icons +=
+                        IconAsset(
+                            assetPath = resolveAssetPath(manifestAssetDirectory, path),
+                            mimeType = mimeTypeFromAssetPath(path)
+                        )
+                }
+
+            when (val iconsNode = root.opt("icons")) {
+                is JSONObject -> {
+                    val keys = iconsNode.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val path = iconsNode.optString(key)
+                        if (path.isBlank()) {
+                            continue
+                        }
+                        icons +=
+                            IconAsset(
+                                assetPath = resolveAssetPath(manifestAssetDirectory, path),
+                                sizes = listOfNotNull(key.toIntOrNull()),
+                                mimeType = mimeTypeFromAssetPath(path)
+                            )
+                    }
+                }
+                is JSONArray -> {
+                    for (index in 0 until iconsNode.length()) {
+                        when (val item = iconsNode.opt(index)) {
+                            is String ->
+                                if (item.isNotBlank()) {
+                                    icons +=
+                                        IconAsset(
+                                            assetPath = resolveAssetPath(manifestAssetDirectory, item),
+                                            mimeType = mimeTypeFromAssetPath(item)
+                                        )
+                                }
+                            is JSONObject -> {
+                                val src = item.optString("src")
+                                if (src.isBlank()) {
+                                    continue
+                                }
+                                icons +=
+                                    IconAsset(
+                                        assetPath = resolveAssetPath(manifestAssetDirectory, src),
+                                        sizes = parseSizes(item.optString("sizes")),
+                                        mimeType = item.optString("type").nullIfBlank() ?: mimeTypeFromAssetPath(src)
+                                    )
+                            }
+                        }
+                    }
+                }
+            }
+
+            return icons
+                .distinctBy { it.assetPath }
+                .sortedWith(
+                    compareByDescending<IconAsset> { it.largestDeclaredSize ?: -1 }
+                        .thenBy { it.assetPath }
+                )
+        }
+
+        private fun parseSizes(value: String?): List<Int> =
+            value.orEmpty()
+                .split(' ')
+                .mapNotNull { token ->
+                    token.substringBefore('x', missingDelimiterValue = token)
+                        .trim()
+                        .toIntOrNull()
+                }
+                .distinct()
+
+        private fun mimeTypeFromAssetPath(assetPath: String): String? =
+            when (assetPath.substringAfterLast('.', missingDelimiterValue = "").lowercase()) {
+                "png" -> "image/png"
+                "webp" -> "image/webp"
+                "jpg", "jpeg" -> "image/jpeg"
+                "bmp" -> "image/bmp"
+                "ico" -> "image/x-icon"
+                else -> null
+            }
 
         private fun JSONArray?.toStringList(): List<String> {
             if (this == null) {

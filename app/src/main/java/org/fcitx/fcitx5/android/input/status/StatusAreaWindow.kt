@@ -72,7 +72,8 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                         label = FunctionKitRegistry.displayName(context, kit),
                         icon = R.drawable.ic_baseline_extension_24,
                         type = FunctionKit,
-                        functionKitId = kit.id
+                        functionKitId = kit.id,
+                        iconAssetPath = kit.preferredIconAssetPath(96)
                     )
                 }
 

@@ -12,15 +12,17 @@ sealed class StatusAreaEntry(
     val label: String,
     @DrawableRes
     val icon: Int,
-    val active: Boolean
+    val active: Boolean,
+    val iconAssetPath: String? = null
 ) {
     class Android(
         label: String,
         icon: Int,
         val type: Type,
-        val functionKitId: String? = null
+        val functionKitId: String? = null,
+        iconAssetPath: String? = null
     ) :
-        StatusAreaEntry(label, icon, false) {
+        StatusAreaEntry(label, icon, false, iconAssetPath) {
         enum class Type {
             FunctionKit,
             FunctionKitSettings,
@@ -32,7 +34,7 @@ sealed class StatusAreaEntry(
     }
 
     class Fcitx(val action: Action, label: String, icon: Int, active: Boolean) :
-        StatusAreaEntry(label, icon, active)
+        StatusAreaEntry(label, icon, active, null)
 
     companion object {
         private fun drawableFromIconName(icon: String) = when (icon) {
