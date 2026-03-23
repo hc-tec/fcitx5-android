@@ -311,7 +311,7 @@
     <string name="function_kit_title">Function Kit Panel</string>
     <string name="function_kit_auto_reply">Chat Auto Reply</string>
     <string name="function_kit_settings">Function Kit Settings</string>
-    <string name="function_kit_settings_summary">Chat Auto Reply, permissions, network routing, and remote host settings</string>
+    <string name="function_kit_settings_summary">Toolbar shortcut, permissions, network routing, and remote host settings for Function Kit</string>
     <string name="function_kit_status_category">Current status</string>
     <string name="function_kit_status_runtime">Current runtime</string>
     <string name="function_kit_status_runtime_local_summary">Android-only mode. Chat Auto Reply stays local until you enable a remote host.</string>
@@ -323,8 +323,8 @@
     <string name="function_kit_status_remote_routing_direct_summary">Make sure the phone can reach %1$s directly. Tailscale or the same LAN is enough; no extra connector layer is required.</string>
     <string name="function_kit_status_remote_routing_token_summary">Make sure the phone can reach %1$s directly, and keep the token in sync with the host service configuration.</string>
     <string name="function_kit_status_quick_access">Keyboard entry</string>
-    <string name="function_kit_status_quick_access_enabled_summary">Toolbar shortcut is visible. Tap it to open Chat Auto Reply, or long-press it to jump back here.</string>
-    <string name="function_kit_status_quick_access_disabled_summary">Toolbar shortcut is hidden. Open Chat Auto Reply from More, or re-enable the toolbar shortcut below.</string>
+    <string name="function_kit_status_quick_access_enabled_summary">Toolbar shortcut is visible. Tap it to open Function Kit, or long-press it to jump back here.</string>
+    <string name="function_kit_status_quick_access_disabled_summary">Toolbar shortcut is hidden. Open Function Kit from More, or re-enable the toolbar shortcut below.</string>
     <string name="function_kit_status_capabilities">Granted capabilities</string>
     <string name="function_kit_status_permissions_local">Local permissions</string>
     <string name="function_kit_status_permissions_remote">Network and AI permissions</string>

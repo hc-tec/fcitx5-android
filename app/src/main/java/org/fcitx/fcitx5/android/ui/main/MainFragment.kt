@@ -79,7 +79,7 @@ class MainFragment : PaddingPreferenceFragment() {
                 )
                 addDestinationPreference(
                     R.string.function_kit,
-                    R.drawable.ic_baseline_send_24,
+                    R.drawable.ic_baseline_extension_24,
                     SettingsRoute.FunctionKit,
                     R.string.function_kit_settings_summary
                 )

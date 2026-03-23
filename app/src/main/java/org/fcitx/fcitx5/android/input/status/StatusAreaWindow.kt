@@ -26,6 +26,7 @@ import org.fcitx.fcitx5.android.input.dependency.fcitx
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editorinfo.EditorInfoWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessSpec
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.InputMethod
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKit
@@ -60,16 +61,15 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
 
     private val staticEntries by lazy {
         arrayOf(
-            StatusAreaEntry.Android(
-                context.getString(R.string.function_kit_auto_reply),
-                R.drawable.ic_baseline_send_24,
-                FunctionKit
-            ),
-            StatusAreaEntry.Android(
-                context.getString(R.string.function_kit_settings),
-                R.drawable.ic_baseline_settings_24,
-                FunctionKitSettings
-            ),
+            *FunctionKitQuickAccessSpec.statusEntries()
+                .map {
+                    StatusAreaEntry.Android(
+                        context.getString(it.label),
+                        it.icon,
+                        it.type
+                    )
+                }
+                .toTypedArray(),
             StatusAreaEntry.Android(
                 context.getString(R.string.theme),
                 R.drawable.ic_baseline_palette_24,

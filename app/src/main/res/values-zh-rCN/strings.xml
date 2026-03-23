@@ -311,7 +311,7 @@
     <string name="function_kit_title">功能件面板</string>
     <string name="function_kit_auto_reply">聊天自动回复</string>
     <string name="function_kit_settings">功能件设置</string>
-    <string name="function_kit_settings_summary">聊天自动回复、权限开关、网络路由与远程宿主设置</string>
+    <string name="function_kit_settings_summary">功能件工具栏快捷入口、权限开关、网络路由与远程宿主设置</string>
     <string name="function_kit_status_category">当前状态</string>
     <string name="function_kit_status_runtime">当前运行方式</string>
     <string name="function_kit_status_runtime_local_summary">当前为仅 Android 模式。聊天自动回复会留在本机，直到你启用远程宿主。</string>
@@ -323,8 +323,8 @@
     <string name="function_kit_status_remote_routing_direct_summary">确认手机能直接访问 %1$s 即可。用同一局域网或 Tailscale 就够了，不需要额外搞 connector 层。</string>
     <string name="function_kit_status_remote_routing_token_summary">确认手机能直接访问 %1$s，并且让这里的 token 与宿主服务配置保持一致。</string>
     <string name="function_kit_status_quick_access">键盘入口</string>
-    <string name="function_kit_status_quick_access_enabled_summary">工具栏快捷入口当前可见。点击可打开聊天自动回复，长按可直接跳回此设置页。</string>
-    <string name="function_kit_status_quick_access_disabled_summary">工具栏快捷入口当前隐藏。你仍可从“更多”里打开聊天自动回复，或者在下方重新开启快捷入口。</string>
+    <string name="function_kit_status_quick_access_enabled_summary">工具栏快捷入口当前可见。点击可打开功能件，长按可直接跳回此设置页。</string>
+    <string name="function_kit_status_quick_access_disabled_summary">工具栏快捷入口当前隐藏。你仍可从“更多”里打开功能件，或者在下方重新开启快捷入口。</string>
     <string name="function_kit_status_capabilities">已授予能力</string>
     <string name="function_kit_status_permissions_local">本地权限</string>
     <string name="function_kit_status_permissions_remote">网络与 AI 权限</string>
