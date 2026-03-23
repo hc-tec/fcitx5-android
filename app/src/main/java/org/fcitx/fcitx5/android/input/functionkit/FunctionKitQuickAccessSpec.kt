@@ -9,6 +9,8 @@ import androidx.annotation.StringRes
 import org.fcitx.fcitx5.android.R
 
 internal object FunctionKitQuickAccessSpec {
+    private val ToolbarLabelDelimiterRegex = Regex("""[\s_-]+""")
+
     enum class ToolbarShortcut {
         Clipboard,
         CursorMove,
@@ -46,6 +48,27 @@ internal object FunctionKitQuickAccessSpec {
             .distinct()
             .map(ToolbarSlot::FunctionKit) +
             fixedToolbarOrder.map(ToolbarSlot::Fixed)
+
+    fun functionKitMonogram(label: String): String {
+        val trimmed = label.trim()
+        if (trimmed.isBlank()) {
+            return "FK"
+        }
+
+        val words =
+            trimmed.split(ToolbarLabelDelimiterRegex)
+                .filter { it.isNotBlank() }
+        if (words.size >= 2) {
+            return words.take(2).joinToString("") { it.take(1).uppercase() }
+        }
+
+        val compact = trimmed.filterNot(Char::isWhitespace)
+        if (compact.isBlank()) {
+            return "FK"
+        }
+
+        return compact.take(2).uppercase()
+    }
 
     fun toolbarButton(shortcut: ToolbarShortcut): FixedToolbarButtonSpec =
         when (shortcut) {

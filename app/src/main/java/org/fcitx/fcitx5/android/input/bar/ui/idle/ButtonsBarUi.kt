@@ -44,6 +44,7 @@ class ButtonsBarUi(
 
     private fun functionKitToolButton(entry: FunctionKitToolbarButtonEntry) =
         ToolButton(ctx, FunctionKitQuickAccessSpec.functionKitIcon, theme).apply {
+            setMonogram(FunctionKitQuickAccessSpec.functionKitMonogram(entry.label))
             contentDescription = entry.label
         }
 

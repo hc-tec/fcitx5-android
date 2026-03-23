@@ -6,7 +6,11 @@ package org.fcitx.fcitx5.android.input.bar.ui
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Typeface
+import android.util.TypedValue
+import android.view.Gravity
 import android.widget.ImageView
+import androidx.appcompat.widget.AppCompatTextView
 import androidx.annotation.ColorInt
 import androidx.annotation.DrawableRes
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
@@ -36,15 +40,50 @@ class ToolButton(context: Context) : CustomGestureView(context) {
         scaleType = ImageView.ScaleType.CENTER_INSIDE
     }
 
+    private val monogramView =
+        AppCompatTextView(context).apply {
+            isClickable = false
+            isFocusable = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            maxLines = 1
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.04f
+            visibility = GONE
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+        }
+
+    init {
+        add(image, lParams(wrapContent, wrapContent, gravityCenter))
+        add(monogramView, lParams(wrapContent, wrapContent, gravityCenter))
+    }
+
     constructor(context: Context, @DrawableRes icon: Int, theme: Theme) : this(context) {
         image.imageTintList = ColorStateList.valueOf(theme.altKeyTextColor)
+        setMonogramTextColor(theme.altKeyTextColor)
         setIcon(icon)
         setPressHighlightColor(theme.keyPressHighlightColor)
-        add(image, lParams(wrapContent, wrapContent, gravityCenter))
     }
 
     fun setIcon(@DrawableRes icon: Int) {
         image.imageResource = icon
+    }
+
+    fun setMonogram(text: String?) {
+        if (text.isNullOrBlank()) {
+            monogramView.text = ""
+            monogramView.visibility = GONE
+            image.visibility = VISIBLE
+            return
+        }
+
+        monogramView.text = text
+        monogramView.visibility = VISIBLE
+        image.visibility = GONE
+    }
+
+    fun setMonogramTextColor(@ColorInt color: Int) {
+        monogramView.setTextColor(color)
     }
 
     fun setPressHighlightColor(@ColorInt color: Int) {

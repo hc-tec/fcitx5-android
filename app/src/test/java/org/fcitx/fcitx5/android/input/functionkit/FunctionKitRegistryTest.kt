@@ -13,18 +13,18 @@ class FunctionKitRegistryTest {
     fun `selectPreferredKitId honors explicit request when available`() {
         val selected =
             FunctionKitRegistry.selectPreferredKitId(
-                availableKitIds = listOf("chat-auto-reply", "note-capture"),
-                requestedKitId = "note-capture"
+                availableKitIds = listOf("chat-auto-reply", "quick-phrases"),
+                requestedKitId = "quick-phrases"
             )
 
-        assertEquals("note-capture", selected)
+        assertEquals("quick-phrases", selected)
     }
 
     @Test
     fun `selectPreferredKitId falls back to preferred default kit`() {
         val selected =
             FunctionKitRegistry.selectPreferredKitId(
-                availableKitIds = listOf("note-capture", "chat-auto-reply"),
+                availableKitIds = listOf("quick-phrases", "chat-auto-reply"),
                 requestedKitId = null
             )
 
@@ -35,11 +35,11 @@ class FunctionKitRegistryTest {
     fun `selectPreferredKitId falls back to first available kit when default missing`() {
         val selected =
             FunctionKitRegistry.selectPreferredKitId(
-                availableKitIds = listOf("note-capture", "calendar-brief"),
+                availableKitIds = listOf("quick-phrases", "calendar-brief"),
                 requestedKitId = null
             )
 
-        assertEquals("note-capture", selected)
+        assertEquals("quick-phrases", selected)
     }
 
     @Test

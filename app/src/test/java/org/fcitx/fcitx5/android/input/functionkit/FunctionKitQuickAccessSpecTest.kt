@@ -14,20 +14,32 @@ class FunctionKitQuickAccessSpecTest {
         assertEquals(
             listOf(
                 FunctionKitQuickAccessSpec.ToolbarSlot.FunctionKit("chat-auto-reply"),
-                FunctionKitQuickAccessSpec.ToolbarSlot.FunctionKit("note-capture"),
+                FunctionKitQuickAccessSpec.ToolbarSlot.FunctionKit("quick-phrases"),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Undo),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Redo),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.More)
             ),
-            FunctionKitQuickAccessSpec.buildToolbarSlots(listOf("chat-auto-reply", "note-capture"))
+            FunctionKitQuickAccessSpec.buildToolbarSlots(listOf("chat-auto-reply", "quick-phrases"))
         )
     }
 
     @Test
     fun `function kit toolbar button uses generic extension icon`() {
         assertEquals(R.drawable.ic_baseline_extension_24, FunctionKitQuickAccessSpec.functionKitIcon)
+    }
+
+    @Test
+    fun `function kit monogram uses leading tokens when available`() {
+        assertEquals("CA", FunctionKitQuickAccessSpec.functionKitMonogram("Chat Auto Reply"))
+        assertEquals("QP", FunctionKitQuickAccessSpec.functionKitMonogram("Quick Phrases"))
+    }
+
+    @Test
+    fun `function kit monogram falls back to visible characters`() {
+        assertEquals("聊天", FunctionKitQuickAccessSpec.functionKitMonogram("聊天自动回复"))
+        assertEquals("FK", FunctionKitQuickAccessSpec.functionKitMonogram("   "))
     }
 
     @Test
