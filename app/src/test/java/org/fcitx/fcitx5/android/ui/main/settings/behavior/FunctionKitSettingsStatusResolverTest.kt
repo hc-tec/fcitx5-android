@@ -33,7 +33,7 @@ class FunctionKitSettingsStatusResolverTest {
     }
 
     @Test
-    fun `resolve groups local remote and composer permissions`() {
+    fun `resolve groups core and remote permissions`() {
         val enabledPermissions =
             setOf(
                 "context.read",
@@ -42,9 +42,7 @@ class FunctionKitSettingsStatusResolverTest {
                 "storage.read",
                 "storage.write",
                 "network.fetch",
-                "ai.chat",
-                "composer.open",
-                "composer.apply.insert"
+                "ai.chat"
             )
 
         val status =
@@ -75,18 +73,6 @@ class FunctionKitSettingsStatusResolverTest {
             listOf("ai.agent.list", "ai.agent.run"),
             status.remotePermissions.disabledPermissions
         )
-        assertEquals(2, status.composerPermissions.enabled)
-        assertEquals(7, status.composerPermissions.total)
-        assertEquals(
-            listOf(
-                "composer.focus",
-                "composer.update",
-                "composer.close",
-                "composer.apply.replace",
-                "composer.control"
-            ),
-            status.composerPermissions.disabledPermissions
-        )
         assertFalse(status.showToolbarButton)
         assertFalse(status.expandToolbarByDefault)
         assertFalse(status.quickAccessVisibleOnKeyboardStart)
@@ -116,7 +102,6 @@ class FunctionKitSettingsStatusResolverTest {
         assertFalse(status.remoteConfigured)
         assertFalse(status.remoteUsesLoopback)
         assertEquals(0, status.remotePermissions.total)
-        assertEquals(0, status.composerPermissions.total)
         assertFalse(status.quickAccessVisibleOnKeyboardStart)
     }
 

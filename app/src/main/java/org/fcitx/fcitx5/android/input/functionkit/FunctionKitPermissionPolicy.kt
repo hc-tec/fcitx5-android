@@ -22,13 +22,6 @@ internal object FunctionKitPermissionPolicy {
             "ai.chat.status.request" -> prefs.allowAiChat.getValue()
             "ai.agent.list" -> prefs.remoteInferenceEnabled.getValue() && prefs.allowAiAgentAccess.getValue()
             "ai.agent.run" -> prefs.remoteInferenceEnabled.getValue() && prefs.allowAiAgentAccess.getValue()
-            "composer.open" -> prefs.allowPanelStateWrite.getValue()
-            "composer.focus" -> prefs.allowPanelStateWrite.getValue()
-            "composer.update" -> prefs.allowPanelStateWrite.getValue()
-            "composer.close" -> prefs.allowPanelStateWrite.getValue()
-            "composer.apply.insert" -> prefs.allowInputInsert.getValue()
-            "composer.apply.replace" -> prefs.allowInputReplace.getValue()
-            "composer.control" -> prefs.allowPanelStateWrite.getValue()
             else -> false
         }
 

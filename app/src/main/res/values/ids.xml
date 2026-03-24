@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <item name="function_kit_detached_composer_container" type="id" />
-    <item name="function_kit_detached_composer_editor" type="id" />
-    <item name="function_kit_detached_composer_insert" type="id" />
-    <item name="function_kit_detached_composer_replace" type="id" />
-    <item name="function_kit_detached_composer_close" type="id" />
-</resources>
-

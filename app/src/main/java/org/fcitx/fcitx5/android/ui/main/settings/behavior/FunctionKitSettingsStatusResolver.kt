@@ -26,8 +26,7 @@ internal data class FunctionKitSettingsStatus(
     val remoteConfigured: Boolean,
     val remoteUsesLoopback: Boolean,
     val corePermissions: FunctionKitPermissionGroupStatus,
-    val remotePermissions: FunctionKitPermissionGroupStatus,
-    val composerPermissions: FunctionKitPermissionGroupStatus
+    val remotePermissions: FunctionKitPermissionGroupStatus
 )
 
 internal object FunctionKitSettingsStatusResolver {
@@ -58,8 +57,7 @@ internal object FunctionKitSettingsStatusResolver {
                 normalizedRemoteBaseUrl.contains("127.0.0.1")
                         || normalizedRemoteBaseUrl.contains("localhost", ignoreCase = true),
             corePermissions = bucket(requested, enabled, FunctionKitDefaults.corePermissions),
-            remotePermissions = bucket(requested, enabled, FunctionKitDefaults.remotePermissions),
-            composerPermissions = bucket(requested, enabled, FunctionKitDefaults.composerPermissions)
+            remotePermissions = bucket(requested, enabled, FunctionKitDefaults.remotePermissions)
         )
     }
 

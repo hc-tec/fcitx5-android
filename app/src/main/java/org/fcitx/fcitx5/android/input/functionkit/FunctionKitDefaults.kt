@@ -23,14 +23,7 @@ internal object FunctionKitDefaults {
             "network.fetch",
             "ai.chat",
             "ai.agent.list",
-            "ai.agent.run",
-            "composer.open",
-            "composer.focus",
-            "composer.update",
-            "composer.close",
-            "composer.apply.insert",
-            "composer.apply.replace",
-            "composer.control"
+            "ai.agent.run"
         )
 
     val corePermissions =
@@ -51,16 +44,5 @@ internal object FunctionKitDefaults {
             "ai.chat",
             "ai.agent.list",
             "ai.agent.run"
-        )
-
-    val composerPermissions =
-        listOf(
-            "composer.open",
-            "composer.focus",
-            "composer.update",
-            "composer.close",
-            "composer.apply.insert",
-            "composer.apply.replace",
-            "composer.control"
         )
 }

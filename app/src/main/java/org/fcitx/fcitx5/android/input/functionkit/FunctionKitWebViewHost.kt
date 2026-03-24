@@ -57,8 +57,6 @@ private val AllowedInboundTypes =
         "composer.focus",
         "composer.update",
         "composer.close",
-        "composer.apply.insert",
-        "composer.apply.replace",
         "settings.open",
         "storage.get",
         "storage.set",
@@ -81,7 +79,6 @@ private val AllowedOutboundTypes =
         "ai.agent.list.result",
         "ai.agent.run.result",
         "composer.state.sync",
-        "composer.apply.result"
     )
 
 class FunctionKitWebViewHost(
@@ -644,21 +641,6 @@ class FunctionKitWebViewHost(
     ) {
         dispatchTypedPayload(
             type = "composer.state.sync",
-            replyTo = replyTo,
-            kitId = kitId,
-            surface = surface,
-            payload = payload
-        )
-    }
-
-    fun dispatchComposerApplyResult(
-        replyTo: String?,
-        kitId: String,
-        surface: String,
-        payload: JSONObject
-    ) {
-        dispatchTypedPayload(
-            type = "composer.apply.result",
             replyTo = replyTo,
             kitId = kitId,
             surface = surface,

@@ -11,7 +11,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
-import androidx.test.uiautomator.Until
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -66,7 +65,7 @@ class FunctionKitImeEndToEndInstrumentationTest {
     }
 
     @Test
-    fun quickPhrases_detachedComposer_allowsTypingAndInsert() {
+    fun quickPhrases_composerBridge_allowsDraftEditAndInsert() {
         val scenario = ActivityScenario.launch(FunctionKitImeE2EPlaygroundActivity::class.java)
         val activityRef = AtomicReference<FunctionKitImeE2EPlaygroundActivity>()
         scenario.onActivity { activityRef.set(it) }
@@ -103,7 +102,10 @@ class FunctionKitImeEndToEndInstrumentationTest {
                 timeoutMs = 15_000
             )
 
-            // Focus the textarea in WebView via JS to trigger the detached-composer bridge.
+            // Reset probe after handshake so later awaits match only the edit flow below.
+            FunctionKitEnvelopeProbe.clear()
+
+            // Focus the textarea in WebView to trigger the composer bridge.
             evalJsString(
                 kitId = "quick-phrases",
                 script =
@@ -124,19 +126,37 @@ class FunctionKitImeEndToEndInstrumentationTest {
                 timeoutMs = 12_000
             )
 
-            val composerEditText =
-                device.wait(
-                    Until.findObject(By.res(targetPackageName, "function_kit_detached_composer_editor")),
-                    12_000
-                ) ?: throw AssertionError("Timed out waiting for detached composer editor view.")
-
             val draftText = "E2E_DRAFT_${System.currentTimeMillis()}"
-            composerEditText.click()
-            composerEditText.setText(draftText)
+            evalJsString(
+                kitId = "quick-phrases",
+                script =
+                    """
+                    (() => {
+                      const el = document.getElementById("draftInput");
+                      if (!el) return "missing";
+                      el.value = ${jsonQuote(draftText)};
+                      el.dispatchEvent(new Event("input", { bubbles: true }));
+                      return el.value;
+                    })()
+                    """.trimIndent()
+            )
+
+            FunctionKitEnvelopeProbe.await(
+                kitId = "quick-phrases",
+                direction = FunctionKitEnvelopeProbe.Direction.Inbound,
+                type = "composer.update",
+                timeoutMs = 12_000
+            )
+            FunctionKitEnvelopeProbe.await(
+                kitId = "quick-phrases",
+                direction = FunctionKitEnvelopeProbe.Direction.Outbound,
+                type = "composer.state.sync",
+                timeoutMs = 12_000
+            )
 
             // Wait until the runtime syncs the host composer text back into the WebView textarea.
             Assert.assertTrue(
-                "Expected WebView draftInput value to reflect detached composer text.",
+                "Expected WebView draftInput value to reflect composer bridge text.",
                 waitUntil(10_000) {
                     val value =
                         evalJsString(

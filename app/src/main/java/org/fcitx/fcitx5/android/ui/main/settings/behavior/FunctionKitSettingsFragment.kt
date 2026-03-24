@@ -34,7 +34,6 @@ class FunctionKitSettingsFragment :
     private lateinit var toolbarExpandPreference: MySwitchPreference
     private lateinit var localPermissionsPreference: Preference
     private lateinit var remotePermissionsPreference: Preference
-    private lateinit var composerPermissionsPreference: Preference
 
     private val preferenceChangeListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -131,15 +130,6 @@ class FunctionKitSettingsFragment :
             }
         capabilityCategory.addPreference(remotePermissionsPreference)
 
-        composerPermissionsPreference =
-            Preference(context).apply {
-                key = "function_kit_status_permissions_composer"
-                order = -192
-                setup(title = getString(R.string.function_kit_status_permissions_composer))
-                isSelectable = false
-            }
-        capabilityCategory.addPreference(composerPermissionsPreference)
-
         refreshStatus()
     }
 
@@ -226,8 +216,6 @@ class FunctionKitSettingsFragment :
             buildPermissionSummary(status.corePermissions)
         remotePermissionsPreference.summary =
             buildPermissionSummary(status.remotePermissions)
-        composerPermissionsPreference.summary =
-            buildPermissionSummary(status.composerPermissions)
     }
 
     private fun buildPermissionSummary(status: FunctionKitPermissionGroupStatus): String =
@@ -268,13 +256,6 @@ class FunctionKitSettingsFragment :
             "ai.chat" -> R.string.function_kit_status_permission_ai_chat
             "ai.agent.list" -> R.string.function_kit_status_permission_ai_agent_list
             "ai.agent.run" -> R.string.function_kit_status_permission_ai_agent_run
-            "composer.open" -> R.string.function_kit_status_permission_composer_open
-            "composer.focus" -> R.string.function_kit_status_permission_composer_focus
-            "composer.update" -> R.string.function_kit_status_permission_composer_update
-            "composer.close" -> R.string.function_kit_status_permission_composer_close
-            "composer.apply.insert" -> R.string.function_kit_status_permission_composer_apply_insert
-            "composer.apply.replace" -> R.string.function_kit_status_permission_composer_apply_replace
-            "composer.control" -> R.string.function_kit_status_permission_composer_control
             else -> android.R.string.untitled
         }
 }

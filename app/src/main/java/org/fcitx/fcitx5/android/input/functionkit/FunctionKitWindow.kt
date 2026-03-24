@@ -7,20 +7,14 @@ package org.fcitx.fcitx5.android.input.functionkit
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
-import android.content.res.ColorStateList
-import android.text.InputType
 import android.util.Log
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.WebView
 import android.widget.LinearLayout
-import androidx.appcompat.widget.AppCompatButton
-import androidx.appcompat.widget.AppCompatEditText
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.content.ContextCompat
-import androidx.core.widget.addTextChangedListener
 import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.core.CapabilityFlags
@@ -56,18 +50,6 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.Executors
-
-private class FunctionKitComposerEditText(context: Context) : AppCompatEditText(context) {
-    var onSelectionChangedListener: ((Int, Int) -> Unit)? = null
-
-    override fun onSelectionChanged(
-        selStart: Int,
-        selEnd: Int
-    ) {
-        super.onSelectionChanged(selStart, selEnd)
-        onSelectionChangedListener?.invoke(selStart, selEnd)
-    }
-}
 
 class FunctionKitWindow(
     private val requestedKitId: String? = null
@@ -129,7 +111,7 @@ class FunctionKitWindow(
         val selectionStart: Int = 0,
         val selectionEnd: Int = 0,
         val revision: Int = 0,
-        val mode: String = "detached",
+        val mode: String = "embedded",
         val source: String = "host",
         val lastAction: String? = null,
         val updatedAtEpochMs: Long = 0L
@@ -178,135 +160,6 @@ class FunctionKitWindow(
             onHostEvent = ::handleHostEvent,
             config = hostConfig
         )
-    }
-    private val composerTitleView by lazy {
-        AppCompatTextView(context).apply {
-            setTextColor(theme.keyTextColor)
-            text = context.getString(R.string.function_kit_detached_composer_title)
-            textSize = 14f
-        }
-    }
-    private val composerStatusView by lazy {
-        AppCompatTextView(context).apply {
-            setTextColor(theme.candidateCommentColor)
-            textSize = 12f
-        }
-    }
-    private val composerEditText by lazy {
-        FunctionKitComposerEditText(context).apply {
-            id = R.id.function_kit_detached_composer_editor
-            setTextColor(theme.keyTextColor)
-            setHintTextColor(theme.candidateCommentColor)
-            hint = context.getString(R.string.function_kit_detached_composer_hint)
-            backgroundTintList = ColorStateList.valueOf(theme.dividerColor)
-            inputType =
-                InputType.TYPE_CLASS_TEXT or
-                    InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                    InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            minLines = 2
-            maxLines = 4
-            gravity = Gravity.TOP or Gravity.START
-            showSoftInputOnFocus = false
-            onSelectionChangedListener = { start, end ->
-                handleComposerViewSelectionChanged(start, end)
-            }
-            setOnFocusChangeListener { _, hasFocus ->
-                handleComposerViewFocusChanged(hasFocus)
-            }
-            addTextChangedListener {
-                handleComposerViewTextChanged(it?.toString().orEmpty())
-            }
-        }
-    }
-    private val composerInsertButton by lazy {
-        AppCompatButton(context).apply {
-            id = R.id.function_kit_detached_composer_insert
-            text = context.getString(R.string.function_kit_detached_composer_insert)
-            setOnClickListener {
-                performComposerApply(replyTo = null, surface = Surface, payload = JSONObject(), replace = false)
-            }
-        }
-    }
-    private val composerReplaceButton by lazy {
-        AppCompatButton(context).apply {
-            id = R.id.function_kit_detached_composer_replace
-            text = context.getString(R.string.function_kit_detached_composer_replace)
-            setOnClickListener {
-                performComposerApply(replyTo = null, surface = Surface, payload = JSONObject(), replace = true)
-            }
-        }
-    }
-    private val composerCloseButton by lazy {
-        AppCompatButton(context).apply {
-            id = R.id.function_kit_detached_composer_close
-            text = context.getString(R.string.function_kit_detached_composer_close)
-            setOnClickListener {
-                updateComposerState(replyTo = null, surface = Surface, reason = "composer.view.close") { current ->
-                    current.copy(
-                        open = false,
-                        focused = false,
-                        source = "host",
-                        lastAction = "view-close"
-                    )
-                }
-            }
-        }
-    }
-    private val composerContainer by lazy {
-        LinearLayout(context).apply {
-            id = R.id.function_kit_detached_composer_container
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(theme.backgroundColor)
-            val padding = context.dp(8)
-            setPadding(padding, padding, padding, padding)
-            visibility = View.GONE
-
-            addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(
-                        composerTitleView,
-                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                    )
-                    addView(
-                        composerStatusView,
-                        LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        )
-                    )
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
-            addView(
-                composerEditText,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = context.dp(6)
-                }
-            )
-            addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.END
-                    addView(composerCloseButton)
-                    addView(composerReplaceButton)
-                    addView(composerInsertButton)
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = context.dp(6)
-                }
-            )
-        }
     }
 
     private var panelPeekHeightPx: Int = 0
@@ -358,13 +211,6 @@ class FunctionKitWindow(
         LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(theme.barColor)
-            addView(
-                composerContainer,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
             addView(
                 webView,
                 LinearLayout.LayoutParams(
@@ -445,7 +291,6 @@ class FunctionKitWindow(
     private var currentCandidateCount = 0
     private var currentPreeditText = ""
     private var composerState = ComposerState(updatedAtEpochMs = System.currentTimeMillis())
-    private var composerSyncingView = false
     private val functionKitId: String
         get() = functionKitManifest.id
     private val supportedRuntimePermissions: List<String>
@@ -493,7 +338,6 @@ class FunctionKitWindow(
         syncCurrentInputState()
         refreshGrantedPermissions(notifyUi = panelInitialized)
         service.localInputTarget = this
-        syncComposerUiFromState()
         syncEmbeddedKeyboardLayout()
 
         if (!panelInitialized) {
@@ -528,9 +372,8 @@ class FunctionKitWindow(
                         lastAction = "host-detach"
                     )
                 )
-            syncComposerUiFromState()
+            syncEmbeddedKeyboardLayout()
         }
-        composerEditText.clearFocus()
         embeddedKeyboardWindow?.onDetached()
         embeddedKeyboardWindow = null
 
@@ -569,7 +412,7 @@ class FunctionKitWindow(
     override fun onStartInput(info: EditorInfo, capFlags: CapabilityFlags) {
         currentPackageName = info.packageName.orEmpty()
         currentInputType = info.inputType
-        syncComposerUiFromState()
+        syncEmbeddedKeyboardLayout()
         pushHostState("输入上下文已切换")
     }
 
@@ -616,8 +459,6 @@ class FunctionKitWindow(
             "composer.focus" -> handleComposerFocus(replyTo, surface, payload)
             "composer.update" -> handleComposerUpdate(replyTo, surface, payload)
             "composer.close" -> handleComposerClose(replyTo, surface, payload)
-            "composer.apply.insert" -> handleComposerApply(replyTo, surface, payload, replace = false)
-            "composer.apply.replace" -> handleComposerApply(replyTo, surface, payload, replace = true)
             "settings.open" -> handleSettingsOpen(replyTo, payload)
             else -> {
                 host.dispatchBridgeError(
@@ -1095,8 +936,6 @@ class FunctionKitWindow(
         surface: String,
         payload: JSONObject
     ) {
-        ensurePermission(replyTo, "composer.control") ?: return
-
         updateComposerState(replyTo = replyTo, surface = surface, reason = "composer.open") { current ->
             current.copy(
                 open = true,
@@ -1108,7 +947,7 @@ class FunctionKitWindow(
                 selectionEnd =
                     payload.optInt("selectionEnd").takeIf { payload.has("selectionEnd") }
                         ?: current.selectionEnd,
-                mode = payload.optString("mode").ifBlank { current.mode },
+                mode = "embedded",
                 source = "kit",
                 lastAction = "open"
             )
@@ -1120,8 +959,6 @@ class FunctionKitWindow(
         surface: String,
         payload: JSONObject
     ) {
-        ensurePermission(replyTo, "composer.control") ?: return
-
         updateComposerState(replyTo = replyTo, surface = surface, reason = "composer.focus") { current ->
             current.copy(
                 open = true,
@@ -1137,8 +974,6 @@ class FunctionKitWindow(
         surface: String,
         payload: JSONObject
     ) {
-        ensurePermission(replyTo, "composer.control") ?: return
-
         updateComposerState(replyTo = replyTo, surface = surface, reason = "composer.update") { current ->
             current.copy(
                 open = true,
@@ -1161,8 +996,6 @@ class FunctionKitWindow(
         surface: String,
         payload: JSONObject
     ) {
-        ensurePermission(replyTo, "composer.control") ?: return
-
         updateComposerState(replyTo = replyTo, surface = surface, reason = "composer.close") { current ->
             current.copy(
                 open = payload.optBoolean("open", false),
@@ -1173,13 +1006,6 @@ class FunctionKitWindow(
         }
     }
 
-    private fun handleComposerApply(
-        replyTo: String,
-        surface: String,
-        payload: JSONObject,
-        replace: Boolean
-    ) = performComposerApply(replyTo = replyTo, surface = surface, payload = payload, replace = replace)
-
     private fun updateComposerState(
         replyTo: String?,
         surface: String,
@@ -1187,7 +1013,6 @@ class FunctionKitWindow(
         transform: (ComposerState) -> ComposerState
     ) {
         composerState = normalizeComposerState(transform(composerState))
-        syncComposerUiFromState()
         syncEmbeddedKeyboardLayout()
         dispatchComposerStateSync(replyTo = replyTo, surface = surface, reason = reason)
     }
@@ -1233,6 +1058,7 @@ class FunctionKitWindow(
             selectionStart = minOf(clampedStart, clampedEnd),
             selectionEnd = maxOf(clampedStart, clampedEnd),
             revision = state.revision + 1,
+            mode = "embedded",
             updatedAtEpochMs = System.currentTimeMillis()
         )
     }
@@ -1247,148 +1073,8 @@ class FunctionKitWindow(
             else -> fallback
         }
 
-    private fun applyComposerSelection(
-        payload: JSONObject,
-        text: String,
-        fallbackStart: Int,
-        fallbackEnd: Int
-    ): Pair<Int, Int> {
-        val rawStart =
-            if (payload.has("selectionStart")) {
-                payload.optInt("selectionStart", fallbackStart)
-            } else {
-                fallbackStart
-            }
-        val rawEnd =
-            if (payload.has("selectionEnd")) {
-                payload.optInt("selectionEnd", fallbackEnd)
-            } else {
-                fallbackEnd
-            }
-        val start = rawStart.coerceIn(0, text.length)
-        val end = rawEnd.coerceIn(0, text.length)
-        return minOf(start, end) to maxOf(start, end)
-    }
-
     private fun currentSelectedText(): String =
         service.currentInputConnection?.getSelectedText(0)?.toString().orEmpty()
-
-    private fun dispatchComposerState(
-        replyTo: String?,
-        surface: String
-    ) {
-        dispatchComposerStateSync(replyTo = replyTo, surface = surface, reason = "composer.sync")
-    }
-
-    private fun performComposerApply(
-        replyTo: String?,
-        surface: String,
-        payload: JSONObject,
-        replace: Boolean
-    ) {
-        ensurePermission(replyTo, if (replace) "input.replace" else "input.insert") ?: return
-
-        val text =
-            payload.optString("text")
-                .takeIf { payload.has("text") }
-                ?.trim()
-                .orEmpty()
-                .ifBlank { composerState.text.trim() }
-        if (text.isBlank()) {
-            host.dispatchBridgeError(
-                replyTo = replyTo,
-                kitId = functionKitId,
-                surface = surface,
-                code = "composer_apply_empty",
-                message = "Composer draft is empty.",
-                retryable = false
-            )
-            return
-        }
-        if (!canApplyComposerToTarget()) {
-            host.dispatchBridgeError(
-                replyTo = replyTo,
-                kitId = functionKitId,
-                surface = surface,
-                code = "composer_target_lost",
-                message = "The external editor is no longer available for writeback.",
-                retryable = false,
-                details = buildComposerStatePayload("composer.target.lost")
-            )
-            syncComposerUiFromState()
-            return
-        }
-
-        updateComposerState(replyTo = null, surface = surface, reason = "composer.apply") { current ->
-            current.copy(
-                text = text,
-                selectionStart = text.length,
-                selectionEnd = text.length,
-                source = "host",
-                lastAction = if (replace) "apply-replace" else "apply-insert",
-                open = !payload.optBoolean("closeAfterApply", true),
-                focused = false
-            )
-        }
-
-        ContextCompat.getMainExecutor(service).execute {
-            service.commitText(text, bypassLocalInputTarget = true)
-            host.dispatchComposerApplyResult(
-                replyTo = replyTo,
-                kitId = functionKitId,
-                surface = surface,
-                payload =
-                    JSONObject()
-                        .put("applied", true)
-                        .put("mode", if (replace) "replace" else "insert")
-                        .put("text", text)
-                        .put("composer", composerState.toJson())
-            )
-        }
-    }
-
-    private fun syncComposerUiFromState() {
-        composerSyncingView = true
-        try {
-            val showComposerUi = composerState.open && composerState.mode == "detached"
-            composerContainer.visibility = if (showComposerUi) View.VISIBLE else View.GONE
-            composerStatusView.text = resolveComposerStatusLabel()
-            composerInsertButton.isEnabled =
-                canApplyComposerToTarget() && "input.insert" in grantedPermissions
-            composerReplaceButton.isEnabled =
-                canApplyComposerToTarget() && "input.replace" in grantedPermissions
-            composerCloseButton.isEnabled = "composer.control" in grantedPermissions
-            composerEditText.isCursorVisible = showComposerUi && composerState.focused
-
-            if (composerEditText.text?.toString() != composerState.text) {
-                composerEditText.setText(composerState.text)
-            }
-            val textLength = composerEditText.text?.length ?: 0
-            val start = composerState.selectionStart.coerceIn(0, textLength)
-            val end = composerState.selectionEnd.coerceIn(0, textLength)
-            if (composerEditText.selectionStart != start || composerEditText.selectionEnd != end) {
-                composerEditText.setSelection(start, end)
-            }
-            if (showComposerUi && composerState.focused) {
-                if (!composerEditText.hasFocus()) {
-                    composerEditText.requestFocus()
-                }
-            } else if (composerEditText.hasFocus()) {
-                composerEditText.clearFocus()
-            }
-        } finally {
-            composerSyncingView = false
-        }
-    }
-
-    private fun resolveComposerStatusLabel(): String =
-        when {
-            !canApplyComposerToTarget() ->
-                context.getString(R.string.function_kit_detached_composer_status_target_lost)
-            composerState.focused ->
-                context.getString(R.string.function_kit_detached_composer_status_focused)
-            else -> context.getString(R.string.function_kit_detached_composer_status_unfocused)
-        }
 
     private fun canApplyComposerToTarget(): Boolean = service.currentInputConnection != null
 
@@ -1413,58 +1099,6 @@ class FunctionKitWindow(
                 selectionEnd = draft.selectionEnd,
                 source = "host",
                 lastAction = reason
-            )
-        }
-    }
-
-    private fun handleComposerViewTextChanged(text: String) {
-        if (composerSyncingView || text == composerState.text) {
-            return
-        }
-        updateComposerState(replyTo = null, surface = Surface, reason = "composer.view.text") { current ->
-            current.copy(
-                open = true,
-                text = text,
-                selectionStart = composerEditText.selectionStart.coerceAtLeast(0),
-                selectionEnd = composerEditText.selectionEnd.coerceAtLeast(0),
-                source = "host",
-                lastAction = "view-text"
-            )
-        }
-    }
-
-    private fun handleComposerViewSelectionChanged(
-        start: Int,
-        end: Int
-    ) {
-        if (composerSyncingView ||
-            (start == composerState.selectionStart && end == composerState.selectionEnd)
-        ) {
-            return
-        }
-        updateComposerState(replyTo = null, surface = Surface, reason = "composer.view.selection") { current ->
-            current.copy(
-                selectionStart = start,
-                selectionEnd = end,
-                source = "host",
-                lastAction = "view-selection"
-            )
-        }
-    }
-
-    private fun handleComposerViewFocusChanged(hasFocus: Boolean) {
-        if (composerSyncingView || !composerState.open || composerState.focused == hasFocus) {
-            return
-        }
-        updateComposerState(
-            replyTo = null,
-            surface = Surface,
-            reason = if (hasFocus) "composer.view.focus" else "composer.view.blur"
-        ) { current ->
-            current.copy(
-                focused = hasFocus,
-                source = "host",
-                lastAction = if (hasFocus) "view-focus" else "view-blur"
             )
         }
     }
@@ -2811,7 +2445,6 @@ class FunctionKitWindow(
                 "discovery",
                 functionKitManifest.discovery.toJson()
             )
-            .put("composer", composerState.toJson())
             .put("manifest", buildManifestSnapshot())
             .put("slash", buildSlashSnapshot())
             .apply {
@@ -2867,7 +2500,6 @@ class FunctionKitWindow(
                 "discovery",
                 functionKitManifest.discovery.toJson()
             )
-            .put("composer", composerState.toJson())
             .apply {
                 executionConfig.renderEndpoint?.let { put("endpoint", it) }
                 if (executionConfig.remoteEnabled) {
