@@ -8,6 +8,7 @@ import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 
 internal data class HostAiChatConfig(
     val enabled: Boolean,
@@ -82,6 +83,8 @@ internal data class HostAiChatBootstrapConfig(
 
 internal object FunctionKitAiChatBackend {
     private const val DefaultMaxContextChars = 12_000
+    private val looseTextRegex =
+        Regex(""""text"\s*:\s*("(?:\\.|[^"\\])*")""")
 
     private fun normalizeBlankPrefs(prefs: HostAiChatPrefsSnapshot): HostAiChatPrefsSnapshot {
         fun normalizeString(
@@ -345,61 +348,170 @@ internal object FunctionKitAiChatBackend {
         maxCharsPerCandidate: Int
     ): JSONArray {
         val structured = extractStructuredJson(rawText)
-        val normalizedFromStructured =
-            structured?.optJSONArray("candidates")?.let { candidates ->
-                JSONArray().apply {
-                    for (index in 0 until minOf(candidates.length(), maxCandidates)) {
-                        val candidate = candidates.optJSONObject(index) ?: continue
-                        put(
-                            JSONObject()
-                                .put("id", candidate.optString("id").ifBlank { "candidate-${index + 1}" })
-                                .put("text", candidate.optString("text").trim().take(maxCharsPerCandidate))
-                                .put("tone", candidate.optString("tone").ifBlank { "AI" })
-                                .put("risk", candidate.optString("risk").ifBlank { "medium" })
-                                .put("rationale", candidate.optString("rationale").trim())
-                                .put(
-                                    "actions",
-                                    JSONArray()
-                                        .put(JSONObject().put("type", "insert").put("label", "插入"))
-                                        .put(JSONObject().put("type", "replace").put("label", "替换"))
-                                )
-                        )
-                    }
+        structured?.optJSONArray("candidates")?.let { candidates ->
+            val normalized = normalizeStructuredCandidates(candidates, maxCandidates, maxCharsPerCandidate)
+            if (normalized.length() > 0) {
+                return normalized
+            }
+        }
+
+        extractStructuredJsonArray(rawText)?.let { candidates ->
+            val normalized = normalizeStructuredCandidates(candidates, maxCandidates, maxCharsPerCandidate)
+            if (normalized.length() > 0) {
+                return normalized
+            }
+        }
+
+        val extractedTexts = extractLooseTextCandidates(rawText, maxCandidates, maxCharsPerCandidate)
+        if (extractedTexts.isNotEmpty()) {
+            return JSONArray().apply {
+                extractedTexts.forEachIndexed { index, text ->
+                    put(buildFallbackCandidate("extracted-${index + 1}", text))
                 }
             }
-        if (normalizedFromStructured != null && normalizedFromStructured.length() > 0) {
-            return normalizedFromStructured
         }
 
         val lines =
             rawText.lines()
                 .map { it.trim().trimStart('-', '*', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', ')', ' ') }
                 .filter { it.isNotBlank() }
+        val filteredLines = lines.filterNot(::looksLikeJsonNoiseLine).ifEmpty { lines }
         val fallbackTexts =
-            if (lines.isNotEmpty()) {
-                lines
+            if (filteredLines.isNotEmpty()) {
+                filteredLines
             } else {
                 listOf(rawText.trim())
             }
 
         return JSONArray().apply {
             fallbackTexts.take(maxCandidates).forEachIndexed { index, text ->
-                put(
-                    JSONObject()
-                        .put("id", "fallback-${index + 1}")
-                        .put("text", text.take(maxCharsPerCandidate))
-                        .put("tone", "AI")
-                        .put("risk", "medium")
-                        .put("rationale", "由 Android 共享 AI chat 直接生成。")
-                        .put(
-                            "actions",
-                            JSONArray()
-                                .put(JSONObject().put("type", "insert").put("label", "插入"))
-                                .put(JSONObject().put("type", "replace").put("label", "替换"))
-                        )
-                )
+                put(buildFallbackCandidate("fallback-${index + 1}", text.take(maxCharsPerCandidate)))
             }
         }
+    }
+
+    private fun buildFallbackCandidate(id: String, text: String): JSONObject =
+        JSONObject()
+            .put("id", id)
+            .put("text", text.trim())
+            .put("tone", "AI")
+            .put("risk", "medium")
+            .put("rationale", "由 Android 共享 AI chat 直接生成。")
+            .put(
+                "actions",
+                JSONArray()
+                    .put(JSONObject().put("type", "insert").put("label", "插入"))
+                    .put(JSONObject().put("type", "replace").put("label", "替换"))
+            )
+
+    private fun normalizeStructuredCandidates(
+        candidates: JSONArray,
+        maxCandidates: Int,
+        maxCharsPerCandidate: Int
+    ): JSONArray {
+        val normalized = JSONArray()
+        for (index in 0 until candidates.length()) {
+            if (normalized.length() >= maxCandidates) {
+                break
+            }
+
+            val entry = candidates.opt(index)
+            when (entry) {
+                is JSONObject -> {
+                    val text =
+                        entry.optString("text")
+                            .ifBlank { entry.optString("content") }
+                            .trim()
+                            .take(maxCharsPerCandidate)
+                    if (text.isBlank()) {
+                        continue
+                    }
+                    normalized.put(
+                        JSONObject()
+                            .put("id", entry.optString("id").ifBlank { "candidate-${normalized.length() + 1}" })
+                            .put("text", text)
+                            .put("tone", entry.optString("tone").ifBlank { "AI" })
+                            .put("risk", entry.optString("risk").ifBlank { "medium" })
+                            .put("rationale", entry.optString("rationale").trim())
+                            .put(
+                                "actions",
+                                JSONArray()
+                                    .put(JSONObject().put("type", "insert").put("label", "插入"))
+                                    .put(JSONObject().put("type", "replace").put("label", "替换"))
+                            )
+                    )
+                }
+                is String -> {
+                    val text = entry.trim().take(maxCharsPerCandidate)
+                    if (text.isBlank()) {
+                        continue
+                    }
+                    normalized.put(buildFallbackCandidate("candidate-${normalized.length() + 1}", text))
+                }
+            }
+        }
+        return normalized
+    }
+
+    private fun extractLooseTextCandidates(
+        rawText: String,
+        maxCandidates: Int,
+        maxCharsPerCandidate: Int
+    ): List<String> =
+        looseTextRegex
+            .findAll(rawText)
+            .mapNotNull { match ->
+                match.groupValues.getOrNull(1)
+                    ?.let(::decodeJsonStringLiteral)
+                    ?.trim()
+                    ?.take(maxCharsPerCandidate)
+                    ?.takeIf { it.isNotBlank() }
+            }
+            .distinct()
+            .take(maxCandidates)
+            .toList()
+
+    private fun decodeJsonStringLiteral(literal: String): String? {
+        val trimmed = literal.trim()
+        if (trimmed.isBlank()) {
+            return null
+        }
+
+        runCatching { JSONTokener(trimmed).nextValue() }
+            .getOrNull()
+            ?.let { decoded ->
+                if (decoded is String) {
+                    return decoded
+                }
+            }
+
+        if (trimmed.length >= 2 && trimmed.first() == '"' && trimmed.last() == '"') {
+            return trimmed.substring(1, trimmed.length - 1)
+                .replace("\\\\", "\\")
+                .replace("\\\"", "\"")
+                .replace("\\n", "\n")
+                .replace("\\r", "\r")
+                .replace("\\t", "\t")
+        }
+
+        return null
+    }
+
+    private fun looksLikeJsonNoiseLine(line: String): Boolean {
+        val trimmed = line.trim()
+        if (trimmed.isBlank()) {
+            return true
+        }
+        if (trimmed.startsWith("```")) {
+            return true
+        }
+        if (trimmed == "{" || trimmed == "}" || trimmed == "[" || trimmed == "]") {
+            return true
+        }
+        if (trimmed.startsWith("\"candidates\"", ignoreCase = true) || trimmed.startsWith("candidates", ignoreCase = true)) {
+            return true
+        }
+        return trimmed.all { it.isWhitespace() || it in "{[]}:,`\"" }
     }
 
     private fun extractMessageContent(content: Any?): String =
@@ -454,4 +566,29 @@ internal object FunctionKitAiChatBackend {
         } catch (_: Exception) {
             null
         }
+
+    private fun parseJsonArray(raw: String): JSONArray? =
+        try {
+            JSONArray(raw)
+        } catch (_: Exception) {
+            null
+        }
+
+    private fun extractStructuredJsonArray(rawText: String): JSONArray? {
+        val trimmed = rawText.trim()
+        if (trimmed.isBlank()) {
+            return null
+        }
+
+        parseJsonArray(trimmed)?.let { return it }
+        extractFencedJsonObject(trimmed)?.let(::parseJsonArray)?.let { return it }
+
+        val start = trimmed.indexOf('[')
+        val end = trimmed.lastIndexOf(']')
+        if (start >= 0 && end > start) {
+            return parseJsonArray(trimmed.substring(start, end + 1))
+        }
+
+        return null
+    }
 }
