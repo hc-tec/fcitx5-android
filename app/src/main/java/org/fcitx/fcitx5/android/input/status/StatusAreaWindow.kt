@@ -59,6 +59,18 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
 
     private val editorInfoInspector by AppPrefs.getInstance().internal.editorInfoInspector
 
+    // Keep Function Kit WebViews alive across window switching so runtime / UI state is not reset.
+    private val functionKitWindowCache = mutableMapOf<String, FunctionKitWindow>()
+
+    private fun requireFunctionKitWindow(kitId: String?): FunctionKitWindow {
+        val resolvedKitId =
+            kitId
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: FunctionKitRegistry.resolve(context).id
+        return functionKitWindowCache.getOrPut(resolvedKitId) { FunctionKitWindow(resolvedKitId) }
+    }
+
     private fun staticEntries(): Array<StatusAreaEntry.Android> {
         val kitEntries =
             FunctionKitRegistry.listInstalled(context)
@@ -163,7 +175,7 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                         popup.show()
                     }
                     is StatusAreaEntry.Android -> when (entry.type) {
-                        FunctionKit -> windowManager.attachWindow(FunctionKitWindow(entry.functionKitId))
+                        FunctionKit -> windowManager.attachWindow(requireFunctionKitWindow(entry.functionKitId))
                         FunctionKitSettings -> AppUtil.launchMainToFunctionKitSettings(context)
                         InputMethod -> fcitx.runImmediately { inputMethodEntryCached }.let {
                             AppUtil.launchMainToInputMethodConfig(

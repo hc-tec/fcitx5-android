@@ -18,6 +18,7 @@ internal data class HostAiChatConfig(
     val model: String,
     val timeoutSeconds: Int,
     val maxContextChars: Int,
+    val configSource: String,
     val bootstrapAvailable: Boolean = false,
     val usesBootstrapDefaults: Boolean = false
 ) {
@@ -82,11 +83,61 @@ internal data class HostAiChatBootstrapConfig(
 internal object FunctionKitAiChatBackend {
     private const val DefaultMaxContextChars = 12_000
 
+    private fun maybeSeedPrefsFromBootstrap(
+        prefs: AppPrefs.Ai,
+        bootstrapConfig: HostAiChatBootstrapConfig
+    ) {
+        if (!BuildConfig.DEBUG) {
+            return
+        }
+        if (!bootstrapConfig.isConfigured) {
+            return
+        }
+
+        val sp = prefs.chatEnabled.sharedPreferences
+        val enabledSet = sp.contains(prefs.chatEnabled.key)
+        val baseUrlSet = sp.contains(prefs.chatBaseUrl.key)
+        val apiKeySet = sp.contains(prefs.chatApiKey.key)
+        val modelSet = sp.contains(prefs.chatModel.key)
+        val timeoutSet = sp.contains(prefs.chatTimeoutSeconds.key)
+
+        val baseUrl = prefs.chatBaseUrl.getValue().trim()
+        val apiKey = prefs.chatApiKey.getValue().trim()
+        val model = prefs.chatModel.getValue().trim()
+
+        // Ensure the debug build is usable out-of-the-box when bootstrap values are injected at build time
+        // (e.g. from ~/.openclaw/.env). Release builds keep everything empty.
+        if (!enabledSet) {
+            prefs.chatEnabled.setValue(true)
+        }
+        if (!baseUrlSet || baseUrl.isBlank()) {
+            prefs.chatBaseUrl.setValue(bootstrapConfig.baseUrl.trim())
+        }
+        if ((!apiKeySet || apiKey.isBlank()) && bootstrapConfig.apiKey.isNotBlank()) {
+            prefs.chatApiKey.setValue(bootstrapConfig.apiKey.trim())
+        }
+        if (!modelSet || model.isBlank()) {
+            prefs.chatModel.setValue(bootstrapConfig.model.trim())
+        }
+        if (!timeoutSet) {
+            prefs.chatTimeoutSeconds.setValue(bootstrapConfig.timeoutSeconds.coerceAtLeast(1))
+        }
+    }
+
+    // Instrumentation E2E runs may temporarily write stub config into shared prefs.
+    // Avoid poisoning normal runtime by treating these sentinel values as unset.
+    private fun looksLikeE2eStub(prefs: HostAiChatPrefsSnapshot): Boolean {
+        val model = prefs.model.trim()
+        val apiKey = prefs.apiKey.trim()
+        return model == "e2e-stub" || apiKey == "e2e-test"
+    }
+
     fun fromPrefs(
         prefs: AppPrefs.Ai,
         bootstrapConfig: HostAiChatBootstrapConfig = HostAiChatBootstrapConfig.fromBuildConfig()
-    ): HostAiChatConfig =
-        resolveConfig(
+    ): HostAiChatConfig {
+        maybeSeedPrefsFromBootstrap(prefs, bootstrapConfig)
+        return resolveConfig(
             prefs =
                 HostAiChatPrefsSnapshot(
                     enabled = prefs.chatEnabled.getValue(),
@@ -103,52 +154,82 @@ internal object FunctionKitAiChatBackend {
                 ),
             bootstrapConfig = bootstrapConfig
         )
+    }
 
     internal fun resolveConfig(
         prefs: HostAiChatPrefsSnapshot,
         bootstrapConfig: HostAiChatBootstrapConfig = HostAiChatBootstrapConfig.fromBuildConfig()
     ): HostAiChatConfig {
         val bootstrapAvailable = bootstrapConfig.isConfigured
+        val effectivePrefs =
+            if (looksLikeE2eStub(prefs)) {
+                prefs.copy(
+                    enabled = false,
+                    enabledSet = false,
+                    baseUrl = "",
+                    baseUrlSet = false,
+                    apiKey = "",
+                    apiKeySet = false,
+                    model = "",
+                    modelSet = false,
+                    timeoutSecondsSet = false
+                )
+            } else {
+                prefs
+            }
         val baseUrl =
             when {
-                prefs.baseUrlSet -> prefs.baseUrl.trim()
+                effectivePrefs.baseUrlSet -> effectivePrefs.baseUrl.trim()
                 bootstrapAvailable -> bootstrapConfig.baseUrl.trim()
-                else -> prefs.baseUrl.trim()
+                else -> effectivePrefs.baseUrl.trim()
             }
         val apiKey =
             when {
-                prefs.apiKeySet -> prefs.apiKey.trim()
+                effectivePrefs.apiKeySet -> effectivePrefs.apiKey.trim()
                 bootstrapAvailable -> bootstrapConfig.apiKey.trim()
-                else -> prefs.apiKey.trim()
+                else -> effectivePrefs.apiKey.trim()
             }
         val model =
             when {
-                prefs.modelSet -> prefs.model.trim()
+                effectivePrefs.modelSet -> effectivePrefs.model.trim()
                 bootstrapAvailable -> bootstrapConfig.model.trim()
-                else -> prefs.model.trim()
+                else -> effectivePrefs.model.trim()
             }
         val timeoutSeconds =
             when {
-                prefs.timeoutSecondsSet -> prefs.timeoutSeconds.coerceAtLeast(1)
+                effectivePrefs.timeoutSecondsSet -> effectivePrefs.timeoutSeconds.coerceAtLeast(1)
                 bootstrapAvailable -> bootstrapConfig.timeoutSeconds.coerceAtLeast(1)
-                else -> prefs.timeoutSeconds.coerceAtLeast(1)
+                else -> effectivePrefs.timeoutSeconds.coerceAtLeast(1)
             }
         val enabled =
             when {
-                prefs.enabledSet -> prefs.enabled
+                effectivePrefs.enabledSet -> effectivePrefs.enabled
                 bootstrapAvailable -> true
-                else -> prefs.enabled
+                else -> effectivePrefs.enabled
             }
         val usesBootstrapDefaults =
             bootstrapAvailable &&
                 (
-                    (!prefs.enabledSet && enabled) ||
-                        (!prefs.baseUrlSet && baseUrl == bootstrapConfig.baseUrl.trim()) ||
-                        (!prefs.apiKeySet && apiKey == bootstrapConfig.apiKey.trim()) ||
-                        (!prefs.modelSet && model == bootstrapConfig.model.trim()) ||
-                        (!prefs.timeoutSecondsSet &&
+                    (!effectivePrefs.enabledSet && enabled) ||
+                        (!effectivePrefs.baseUrlSet && baseUrl == bootstrapConfig.baseUrl.trim()) ||
+                        (!effectivePrefs.apiKeySet && apiKey == bootstrapConfig.apiKey.trim()) ||
+                        (!effectivePrefs.modelSet && model == bootstrapConfig.model.trim()) ||
+                        (!effectivePrefs.timeoutSecondsSet &&
                             timeoutSeconds == bootstrapConfig.timeoutSeconds.coerceAtLeast(1))
                 )
+        val hasExplicitPrefs =
+            effectivePrefs.enabledSet ||
+                effectivePrefs.baseUrlSet ||
+                effectivePrefs.apiKeySet ||
+                effectivePrefs.modelSet ||
+                effectivePrefs.timeoutSecondsSet
+        val configSource =
+            when {
+                usesBootstrapDefaults -> "debug-bootstrap"
+                hasExplicitPrefs -> "shared-preferences"
+                bootstrapAvailable -> "debug-bootstrap"
+                else -> "unset"
+            }
 
         return HostAiChatConfig(
             enabled = enabled,
@@ -159,6 +240,7 @@ internal object FunctionKitAiChatBackend {
             model = model,
             timeoutSeconds = timeoutSeconds,
             maxContextChars = DefaultMaxContextChars,
+            configSource = configSource,
             bootstrapAvailable = bootstrapAvailable,
             usesBootstrapDefaults = usesBootstrapDefaults
         )

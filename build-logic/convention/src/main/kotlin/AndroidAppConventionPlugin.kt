@@ -44,12 +44,13 @@ class AndroidAppConventionPlugin : AndroidBaseConventionPlugin() {
                 release {
                     isMinifyEnabled = true
                     isShrinkResources = true
-                    signingConfig = envSigningConfig
+                    envSigningConfig?.let { signingConfig = it }
                     proguardFile(getDefaultProguardFile("proguard-android-optimize.txt"))
                 }
                 debug {
                     applicationIdSuffix = ".debug"
-                    signingConfig = envSigningConfig
+                    // Keep debug builds installable even when no release keystore is configured.
+                    envSigningConfig?.let { signingConfig = it }
                 }
                 all {
                     // remove META-INF/version-control-info.textproto

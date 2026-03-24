@@ -6,6 +6,7 @@ package org.fcitx.fcitx5.android.input.functionkit
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.text.InputType
 import android.util.Log
@@ -28,12 +29,17 @@ import org.fcitx.fcitx5.android.core.FormattedText
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.FcitxInputMethodService
+import org.fcitx.fcitx5.android.input.bar.KawaiiBarComponent
 import org.fcitx.fcitx5.android.input.bar.ui.ToolButton
 import org.fcitx.fcitx5.android.input.broadcast.InputBroadcastReceiver
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
+import org.fcitx.fcitx5.android.input.keyboard.KeyboardWindow
+import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.AppUtil
 import org.fcitx.fcitx5.android.utils.Const
+import org.fcitx.fcitx5.android.utils.withBatchEdit
+import org.mechdancer.dependency.manager.must
 import org.json.JSONArray
 import org.json.JSONObject
 import splitties.dimensions.dp
@@ -144,6 +150,8 @@ class FunctionKitWindow(
 
     private val service: FcitxInputMethodService by manager.inputMethodService()
     private val theme: Theme by manager.theme()
+    private val windowManager: InputWindowManager by manager.must()
+    private val kawaiiBar: KawaiiBarComponent by manager.must()
     private val aiPrefs = AppPrefs.getInstance().ai
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
     private val functionKitManifest by lazy {
@@ -300,7 +308,53 @@ class FunctionKitWindow(
             )
         }
     }
-    private val rootView by lazy {
+
+    private var panelPeekHeightPx: Int = 0
+    private var windowManagerHeightBeforeAttach: Int? = null
+    private var embeddedKeyboardView: View? = null
+    private var embeddedKeyboardWindow: KeyboardWindow? = null
+
+    private fun resolvePanelPeekHeightPx(baseHeightPx: Int): Int {
+        val preferred = context.dp(320)
+        val minHeight = context.dp(200)
+        if (baseHeightPx <= 0) {
+            return preferred
+        }
+        val maxHeight = (baseHeightPx * 0.8f).toInt().coerceAtLeast(minHeight)
+        return preferred.coerceIn(minHeight, maxHeight)
+    }
+
+    private fun resolveKeyboardHeightFromPrefsPx(): Int {
+        val keyboardPrefs = AppPrefs.getInstance().keyboard
+        val percentPref =
+            when (context.resources.configuration.orientation) {
+                Configuration.ORIENTATION_LANDSCAPE -> keyboardPrefs.keyboardHeightPercentLandscape
+                else -> keyboardPrefs.keyboardHeightPercent
+            }
+        val percent = percentPref.getValue()
+        return context.resources.displayMetrics.heightPixels * percent / 100
+    }
+
+    private fun shouldShowEmbeddedKeyboard(): Boolean = composerState.open && composerState.focused
+
+    private fun syncEmbeddedKeyboardLayout() {
+        val showKeyboard = shouldShowEmbeddedKeyboard()
+        kawaiiBar.setFunctionKitEmbeddedComposerActive(showKeyboard)
+        embeddedKeyboardContainer.visibility = if (showKeyboard) View.VISIBLE else View.GONE
+
+        // The keyboard container defaults to VISIBLE; always force the correct visibility and window height
+        // even if we failed to capture the base keyboard height (some devices may report 0 during init).
+        val baseHeight = windowManagerHeightBeforeAttach ?: 0
+        val desiredHeight = if (showKeyboard) panelPeekHeightPx + baseHeight else panelPeekHeightPx
+        windowManager.view.layoutParams?.let { params ->
+            if (params.height != desiredHeight) {
+                params.height = desiredHeight
+                windowManager.view.layoutParams = params
+            }
+        }
+    }
+
+    private val panelContainer by lazy {
         LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(theme.barColor)
@@ -313,6 +367,35 @@ class FunctionKitWindow(
             )
             addView(
                 webView,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f
+                )
+            )
+        }
+    }
+
+    private val embeddedKeyboardContainer by lazy {
+        context.frameLayout {
+            backgroundColor = theme.barColor
+            visibility = View.GONE
+        }
+    }
+
+    private val rootView by lazy {
+        LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(theme.barColor)
+            addView(
+                panelContainer,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    panelPeekHeightPx.takeIf { it > 0 } ?: context.dp(320)
+                )
+            )
+            addView(
+                embeddedKeyboardContainer,
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     0,
@@ -370,15 +453,48 @@ class FunctionKitWindow(
 
     override fun onCreateView(): View {
         ensureManifestStateInitialized()
+        val baseHeight = windowManager.view.layoutParams?.height ?: 0
+        panelPeekHeightPx = resolvePanelPeekHeightPx(baseHeight)
         return rootView
     }
 
     override fun onAttached() {
         ensureManifestStateInitialized()
+        val baseHeight = windowManager.view.layoutParams?.height ?: 0
+        if (baseHeight > 0) {
+            windowManagerHeightBeforeAttach = baseHeight
+        } else if (windowManagerHeightBeforeAttach == null) {
+            resolveKeyboardHeightFromPrefsPx().takeIf { it > 0 }?.let { fallbackHeight ->
+                windowManagerHeightBeforeAttach = fallbackHeight
+            }
+        }
+        panelPeekHeightPx = resolvePanelPeekHeightPx(windowManagerHeightBeforeAttach ?: baseHeight)
+        (panelContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+            if (params.height != panelPeekHeightPx) {
+                params.height = panelPeekHeightPx
+                panelContainer.layoutParams = params
+            }
+        }
+
+        val keyboardView = windowManager.requireEssentialWindowView(KeyboardWindow)
+        (keyboardView.parent as? ViewGroup)?.removeView(keyboardView)
+        embeddedKeyboardContainer.removeAllViews()
+        embeddedKeyboardContainer.addView(
+            keyboardView,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        embeddedKeyboardView = keyboardView
+        embeddedKeyboardWindow = windowManager.getEssentialWindow(KeyboardWindow) as KeyboardWindow
+        embeddedKeyboardWindow?.onAttached()
+
         syncCurrentInputState()
         refreshGrantedPermissions(notifyUi = panelInitialized)
         service.localInputTarget = this
         syncComposerUiFromState()
+        syncEmbeddedKeyboardLayout()
 
         if (!panelInitialized) {
             host.initialize(functionKitManifest.entryHtmlAssetPath)
@@ -399,9 +515,41 @@ class FunctionKitWindow(
         if (service.localInputTarget === this) {
             service.localInputTarget = null
         }
+        kawaiiBar.setFunctionKitEmbeddedComposerActive(false)
+        if (composerState.open || composerState.focused) {
+            // Never keep the composer open after the panel is detached, otherwise users will see it
+            // unexpectedly next time they open the panel (or worse: typing gets routed to it).
+            composerState =
+                normalizeComposerState(
+                    composerState.copy(
+                        open = false,
+                        focused = false,
+                        source = "host",
+                        lastAction = "host-detach"
+                    )
+                )
+            syncComposerUiFromState()
+        }
         composerEditText.clearFocus()
+        embeddedKeyboardWindow?.onDetached()
+        embeddedKeyboardWindow = null
+
+        embeddedKeyboardView?.let { view ->
+            (view.parent as? ViewGroup)?.removeView(view)
+        }
+        embeddedKeyboardView = null
+
+        windowManagerHeightBeforeAttach?.let { height ->
+            windowManager.view.layoutParams?.let { params ->
+                if (params.height != height) {
+                    params.height = height
+                    windowManager.view.layoutParams = params
+                }
+            }
+        }
+        windowManagerHeightBeforeAttach = null
+
         webView.onPause()
-        webView.stopLoading()
         FunctionKitTestRegistry.onWindowDetached(functionKitId)
     }
 
@@ -539,14 +687,16 @@ class FunctionKitWindow(
             surface = Surface,
             payload = contextPayload
         )
-        renderCandidates(
-            replyTo = replyTo,
-            reason = reason,
-            preferredTone = preferredTone,
-            modifiers = modifiers,
-            requestContext = contextSnapshot,
-            executionConfig = executionConfig
-        )
+        if ("candidates.regenerate" in grantedPermissions) {
+            renderCandidates(
+                replyTo = replyTo,
+                reason = reason,
+                preferredTone = preferredTone,
+                modifiers = modifiers,
+                requestContext = contextSnapshot,
+                executionConfig = executionConfig
+            )
+        }
     }
 
     private fun handleRegenerate(replyTo: String, payload: JSONObject) {
@@ -595,7 +745,28 @@ class FunctionKitWindow(
         }
 
         ContextCompat.getMainExecutor(service).execute {
-            service.commitText(text, bypassLocalInputTarget = true)
+            val ic = service.currentInputConnection
+            if (!replace || ic == null) {
+                service.commitText(text, bypassLocalInputTarget = true)
+            } else {
+                // "Replace" semantics for Function Kit candidates should behave like chat-app smart replies:
+                // replace the entire existing editor content when there is no explicit selection.
+                ic.withBatchEdit {
+                    ic.finishComposingText()
+                    val hasSelection = currentSelectionStart != currentSelectionEnd
+                    if (!hasSelection) {
+                        val selectedAll = ic.performContextMenuAction(android.R.id.selectAll)
+                        if (!selectedAll) {
+                            val beforeCursor = ic.getTextBeforeCursor(10_000, 0)?.toString().orEmpty()
+                            val afterCursor = ic.getTextAfterCursor(10_000, 0)?.toString().orEmpty()
+                            if (beforeCursor.isNotEmpty() || afterCursor.isNotEmpty()) {
+                                ic.deleteSurroundingText(beforeCursor.length, afterCursor.length)
+                            }
+                        }
+                    }
+                    ic.commitText(text, 1)
+                }
+            }
             host.dispatchHostStateUpdate(
                 kitId = functionKitId,
                 surface = Surface,
@@ -1017,6 +1188,7 @@ class FunctionKitWindow(
     ) {
         composerState = normalizeComposerState(transform(composerState))
         syncComposerUiFromState()
+        syncEmbeddedKeyboardLayout()
         dispatchComposerStateSync(replyTo = replyTo, surface = surface, reason = reason)
     }
 
@@ -1178,14 +1350,15 @@ class FunctionKitWindow(
     private fun syncComposerUiFromState() {
         composerSyncingView = true
         try {
-            composerContainer.visibility = if (composerState.open) View.VISIBLE else View.GONE
+            val showComposerUi = composerState.open && composerState.mode == "detached"
+            composerContainer.visibility = if (showComposerUi) View.VISIBLE else View.GONE
             composerStatusView.text = resolveComposerStatusLabel()
             composerInsertButton.isEnabled =
                 canApplyComposerToTarget() && "input.insert" in grantedPermissions
             composerReplaceButton.isEnabled =
                 canApplyComposerToTarget() && "input.replace" in grantedPermissions
             composerCloseButton.isEnabled = "composer.control" in grantedPermissions
-            composerEditText.isCursorVisible = composerState.focused
+            composerEditText.isCursorVisible = showComposerUi && composerState.focused
 
             if (composerEditText.text?.toString() != composerState.text) {
                 composerEditText.setText(composerState.text)
@@ -1196,7 +1369,7 @@ class FunctionKitWindow(
             if (composerEditText.selectionStart != start || composerEditText.selectionEnd != end) {
                 composerEditText.setSelection(start, end)
             }
-            if (composerState.open && composerState.focused) {
+            if (showComposerUi && composerState.focused) {
                 if (!composerEditText.hasFocus()) {
                     composerEditText.requestFocus()
                 }
@@ -1422,8 +1595,7 @@ class FunctionKitWindow(
 
     private fun canUseLocalAiForCandidates(aiChatConfig: HostAiChatConfig): Boolean =
         aiChatConfig.isConfigured &&
-            "ai.chat" in grantedPermissions &&
-            functionKitManifest.ai.executionMode == "direct-model"
+            "ai.chat" in grantedPermissions
 
     private fun buildLocalAiRoutingSnapshot(
         executionConfig: ExecutionConfig,
@@ -1437,6 +1609,10 @@ class FunctionKitWindow(
             .put("providerType", aiChatConfig.providerType)
             .put("model", aiChatConfig.model)
             .put("baseUrl", aiChatConfig.configuredBaseUrl)
+            .put("timeoutSeconds", aiChatConfig.timeoutSeconds)
+            .put("configSource", aiChatConfig.configSource)
+            .put("bootstrapAvailable", aiChatConfig.bootstrapAvailable)
+            .put("usesBootstrapDefaults", aiChatConfig.usesBootstrapDefaults)
 
     private fun buildAiChatMessages(payload: JSONObject): JSONArray {
         val messages = JSONArray()
@@ -1719,8 +1895,27 @@ class FunctionKitWindow(
         reason: String,
         executionConfig: ExecutionConfig,
         aiChatConfig: HostAiChatConfig,
-        error: RemoteInferenceException
+        error: RemoteInferenceException,
+        fallbackCandidatesPayload: JSONObject? = null
     ) {
+        host.dispatchHostStateUpdate(
+            kitId = functionKitId,
+            surface = surface,
+            label = "Android AI chat 失败",
+            details =
+                buildHostDetails(executionConfig)
+                    .put("reason", reason)
+                    .put("model", aiChatConfig.model)
+                    .put("error", JSONObject().put("code", error.code).put("message", error.message))
+        )
+        fallbackCandidatesPayload?.let { payload ->
+            host.dispatchCandidatesRender(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                payload = payload
+            )
+        }
         host.dispatchBridgeError(
             replyTo = replyTo,
             kitId = functionKitId,
@@ -1735,16 +1930,6 @@ class FunctionKitWindow(
                     .put("model", aiChatConfig.model)
                     .put("statusCode", error.statusCode)
                     .put("details", JSONObject.wrap(error.details))
-        )
-        host.dispatchHostStateUpdate(
-            kitId = functionKitId,
-            surface = surface,
-            label = "Android AI chat 失败",
-            details =
-                buildHostDetails(executionConfig)
-                    .put("reason", reason)
-                    .put("model", aiChatConfig.model)
-                    .put("error", JSONObject().put("code", error.code).put("message", error.message))
         )
     }
 
@@ -1773,6 +1958,10 @@ class FunctionKitWindow(
             .put("providerType", aiChatConfig.providerType)
             .put("baseUrl", aiChatConfig.configuredBaseUrl)
             .put("model", aiChatConfig.model)
+            .put("timeoutSeconds", aiChatConfig.timeoutSeconds)
+            .put("configSource", aiChatConfig.configSource)
+            .put("bootstrapAvailable", aiChatConfig.bootstrapAvailable)
+            .put("usesBootstrapDefaults", aiChatConfig.usesBootstrapDefaults)
             .put("routing", buildLocalAiRoutingSnapshot(executionConfig, aiChatConfig, "ai.chat.status"))
             .put("hostInfo", buildHostInfo(executionConfig))
     }
@@ -2126,7 +2315,13 @@ class FunctionKitWindow(
                             reason = reason,
                             executionConfig = executionConfig,
                             aiChatConfig = aiChatConfig,
-                            error = error
+                            error = error,
+                            fallbackCandidatesPayload =
+                                buildCandidatesRenderPayload(
+                                    requestContext = requestContext,
+                                    preferredTone = preferredTone,
+                                    modifiers = modifiers
+                                )
                         )
                     }
                 }
@@ -2572,23 +2767,27 @@ class FunctionKitWindow(
 
     private fun buildHostInfo(executionConfig: ExecutionConfig = currentExecutionConfig()): JSONObject {
         val aiChatConfig = currentAiChatConfig()
-        val localAiActive = !executionConfig.remoteEnabled && canUseLocalAiForCandidates(aiChatConfig)
+        val resolvedMode =
+            resolveFunctionKitEffectiveMode(
+                remoteEnabled = executionConfig.remoteEnabled,
+                executionMode = executionConfig.executionMode,
+                transport = executionConfig.transport,
+                modeMessage = executionConfig.modeMessage,
+                localAiEligible = canUseLocalAiForCandidates(aiChatConfig),
+                localAiEndpointForMessage = aiChatConfig.endpoint ?: aiChatConfig.configuredBaseUrl
+            )
         return JSONObject()
             .put("platform", "android")
             .put("runtime", "fcitx5-android-webview")
             .put("protocol", FunctionKitWebViewHost.protocolInfo())
             .put("supportedRuntimePermissions", JSONArray(supportedRuntimePermissions))
             .put("grantedPermissions", JSONArray(grantedPermissions))
-            .put("executionMode", if (localAiActive) "direct-model" else executionConfig.executionMode)
+            .put("executionMode", resolvedMode.executionMode)
             .put("requestedExecutionMode", executionConfig.requestedExecutionMode)
-            .put("transport", if (localAiActive) "android-direct-http" else executionConfig.transport)
+            .put("transport", resolvedMode.transport)
             .put(
                 "modeMessage",
-                when {
-                    localAiActive ->
-                        "Using Android shared AI chat via ${aiChatConfig.endpoint ?: aiChatConfig.configuredBaseUrl}"
-                    else -> executionConfig.modeMessage
-                }
+                resolvedMode.modeMessage
             )
             .put("baseUrl", executionConfig.configuredBaseUrl)
             .put("remoteAuthConfigured", executionConfig.remoteAuthConfigured)
@@ -2623,8 +2822,19 @@ class FunctionKitWindow(
             }
     }
 
-    private fun buildHostDetails(executionConfig: ExecutionConfig = currentExecutionConfig()): JSONObject =
-        JSONObject()
+    private fun buildHostDetails(executionConfig: ExecutionConfig = currentExecutionConfig()): JSONObject {
+        val aiChatConfig = currentAiChatConfig()
+        val resolvedMode =
+            resolveFunctionKitEffectiveMode(
+                remoteEnabled = executionConfig.remoteEnabled,
+                executionMode = executionConfig.executionMode,
+                transport = executionConfig.transport,
+                modeMessage = executionConfig.modeMessage,
+                localAiEligible = canUseLocalAiForCandidates(aiChatConfig),
+                localAiEndpointForMessage = aiChatConfig.endpoint ?: aiChatConfig.configuredBaseUrl
+            )
+
+        return JSONObject()
             .put("sessionId", sessionId)
             .put("packageName", currentPackageName)
             .put("selectionStart", currentSelectionStart)
@@ -2637,10 +2847,10 @@ class FunctionKitWindow(
             .put("protocol", FunctionKitWebViewHost.protocolInfo())
             .put("supportedRuntimePermissions", JSONArray(supportedRuntimePermissions))
             .put("grantedPermissions", JSONArray(grantedPermissions))
-            .put("executionMode", executionConfig.executionMode)
+            .put("executionMode", resolvedMode.executionMode)
             .put("requestedExecutionMode", executionConfig.requestedExecutionMode)
-            .put("transport", executionConfig.transport)
-            .put("modeMessage", executionConfig.modeMessage)
+            .put("transport", resolvedMode.transport)
+            .put("modeMessage", resolvedMode.modeMessage)
             .put("baseUrl", executionConfig.configuredBaseUrl)
             .put("remoteAuthConfigured", executionConfig.remoteAuthConfigured)
             .put("preferredBackendClass", executionConfig.preferredBackendClass)
@@ -2664,6 +2874,7 @@ class FunctionKitWindow(
                     put("timeoutMs", executionConfig.timeoutMs)
                 }
             }
+    }
 
     private fun buildManifestSnapshot(): JSONObject =
         JSONObject(functionKitManifest.toJson().toString())

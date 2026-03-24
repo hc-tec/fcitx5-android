@@ -112,8 +112,10 @@ class InputWindowManager : UniqueViewComponent<InputWindowManager, FrameLayout>(
      * [attachWindow] includes the operation done by [addEssentialWindow].
      */
     fun attachWindow(window: InputWindow) {
-        if (window === currentWindow)
+        if (window === currentWindow) {
             Timber.d("Skip attaching $window")
+            return
+        }
         val newView = if (window is EssentialWindow) {
             // keep the view for essential windows
             essentialWindows[window.key]?.second ?: window.onCreateView()
@@ -155,6 +157,20 @@ class InputWindowManager : UniqueViewComponent<InputWindowManager, FrameLayout>(
         currentWindow = window
         // broadcast the new window was added to layout
         broadcaster.onWindowAttached(window)
+    }
+
+    /**
+     * Returns the existing view for an [EssentialWindow], creating it if needed.
+     * Useful for composite windows that want to temporarily host an essential window view.
+     */
+    fun requireEssentialWindowView(windowKey: EssentialWindow.Key): View {
+        val (window, existingView) =
+            essentialWindows[windowKey]
+                ?: throw IllegalStateException("$windowKey is not a known essential window key")
+        val view = existingView ?: window.onCreateView().also {
+            essentialWindows[windowKey] = window to it
+        }
+        return view
     }
 
     override val view: FrameLayout by lazy { context.frameLayout(R.id.input_window) }

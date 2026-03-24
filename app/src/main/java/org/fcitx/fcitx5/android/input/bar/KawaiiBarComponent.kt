@@ -119,6 +119,12 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private var isKeyboardLayoutNumber: Boolean = false
     private var isToolbarManuallyToggled: Boolean = false
 
+    // Keep Function Kit WebViews alive across window switching so runtime / UI state is not reset.
+    private val functionKitWindowCache = mutableMapOf<String, FunctionKitWindow>()
+
+    private fun requireFunctionKitWindow(kitId: String): FunctionKitWindow =
+        functionKitWindowCache.getOrPut(kitId) { FunctionKitWindow(kitId) }
+
     private enum class NumberRowState { Auto, ForceShow, ForceHide }
 
     private var numberRowState = NumberRowState.Auto
@@ -344,7 +350,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 }
                 functionKitButtons.forEach { kitButton ->
                     kitButton.button.setOnClickListener {
-                        windowManager.attachWindow(FunctionKitWindow(kitButton.entry.kitId))
+                        windowManager.attachWindow(requireFunctionKitWindow(kitButton.entry.kitId))
                     }
                     kitButton.button.setOnLongClickListener {
                         AppUtil.launchMainToFunctionKitSettings(context)
@@ -399,6 +405,57 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         switchUiByState(it)
     }
 
+    private var activeExtendedWindow: InputWindow.ExtendedInputWindow<*>? = null
+    private var functionKitEmbeddedComposerActive: Boolean = false
+    private var isPreeditEmpty: Boolean = true
+    private var isCandidateEmpty: Boolean = true
+
+    internal fun setFunctionKitEmbeddedComposerActive(active: Boolean) {
+        if (functionKitEmbeddedComposerActive == active) {
+            return
+        }
+        functionKitEmbeddedComposerActive = active
+
+        val attachedWindow = activeExtendedWindow
+        if (attachedWindow !is FunctionKitWindow) {
+            return
+        }
+
+        if (!active) {
+            // When the embedded composer is closed, we should always fall back to the Title UI for
+            // the attached Function Kit window (instead of staying in Candidate state).
+            if (barStateMachine.currentState != KawaiiBarStateMachine.State.Title) {
+                barStateMachine.unsafeJump(KawaiiBarStateMachine.State.Title)
+            }
+            return
+        }
+
+        // Composer focus can change without immediate preedit/candidate updates.
+        applyFunctionKitTitleOverride()
+    }
+
+    private fun applyFunctionKitTitleOverride() {
+        val attachedWindow = activeExtendedWindow
+        if (!functionKitEmbeddedComposerActive || attachedWindow !is FunctionKitWindow) {
+            return
+        }
+
+        // While any ExtendedInputWindow is attached, the bar state machine stays in Title state
+        // and never transitions back to Candidate on candidate/preedit updates. When the Function
+        // Kit embedded composer is active, we must show candidates/preedit so users can commit
+        // Chinese input inside Function Kit input fields.
+        val shouldShowCandidates = !isPreeditEmpty || !isCandidateEmpty
+        val desiredState =
+            if (shouldShowCandidates) {
+                KawaiiBarStateMachine.State.Candidate
+            } else {
+                KawaiiBarStateMachine.State.Title
+            }
+        if (barStateMachine.currentState != desiredState) {
+            barStateMachine.unsafeJump(desiredState)
+        }
+    }
+
     val expandButtonStateMachine = ExpandButtonStateMachine.new {
         when (it) {
             ClickToAttachWindow -> {
@@ -447,7 +504,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         val index = state.ordinal
         if (view.displayedChild == index) return
         val new = view.getChildAt(index)
-        if (new != titleUi.root) {
+        if (new != titleUi.root && activeExtendedWindow == null) {
             titleUi.setReturnButtonOnClickListener { }
             titleUi.setTitle("")
             titleUi.removeExtension()
@@ -502,28 +559,45 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     }
 
     override fun onPreeditEmptyStateUpdate(empty: Boolean) {
+        isPreeditEmpty = empty
         barStateMachine.push(PreeditUpdated, PreeditEmpty to empty)
+        applyFunctionKitTitleOverride()
     }
 
     override fun onCandidateUpdate(data: CandidateListEvent.Data) {
-        barStateMachine.push(CandidatesUpdated, CandidateEmpty to data.candidates.isEmpty())
+        isCandidateEmpty = data.candidates.isEmpty()
+        barStateMachine.push(CandidatesUpdated, CandidateEmpty to isCandidateEmpty)
+        applyFunctionKitTitleOverride()
     }
 
     override fun onWindowAttached(window: InputWindow) {
         when (window) {
             is InputWindow.ExtendedInputWindow<*> -> {
+                activeExtendedWindow = window
                 titleUi.setTitle(window.title)
                 window.onCreateBarExtension()?.let { titleUi.addExtension(it, window.showTitle) }
                 titleUi.setReturnButtonOnClickListener {
                     windowManager.attachWindow(KeyboardWindow)
                 }
                 barStateMachine.push(ExtendedWindowAttached)
+                applyFunctionKitTitleOverride()
             }
             else -> {}
         }
     }
 
     override fun onWindowDetached(window: InputWindow) {
+        if (window is InputWindow.ExtendedInputWindow<*>) {
+            if (activeExtendedWindow === window) {
+                activeExtendedWindow = null
+                functionKitEmbeddedComposerActive = false
+            }
+            // The title extension belongs to the detached window; clear it even if we are in
+            // Candidate state due to Function Kit overrides.
+            titleUi.setReturnButtonOnClickListener { }
+            titleUi.setTitle("")
+            titleUi.removeExtension()
+        }
         barStateMachine.push(WindowDetached)
     }
 
