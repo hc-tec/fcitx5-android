@@ -7,6 +7,42 @@ import org.junit.Test
 
 class FunctionKitAiChatBackendTest {
     @Test
+    fun repairsBlankButSetPrefsWhenBootstrapAvailable() {
+        val resolved =
+            FunctionKitAiChatBackend.resolveConfig(
+                prefs =
+                    HostAiChatPrefsSnapshot(
+                        enabled = false,
+                        enabledSet = true,
+                        baseUrl = "",
+                        baseUrlSet = true,
+                        apiKey = "sk-leftover",
+                        apiKeySet = true,
+                        model = "   ",
+                        modelSet = true,
+                        timeoutSeconds = 0,
+                        timeoutSecondsSet = true
+                    ),
+                bootstrapConfig =
+                    HostAiChatBootstrapConfig(
+                        enabled = true,
+                        providerType = "openai-compatible",
+                        baseUrl = "https://api.deepseek.com/v1",
+                        apiKey = "sk-test",
+                        model = "deepseek-chat",
+                        timeoutSeconds = 20
+                    )
+            )
+
+        assertTrue(resolved.enabled)
+        assertEquals("https://api.deepseek.com/v1", resolved.configuredBaseUrl)
+        assertEquals("deepseek-chat", resolved.model)
+        assertEquals("debug-bootstrap", resolved.configSource)
+        assertTrue(resolved.usesBootstrapDefaults)
+        assertTrue(resolved.isConfigured)
+    }
+
+    @Test
     fun prefersBootstrapWhenPrefsLookLikeE2eStub() {
         val resolved =
             FunctionKitAiChatBackend.resolveConfig(

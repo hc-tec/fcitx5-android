@@ -83,6 +83,37 @@ internal data class HostAiChatBootstrapConfig(
 internal object FunctionKitAiChatBackend {
     private const val DefaultMaxContextChars = 12_000
 
+    private fun normalizeBlankPrefs(prefs: HostAiChatPrefsSnapshot): HostAiChatPrefsSnapshot {
+        fun normalizeString(
+            value: String,
+            set: Boolean
+        ): Pair<String, Boolean> {
+            val trimmed = value.trim()
+            return if (set && trimmed.isBlank()) {
+                "" to false
+            } else {
+                trimmed to set
+            }
+        }
+
+        val (baseUrl, baseUrlSet) = normalizeString(prefs.baseUrl, prefs.baseUrlSet)
+        val (apiKey, apiKeySet) = normalizeString(prefs.apiKey, prefs.apiKeySet)
+        val (model, modelSet) = normalizeString(prefs.model, prefs.modelSet)
+        val timeoutSeconds = prefs.timeoutSeconds.coerceAtLeast(1)
+        val timeoutSecondsSet = prefs.timeoutSecondsSet && prefs.timeoutSeconds > 0
+
+        return prefs.copy(
+            baseUrl = baseUrl,
+            baseUrlSet = baseUrlSet,
+            apiKey = apiKey,
+            apiKeySet = apiKeySet,
+            model = model,
+            modelSet = modelSet,
+            timeoutSeconds = timeoutSeconds,
+            timeoutSecondsSet = timeoutSecondsSet
+        )
+    }
+
     private fun maybeSeedPrefsFromBootstrap(
         prefs: AppPrefs.Ai,
         bootstrapConfig: HostAiChatBootstrapConfig
@@ -101,14 +132,21 @@ internal object FunctionKitAiChatBackend {
         val modelSet = sp.contains(prefs.chatModel.key)
         val timeoutSet = sp.contains(prefs.chatTimeoutSeconds.key)
 
+        val enabled = prefs.chatEnabled.getValue()
         val baseUrl = prefs.chatBaseUrl.getValue().trim()
         val apiKey = prefs.chatApiKey.getValue().trim()
         val model = prefs.chatModel.getValue().trim()
 
         // Ensure the debug build is usable out-of-the-box when bootstrap values are injected at build time
         // (e.g. from ~/.openclaw/.env). Release builds keep everything empty.
-        if (!enabledSet) {
-            prefs.chatEnabled.setValue(true)
+        val explicitlyDisabledByUser = enabledSet && !enabled && baseUrl.isNotBlank() && model.isNotBlank()
+        if (!explicitlyDisabledByUser) {
+            // Repair stale debug prefs (e.g. enabled=false but URL/model empty) so users don't need to clear app data.
+            if (!enabled && (!enabledSet || baseUrl.isBlank() || model.isBlank())) {
+                prefs.chatEnabled.setValue(true)
+            } else if (!enabledSet) {
+                prefs.chatEnabled.setValue(true)
+            }
         }
         if (!baseUrlSet || baseUrl.isBlank()) {
             prefs.chatBaseUrl.setValue(bootstrapConfig.baseUrl.trim())
@@ -177,52 +215,66 @@ internal object FunctionKitAiChatBackend {
             } else {
                 prefs
             }
+        val repairedPrefs =
+            if (BuildConfig.DEBUG && bootstrapAvailable) {
+                val normalizedPrefs = normalizeBlankPrefs(effectivePrefs)
+                val shouldTreatEnabledAsUnset =
+                    normalizedPrefs.enabledSet &&
+                        !normalizedPrefs.enabled &&
+                        !(normalizedPrefs.baseUrlSet && normalizedPrefs.modelSet)
+
+                normalizedPrefs.copy(
+                    enabledSet = if (shouldTreatEnabledAsUnset) false else normalizedPrefs.enabledSet
+                )
+            } else {
+                effectivePrefs
+            }
         val baseUrl =
             when {
-                effectivePrefs.baseUrlSet -> effectivePrefs.baseUrl.trim()
+                repairedPrefs.baseUrlSet -> repairedPrefs.baseUrl.trim()
                 bootstrapAvailable -> bootstrapConfig.baseUrl.trim()
-                else -> effectivePrefs.baseUrl.trim()
+                else -> repairedPrefs.baseUrl.trim()
             }
         val apiKey =
             when {
-                effectivePrefs.apiKeySet -> effectivePrefs.apiKey.trim()
+                repairedPrefs.apiKeySet -> repairedPrefs.apiKey.trim()
                 bootstrapAvailable -> bootstrapConfig.apiKey.trim()
-                else -> effectivePrefs.apiKey.trim()
+                else -> repairedPrefs.apiKey.trim()
             }
         val model =
             when {
-                effectivePrefs.modelSet -> effectivePrefs.model.trim()
+                repairedPrefs.modelSet -> repairedPrefs.model.trim()
                 bootstrapAvailable -> bootstrapConfig.model.trim()
-                else -> effectivePrefs.model.trim()
+                else -> repairedPrefs.model.trim()
             }
         val timeoutSeconds =
             when {
-                effectivePrefs.timeoutSecondsSet -> effectivePrefs.timeoutSeconds.coerceAtLeast(1)
+                repairedPrefs.timeoutSecondsSet -> repairedPrefs.timeoutSeconds.coerceAtLeast(1)
                 bootstrapAvailable -> bootstrapConfig.timeoutSeconds.coerceAtLeast(1)
-                else -> effectivePrefs.timeoutSeconds.coerceAtLeast(1)
+                else -> repairedPrefs.timeoutSeconds.coerceAtLeast(1)
             }
         val enabled =
             when {
-                effectivePrefs.enabledSet -> effectivePrefs.enabled
+                repairedPrefs.enabledSet -> repairedPrefs.enabled
                 bootstrapAvailable -> true
-                else -> effectivePrefs.enabled
+                else -> repairedPrefs.enabled
             }
         val usesBootstrapDefaults =
             bootstrapAvailable &&
                 (
-                    (!effectivePrefs.enabledSet && enabled) ||
-                        (!effectivePrefs.baseUrlSet && baseUrl == bootstrapConfig.baseUrl.trim()) ||
-                        (!effectivePrefs.apiKeySet && apiKey == bootstrapConfig.apiKey.trim()) ||
-                        (!effectivePrefs.modelSet && model == bootstrapConfig.model.trim()) ||
-                        (!effectivePrefs.timeoutSecondsSet &&
+                    (!repairedPrefs.enabledSet && enabled) ||
+                        (!repairedPrefs.baseUrlSet && baseUrl == bootstrapConfig.baseUrl.trim()) ||
+                        (!repairedPrefs.apiKeySet && apiKey == bootstrapConfig.apiKey.trim()) ||
+                        (!repairedPrefs.modelSet && model == bootstrapConfig.model.trim()) ||
+                        (!repairedPrefs.timeoutSecondsSet &&
                             timeoutSeconds == bootstrapConfig.timeoutSeconds.coerceAtLeast(1))
                 )
         val hasExplicitPrefs =
-            effectivePrefs.enabledSet ||
-                effectivePrefs.baseUrlSet ||
-                effectivePrefs.apiKeySet ||
-                effectivePrefs.modelSet ||
-                effectivePrefs.timeoutSecondsSet
+            repairedPrefs.enabledSet ||
+                repairedPrefs.baseUrlSet ||
+                repairedPrefs.apiKeySet ||
+                repairedPrefs.modelSet ||
+                repairedPrefs.timeoutSecondsSet
         val configSource =
             when {
                 usesBootstrapDefaults -> "debug-bootstrap"
