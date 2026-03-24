@@ -5,6 +5,7 @@
 package org.fcitx.fcitx5.android.input.functionkit
 
 import android.content.Context
+import android.graphics.drawable.BitmapDrawable
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -41,6 +42,27 @@ class FunctionKitImeEndToEndInstrumentationTest {
     @After
     fun tearDown() {
         device.waitForIdle()
+    }
+
+    @Test
+    fun functionKitIcons_decodePngAndIco() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val pngPath = "function-kits/quick-phrases/icons/quick-phrases.png"
+        val icoPath = "function-kits/chat-auto-reply/icons/chat-auto-reply.ico"
+
+        val png = FunctionKitIconLoader.loadDrawable(context, pngPath)
+        Assert.assertNotNull("Expected PNG icon to decode: $pngPath", png)
+        Assert.assertTrue(
+            "Expected PNG icon drawable to be backed by a bitmap: $pngPath",
+            (png as? BitmapDrawable)?.bitmap?.width?.let { it > 0 } == true
+        )
+
+        val ico = FunctionKitIconLoader.loadDrawable(context, icoPath)
+        Assert.assertNotNull("Expected ICO icon to decode: $icoPath", ico)
+        Assert.assertTrue(
+            "Expected ICO icon drawable to be backed by a bitmap: $icoPath",
+            (ico as? BitmapDrawable)?.bitmap?.width?.let { it > 0 } == true
+        )
     }
 
     @Test
