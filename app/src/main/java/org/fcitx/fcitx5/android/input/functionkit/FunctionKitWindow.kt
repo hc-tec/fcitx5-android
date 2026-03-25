@@ -5,8 +5,12 @@
 package org.fcitx.fcitx5.android.input.functionkit
 
 import android.content.Context
+import android.content.ClipDescription
 import android.content.SharedPreferences
 import android.content.res.Configuration
+import android.net.Uri
+import android.os.Bundle
+import android.util.Base64
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
@@ -15,6 +19,10 @@ import android.webkit.WebView
 import android.widget.LinearLayout
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.core.view.inputmethod.EditorInfoCompat
+import androidx.core.view.inputmethod.InputConnectionCompat
+import androidx.core.view.inputmethod.InputContentInfoCompat
 import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.core.CapabilityFlags
@@ -43,6 +51,7 @@ import splitties.views.dsl.core.frameLayout
 import splitties.views.dsl.core.horizontalLayout
 import splitties.views.dsl.core.lParams
 import splitties.views.dsl.core.matchParent
+import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
@@ -278,6 +287,13 @@ class FunctionKitWindow(
             }
         }
     }
+    private val contentExecutor by lazy {
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "FunctionKitContentCommit").apply {
+                isDaemon = true
+            }
+        }
+    }
 
     private var panelInitialized = false
     private var renderSeed = 0
@@ -447,6 +463,7 @@ class FunctionKitWindow(
             "candidates.regenerate" -> handleRegenerate(replyTo, payload)
             "candidate.insert" -> handleCommit(replyTo, payload, "input.insert", replace = false)
             "candidate.replace" -> handleCommit(replyTo, payload, "input.replace", replace = true)
+            "input.commitImage" -> handleCommitImage(replyTo, surface, payload)
             "storage.get" -> handleStorageGet(replyTo, payload)
             "storage.set" -> handleStorageSet(replyTo, payload)
             "panel.state.update" -> handlePanelStateUpdate(replyTo, payload)
@@ -615,6 +632,310 @@ class FunctionKitWindow(
                 details = buildHostDetails().put("candidateId", payload.optString("candidateId"))
             )
         }
+    }
+
+    private data class DecodedImagePayload(
+        val mimeType: String,
+        val bytes: ByteArray
+    )
+
+    private sealed class CommitImageDecodeResult {
+        data class Ok(
+            val payload: DecodedImagePayload
+        ) : CommitImageDecodeResult()
+
+        data class TooLarge(
+            val mimeType: String,
+            val approxBytes: Int
+        ) : CommitImageDecodeResult()
+
+        object Invalid : CommitImageDecodeResult()
+    }
+
+    private fun handleCommitImage(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "input.commitImage") ?: return
+
+        val dataUrl = payload.optString("dataUrl").trim()
+        val mimeTypeHint = payload.optString("mimeType").trim()
+        val fileNameHint = payload.optString("fileName").trim()
+        val label = payload.optString("label").trim().ifBlank { "Function Kit image" }
+
+        if (dataUrl.isBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "invalid_commit_image_payload",
+                message = "Missing image dataUrl",
+                retryable = false
+            )
+            return
+        }
+
+        contentExecutor.execute {
+            val decoded =
+                when (
+                    val decodedResult =
+                        decodeCommitImagePayload(
+                            dataUrl = dataUrl,
+                            mimeTypeHint = mimeTypeHint
+                        )
+                ) {
+                    is CommitImageDecodeResult.Ok -> decodedResult.payload
+                    is CommitImageDecodeResult.TooLarge -> {
+                        host.dispatchBridgeError(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            code = "image_too_large",
+                            message = "Image exceeds size limit (${decodedResult.approxBytes} bytes).",
+                            retryable = false,
+                            details =
+                                JSONObject()
+                                    .put("maxBytes", MaxInlineImageBytes)
+                                    .put("sizeBytes", decodedResult.approxBytes)
+                                    .put("mimeType", decodedResult.mimeType)
+                        )
+                        return@execute
+                    }
+                    CommitImageDecodeResult.Invalid -> {
+                        host.dispatchBridgeError(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            code = "invalid_commit_image_payload",
+                            message = "Unable to decode image data",
+                            retryable = false
+                        )
+                        return@execute
+                    }
+                }
+
+            if (!decoded.mimeType.startsWith("image/")) {
+                host.dispatchBridgeError(
+                    replyTo = replyTo,
+                    kitId = functionKitId,
+                    surface = surface,
+                    code = "unsupported_image_mime_type",
+                    message = "Unsupported mime type: ${decoded.mimeType}",
+                    retryable = false
+                )
+                return@execute
+            }
+
+            val safeFileStem = sanitizeCommitImageFileStem(fileNameHint).ifBlank { "function-kit-image" }
+            val contentUri =
+                try {
+                    writeCommitImageToCache(
+                        mimeType = decoded.mimeType,
+                        bytes = decoded.bytes,
+                        fileStem = safeFileStem
+                    )
+                } catch (error: Exception) {
+                    host.dispatchBridgeError(
+                        replyTo = replyTo,
+                        kitId = functionKitId,
+                        surface = surface,
+                        code = "commit_image_store_failed",
+                        message = "Failed to store image: ${error.message ?: "I/O error"}",
+                        retryable = true
+                    )
+                    return@execute
+                }
+
+            ContextCompat.getMainExecutor(service).execute {
+                val ic = service.currentInputConnection
+                if (ic == null) {
+                    host.dispatchBridgeError(
+                        replyTo = replyTo,
+                        kitId = functionKitId,
+                        surface = surface,
+                        code = "missing_input_connection",
+                        message = "No active input connection.",
+                        retryable = true
+                    )
+                    return@execute
+                }
+
+                val editorInfo = service.currentInputEditorInfo
+                val supportedMimeTypes = EditorInfoCompat.getContentMimeTypes(editorInfo)
+                val acceptsMimeType = supportedMimeTypes.any {
+                    ClipDescription.compareMimeTypes(decoded.mimeType, it)
+                }
+                if (!acceptsMimeType) {
+                    host.dispatchBridgeError(
+                        replyTo = replyTo,
+                        kitId = functionKitId,
+                        surface = surface,
+                        code = "target_does_not_accept_image",
+                        message = "Target editor does not accept ${decoded.mimeType}.",
+                        retryable = false,
+                        details =
+                            JSONObject()
+                                .put("mimeType", decoded.mimeType)
+                                .put("supportedMimeTypes", JSONArray(supportedMimeTypes.toList()))
+                                .put("sourcePackage", editorInfo.packageName.orEmpty())
+                    )
+                    return@execute
+                }
+
+                val description = ClipDescription(label, arrayOf(decoded.mimeType))
+                val contentInfo = InputContentInfoCompat(contentUri, description, null)
+                val committed =
+                    InputConnectionCompat.commitContent(
+                        ic,
+                        editorInfo,
+                        contentInfo,
+                        InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION,
+                        Bundle().apply { putString("kitId", functionKitId) }
+                    )
+
+                if (!committed) {
+                    host.dispatchBridgeError(
+                        replyTo = replyTo,
+                        kitId = functionKitId,
+                        surface = surface,
+                        code = "commit_image_failed",
+                        message = "InputConnectionCompat.commitContent returned false.",
+                        retryable = false,
+                        details =
+                            JSONObject()
+                                .put("mimeType", decoded.mimeType)
+                                .put("supportedMimeTypes", JSONArray(supportedMimeTypes.toList()))
+                    )
+                    return@execute
+                }
+
+                host.dispatchHostStateUpdate(
+                    kitId = functionKitId,
+                    surface = surface,
+                    label = "图片已写回输入框",
+                    details =
+                        buildHostDetails()
+                            .put("mimeType", decoded.mimeType)
+                            .put("fileName", safeFileStem)
+                )
+            }
+        }
+    }
+
+    private fun decodeCommitImagePayload(
+        dataUrl: String,
+        mimeTypeHint: String
+    ): CommitImageDecodeResult {
+        val trimmed = dataUrl.trim()
+        if (trimmed.isBlank()) {
+            return CommitImageDecodeResult.Invalid
+        }
+
+        val (mimeType, encoded) =
+            if (trimmed.startsWith("data:", ignoreCase = true)) {
+                val commaIndex = trimmed.indexOf(',')
+                if (commaIndex <= 5 || commaIndex >= trimmed.length - 1) {
+                    return CommitImageDecodeResult.Invalid
+                }
+                val meta = trimmed.substring(5, commaIndex)
+                val payload = trimmed.substring(commaIndex + 1)
+                if (!meta.contains(";base64", ignoreCase = true)) {
+                    return CommitImageDecodeResult.Invalid
+                }
+                val parsedMime = meta.substringBefore(';').trim().ifBlank { mimeTypeHint }
+                if (parsedMime.isBlank()) {
+                    return CommitImageDecodeResult.Invalid
+                }
+                parsedMime to payload
+            } else {
+                if (mimeTypeHint.isBlank()) {
+                    return CommitImageDecodeResult.Invalid
+                }
+                mimeTypeHint to trimmed
+            }
+
+        val approxBytes = (encoded.length * 3) / 4
+        if (approxBytes > MaxInlineImageBytes) {
+            return CommitImageDecodeResult.TooLarge(mimeType, approxBytes)
+        }
+
+        val bytes =
+            try {
+                Base64.decode(encoded, Base64.DEFAULT)
+            } catch (_error: IllegalArgumentException) {
+                return CommitImageDecodeResult.Invalid
+            }
+        if (bytes.size > MaxInlineImageBytes) {
+            return CommitImageDecodeResult.TooLarge(mimeType, bytes.size)
+        }
+        return CommitImageDecodeResult.Ok(DecodedImagePayload(mimeType, bytes))
+    }
+
+    private fun sanitizeCommitImageFileStem(rawName: String): String {
+        val trimmed = rawName.trim()
+        if (trimmed.isBlank()) {
+            return ""
+        }
+        val baseName =
+            trimmed
+                .substringAfterLast('/')
+                .substringAfterLast('\\')
+                .substringBeforeLast('.')
+                .trim()
+        if (baseName.isBlank()) {
+            return ""
+        }
+        return baseName
+            .replace(Regex("[^A-Za-z0-9._-]+"), "_")
+            .trim('_')
+            .take(48)
+    }
+
+    private fun commitImageExtension(mimeType: String): String {
+        val normalized = mimeType.trim().lowercase()
+        return when (normalized) {
+            "image/png" -> "png"
+            "image/jpeg" -> "jpg"
+            "image/webp" -> "webp"
+            "image/gif" -> "gif"
+            "image/bmp" -> "bmp"
+            "image/x-icon", "image/vnd.microsoft.icon" -> "ico"
+            else ->
+                normalized
+                    .substringAfter('/', "img")
+                    .replace(Regex("[^a-z0-9]+"), "")
+                    .ifBlank { "img" }
+        }
+    }
+
+    private fun writeCommitImageToCache(
+        mimeType: String,
+        bytes: ByteArray,
+        fileStem: String
+    ): Uri {
+        val rootDir = File(context.cacheDir, "function-kit-content/${functionKitId}")
+        if (!rootDir.exists()) {
+            rootDir.mkdirs()
+        }
+
+        val cutoffMs = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+        rootDir.listFiles()?.forEach { entry ->
+            if (entry.isFile && entry.lastModified() < cutoffMs) {
+                entry.delete()
+            }
+        }
+
+        val extension = commitImageExtension(mimeType)
+        val filename = "${System.currentTimeMillis()}-${UUID.randomUUID()}-${fileStem}.${extension}"
+        val file = File(rootDir, filename)
+        file.outputStream().use { it.write(bytes) }
+
+        return FileProvider.getUriForFile(
+            context,
+            "${BuildConfig.APPLICATION_ID}.functionkit.fileprovider",
+            file
+        )
     }
 
     private fun handleStorageGet(replyTo: String, payload: JSONObject) {
@@ -2355,6 +2676,15 @@ class FunctionKitWindow(
 
         return JSONObject()
             .put("sourceMessage", sourceMessage)
+            .put("sourcePackage", currentPackageName)
+            .put("selectionStart", currentSelectionStart)
+            .put("selectionEnd", currentSelectionEnd)
+            .put("selectedText", selectedText.trim())
+            .put("beforeCursor", beforeCursor)
+            .put("afterCursor", afterCursor)
+            .put("preeditText", currentPreeditText)
+            .put("inputType", currentInputType)
+            .put("candidateCount", currentCandidateCount)
             .put("personaChips", JSONArray(personaChips))
             .put("conversationSummary", summary)
     }
@@ -2644,6 +2974,7 @@ class FunctionKitWindow(
         private const val RemoteCandidateCount = 3
         private const val RemoteMaxCharsPerCandidate = 120
         private const val MaxBridgeTextChars = 64 * 1024
+        private const val MaxInlineImageBytes = 2 * 1024 * 1024
         private const val LocalDemoAgentId = "android-local-demo"
         private const val RemoteHostAgentId = "android-remote-host"
 

@@ -352,6 +352,7 @@
     <string name="function_kit_permission_context_read">Allow reading input context</string>
     <string name="function_kit_permission_input_insert">Allow inserting candidate text</string>
     <string name="function_kit_permission_input_replace">Allow replacing current text</string>
+    <string name="function_kit_permission_input_commit_image">Allow inserting images</string>
     <string name="function_kit_permission_candidates_regenerate">Allow regenerating candidates</string>
     <string name="function_kit_permission_network_fetch">Allow Android-side network fetch</string>
     <string name="function_kit_permission_ai_chat">Allow Android-side AI chat</string>

@@ -247,6 +247,7 @@ class FunctionKitSettingsFragment :
             "context.read" -> R.string.function_kit_permission_context_read
             "input.insert" -> R.string.function_kit_permission_input_insert
             "input.replace" -> R.string.function_kit_permission_input_replace
+            "input.commitImage" -> R.string.function_kit_permission_input_commit_image
             "candidates.regenerate" -> R.string.function_kit_permission_candidates_regenerate
             "settings.open" -> R.string.function_kit_permission_settings_open
             "storage.read" -> R.string.function_kit_permission_storage_read

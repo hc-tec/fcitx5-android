@@ -352,6 +352,7 @@
     <string name="function_kit_permission_context_read">允许读取输入上下文</string>
     <string name="function_kit_permission_input_insert">允许插入候选文本</string>
     <string name="function_kit_permission_input_replace">允许替换当前文本</string>
+    <string name="function_kit_permission_input_commit_image">允许插入图片</string>
     <string name="function_kit_permission_candidates_regenerate">允许重新生成候选</string>
     <string name="function_kit_permission_network_fetch">允许 Android 侧网络请求</string>
     <string name="function_kit_permission_ai_chat">允许 Android 侧 AI chat</string>

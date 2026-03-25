@@ -12,6 +12,7 @@ internal object FunctionKitPermissionPolicy {
             "context.read" -> prefs.allowContextRead.getValue()
             "input.insert" -> prefs.allowInputInsert.getValue()
             "input.replace" -> prefs.allowInputReplace.getValue()
+            "input.commitImage" -> prefs.allowInputCommitImage.getValue()
             "candidates.regenerate" -> prefs.allowCandidatesRegenerate.getValue()
             "settings.open" -> prefs.allowSettingsOpen.getValue()
             "storage.read" -> prefs.allowStorageRead.getValue()

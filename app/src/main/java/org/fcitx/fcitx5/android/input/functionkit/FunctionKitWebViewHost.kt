@@ -47,6 +47,7 @@ private val AllowedInboundTypes =
         "context.request",
         "candidate.insert",
         "candidate.replace",
+        "input.commitImage",
         "candidates.regenerate",
         "network.fetch",
         "ai.chat",

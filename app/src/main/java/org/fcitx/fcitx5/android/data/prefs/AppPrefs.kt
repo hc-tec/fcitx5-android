@@ -434,6 +434,11 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             "function_kit_permission_input_replace",
             true
         )
+        val allowInputCommitImage = switch(
+            R.string.function_kit_permission_input_commit_image,
+            "function_kit_permission_input_commit_image",
+            true
+        )
         val allowCandidatesRegenerate = switch(
             R.string.function_kit_permission_candidates_regenerate,
             "function_kit_permission_candidates_regenerate",
