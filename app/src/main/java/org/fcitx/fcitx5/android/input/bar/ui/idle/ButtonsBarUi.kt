@@ -5,8 +5,11 @@
 package org.fcitx.fcitx5.android.input.bar.ui.idle
 
 import android.content.Context
+import android.view.ViewGroup
+import android.widget.HorizontalScrollView
 import com.google.android.flexbox.AlignItems
 import com.google.android.flexbox.FlexboxLayout
+import com.google.android.flexbox.FlexWrap
 import com.google.android.flexbox.JustifyContent
 import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.bar.ui.ToolButton
@@ -32,9 +35,22 @@ class ButtonsBarUi(
         val button: ToolButton
     )
 
-    override val root = view(::FlexboxLayout) {
+    private val buttonsRow = FlexboxLayout(ctx).apply {
         alignItems = AlignItems.CENTER
+        flexWrap = FlexWrap.NOWRAP
         justifyContent = JustifyContent.SPACE_AROUND
+    }
+
+    override val root = view(::HorizontalScrollView) {
+        isFillViewport = true
+        isHorizontalScrollBarEnabled = false
+        addView(
+            buttonsRow,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
     }
 
     private fun fixedToolButton(shortcut: FunctionKitQuickAccessSpec.ToolbarShortcut) =
@@ -53,7 +69,13 @@ class ButtonsBarUi(
 
     private fun addToolButton(button: ToolButton) {
         val size = ctx.dp(40)
-        root.addView(button, FlexboxLayout.LayoutParams(size, size))
+        buttonsRow.addView(
+            button,
+            FlexboxLayout.LayoutParams(size, size).apply {
+                // Keep icons from being squeezed when there are many entries.
+                flexShrink = 0f
+            }
+        )
     }
 
     val undoButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.Undo)
