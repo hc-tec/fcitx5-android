@@ -133,4 +133,61 @@ class FunctionKitManifestTest {
 
         assertNull(manifest.preferredIconAssetPath(48))
     }
+
+    @Test
+    fun `parse supports bindings array`() {
+        val manifest =
+            FunctionKitManifest.parse(
+                root =
+                    JSONObject(
+                        """
+                        {
+                          "id": "plain-kit",
+                          "entry": {
+                            "bundle": {
+                              "html": "ui/app/index.html"
+                            }
+                          },
+                          "bindings": [
+                            {
+                              "id": "clipboard.alpha",
+                              "title": "Alpha",
+                              "triggers": ["Clipboard", "Manual"],
+                              "requestedPayloads": ["clipboard.text"],
+                              "preferredPresentation": "clipboard-chip"
+                            },
+                            {
+                              "id": "selection.beta",
+                              "title": "Beta",
+                              "triggers": ["selection", "manual"],
+                              "requestedPayloads": ["selection.text"]
+                            },
+                            {
+                              "id": "ignored.invalid-trigger",
+                              "title": "Ignored",
+                              "triggers": ["unknown"]
+                            },
+                            {
+                              "id": "",
+                              "title": "Ignored",
+                              "triggers": ["manual"]
+                            }
+                          ]
+                        }
+                        """.trimIndent()
+                    ),
+                assetPath = "function-kits/plain-kit/manifest.json",
+                fallbackId = "plain-kit",
+                fallbackEntryHtmlAssetPath = "function-kits/plain-kit/ui/app/index.html",
+                fallbackRuntimePermissions = FunctionKitDefaults.supportedPermissions
+            )
+
+        assertEquals(2, manifest.bindings.size)
+        assertEquals("clipboard.alpha", manifest.bindings[0].id)
+        assertEquals("Alpha", manifest.bindings[0].title)
+        assertEquals(listOf("clipboard", "manual"), manifest.bindings[0].triggers)
+        assertEquals(listOf("clipboard.text"), manifest.bindings[0].requestedPayloads)
+        assertEquals("selection.beta", manifest.bindings[1].id)
+        assertEquals(listOf("selection", "manual"), manifest.bindings[1].triggers)
+    }
 }

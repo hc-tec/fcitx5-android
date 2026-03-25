@@ -311,6 +311,7 @@
     <string name="function_kit_title">功能件面板</string>
     <string name="function_kit_auto_reply">聊天自动回复</string>
     <string name="function_kit_settings">功能件设置</string>
+    <string name="function_kit_bindings">功能件动作</string>
     <string name="function_kit_settings_summary">功能件工具栏快捷入口、权限开关、网络路由与远程宿主设置</string>
     <string name="function_kit_status_category">当前状态</string>
     <string name="function_kit_status_runtime">当前运行方式</string>
@@ -353,7 +354,9 @@
     <string name="function_kit_permission_input_insert">允许插入候选文本</string>
     <string name="function_kit_permission_input_replace">允许替换当前文本</string>
     <string name="function_kit_permission_input_commit_image">允许插入图片</string>
+    <string name="function_kit_permission_input_observe_best_effort">允许监听输入（best-effort）</string>
     <string name="function_kit_permission_candidates_regenerate">允许重新生成候选</string>
+    <string name="function_kit_permission_send_intercept_ime_action">允许拦截 IME 发送动作</string>
     <string name="function_kit_permission_network_fetch">允许 Android 侧网络请求</string>
     <string name="function_kit_permission_ai_chat">允许 Android 侧 AI chat</string>
     <string name="function_kit_permission_ai_agent_access">允许桌面宿主 Agent 能力</string>

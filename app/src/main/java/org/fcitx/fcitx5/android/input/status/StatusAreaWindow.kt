@@ -26,10 +26,14 @@ import org.fcitx.fcitx5.android.input.dependency.fcitx
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editorinfo.EditorInfoWindow
+import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.InputMethod
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKit
+import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKitBindings
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKitSettings
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.Keyboard
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.ReloadConfig
@@ -91,6 +95,11 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
 
         return arrayOf(
             *kitEntries.toTypedArray(),
+            StatusAreaEntry.Android(
+                context.getString(R.string.function_kit_bindings),
+                R.drawable.ic_baseline_auto_awesome_24,
+                FunctionKitBindings
+            ),
             StatusAreaEntry.Android(
                 context.getString(R.string.function_kit_settings),
                 R.drawable.ic_baseline_settings_24,
@@ -174,8 +183,26 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                         popupMenu = popup
                         popup.show()
                     }
+                    is StatusAreaEntry.FunctionKitBindingAction -> {
+                        val bindingEntry = entry.binding
+                        val clipboardText =
+                            if ("clipboard.text" in bindingEntry.requestedPayloads) {
+                                ClipboardManager.lastEntry?.text
+                            } else {
+                                null
+                            }
+
+                        val window = requireFunctionKitWindow(bindingEntry.kitId)
+                        window.enqueueBindingInvocation(
+                            binding = bindingEntry,
+                            trigger = FunctionKitBindingTrigger.Manual,
+                            clipboardText = clipboardText
+                        )
+                        windowManager.attachWindow(window)
+                    }
                     is StatusAreaEntry.Android -> when (entry.type) {
                         FunctionKit -> windowManager.attachWindow(requireFunctionKitWindow(entry.functionKitId))
+                        FunctionKitBindings -> windowManager.attachWindow(FunctionKitBindingsWindow())
                         FunctionKitSettings -> AppUtil.launchMainToFunctionKitSettings(context)
                         InputMethod -> fcitx.runImmediately { inputMethodEntryCached }.let {
                             AppUtil.launchMainToInputMethodConfig(

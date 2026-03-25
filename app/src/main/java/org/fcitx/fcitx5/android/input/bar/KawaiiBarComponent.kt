@@ -15,6 +15,7 @@ import android.view.inputmethod.InlineSuggestion
 import android.view.inputmethod.InlineSuggestionsResponse
 import android.view.inputmethod.InputMethodSubtype
 import android.widget.FrameLayout
+import android.widget.PopupMenu
 import android.widget.ViewAnimator
 import android.widget.inline.InlineContentView
 import androidx.annotation.Keep
@@ -57,6 +58,8 @@ import org.fcitx.fcitx5.android.input.dependency.context
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editing.TextEditingWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingRegistry
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.keyboard.CommonKeyActionListener
@@ -141,6 +144,10 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
             }
     }
 
+    private val clipboardFunctionKitBindings by lazy {
+        FunctionKitBindingRegistry.listForTrigger(context, FunctionKitBindingTrigger.Clipboard)
+    }
+
     @Keep
     private val onClipboardUpdateListener =
         ClipboardManager.OnClipboardUpdateListener {
@@ -207,6 +214,51 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         idleUi.buttonsUi.functionKitButtons.forEach {
             it.button.visibility = visibility
         }
+    }
+
+    private fun dismissClipboardSuggestion() {
+        clipboardTimeoutJob?.cancel()
+        clipboardTimeoutJob = null
+        isClipboardFresh = false
+        evalIdleUiState()
+    }
+
+    private fun showClipboardBindingsMenu(anchor: View, clipboardText: String) {
+        if (clipboardFunctionKitBindings.isEmpty()) {
+            service.commitText(clipboardText)
+            dismissClipboardSuggestion()
+            return
+        }
+
+        val pasteItemId = 1
+        val popup = PopupMenu(context, anchor)
+        popup.menu.add(0, pasteItemId, 0, android.R.string.paste)
+        clipboardFunctionKitBindings.forEachIndexed { index, binding ->
+            val itemId = pasteItemId + 1 + index
+            popup.menu.add(0, itemId, itemId, "${binding.kitLabel} · ${binding.title}")
+        }
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                pasteItemId -> {
+                    service.commitText(clipboardText)
+                }
+                else -> {
+                    val index = item.itemId - (pasteItemId + 1)
+                    val binding = clipboardFunctionKitBindings.getOrNull(index)
+                        ?: return@setOnMenuItemClickListener false
+                    val window = requireFunctionKitWindow(binding.kitId)
+                    window.enqueueBindingInvocation(
+                        binding = binding,
+                        trigger = FunctionKitBindingTrigger.Clipboard,
+                        clipboardText = clipboardText
+                    )
+                    windowManager.attachWindow(window)
+                }
+            }
+            dismissClipboardSuggestion()
+            true
+        }
+        popup.show()
     }
 
     private fun evalIdleUiState(fromUser: Boolean = false) {
@@ -363,13 +415,19 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
             }
             clipboardUi.suggestionView.apply {
                 setOnClickListener {
-                    ClipboardManager.lastEntry?.let {
-                        service.commitText(it.text)
+                    val clipboardText = ClipboardManager.lastEntry?.text.orEmpty()
+                    if (clipboardText.isBlank()) {
+                        dismissClipboardSuggestion()
+                        return@setOnClickListener
                     }
-                    clipboardTimeoutJob?.cancel()
-                    clipboardTimeoutJob = null
-                    isClipboardFresh = false
-                    evalIdleUiState()
+
+                    if (clipboardFunctionKitBindings.isEmpty()) {
+                        service.commitText(clipboardText)
+                        dismissClipboardSuggestion()
+                        return@setOnClickListener
+                    }
+
+                    showClipboardBindingsMenu(this, clipboardText)
                 }
                 setOnLongClickListener {
                     ClipboardManager.lastEntry?.let {

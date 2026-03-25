@@ -58,11 +58,13 @@ class FunctionKitSettingsStatusResolverTest {
             )
 
         assertEquals(5, status.corePermissions.enabled)
-        assertEquals(9, status.corePermissions.total)
+        assertEquals(11, status.corePermissions.total)
         assertEquals(
             listOf(
                 "input.commitImage",
+                "input.observe.best_effort",
                 "candidates.regenerate",
+                "send.intercept.ime_action",
                 "settings.open",
                 "panel.state.write"
             ),

@@ -16,6 +16,7 @@ internal object FunctionKitDefaults {
             "input.insert",
             "input.replace",
             "input.commitImage",
+            "input.observe.best_effort",
             "candidates.regenerate",
             "settings.open",
             "storage.read",
@@ -23,6 +24,7 @@ internal object FunctionKitDefaults {
             "panel.state.write",
             "network.fetch",
             "ai.chat",
+            "send.intercept.ime_action",
             "ai.agent.list",
             "ai.agent.run"
         )
@@ -33,7 +35,9 @@ internal object FunctionKitDefaults {
             "input.insert",
             "input.replace",
             "input.commitImage",
+            "input.observe.best_effort",
             "candidates.regenerate",
+            "send.intercept.ime_action",
             "settings.open",
             "storage.read",
             "storage.write",

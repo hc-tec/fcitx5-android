@@ -65,6 +65,8 @@ import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.data.theme.ThemeManager
 import org.fcitx.fcitx5.android.input.cursor.CursorRange
 import org.fcitx.fcitx5.android.input.cursor.CursorTracker
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitImeActionSendInterceptor
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitImeSendIntent
 import org.fcitx.fcitx5.android.utils.InputMethodUtil
 import org.fcitx.fcitx5.android.utils.alpha
 import org.fcitx.fcitx5.android.utils.forceShowSelf
@@ -410,23 +412,63 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
         if (localInputTarget?.takeIf { it.isActive() }?.handleEnter() == true) {
             return
         }
-        currentInputEditorInfo.run {
-            if (inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_NULL ||
-                imeOptions.hasFlag(EditorInfo.IME_FLAG_NO_ENTER_ACTION)
-            ) {
-                sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
-                return
+
+        val info = currentInputEditorInfo
+        val inputConnection = currentInputConnection
+
+        val intent: FunctionKitImeSendIntent
+        val action: () -> Unit
+
+        if (info.inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_NULL ||
+            info.imeOptions.hasFlag(EditorInfo.IME_FLAG_NO_ENTER_ACTION)
+        ) {
+            intent = FunctionKitImeSendIntent(kind = "key.enter")
+            action = { sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER) }
+        } else if (info.actionLabel?.isNotEmpty() == true && info.actionId != EditorInfo.IME_ACTION_UNSPECIFIED) {
+            intent =
+                FunctionKitImeSendIntent(
+                    kind = "editorAction",
+                    actionId = info.actionId,
+                    actionLabel = info.actionLabel.toString()
+                )
+            action = {
+                if (inputConnection != null) {
+                    inputConnection.performEditorAction(info.actionId)
+                } else {
+                    sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+                }
             }
-            if (actionLabel?.isNotEmpty() == true && actionId != EditorInfo.IME_ACTION_UNSPECIFIED) {
-                currentInputConnection.performEditorAction(actionId)
-                return
-            }
-            when (val action = imeOptions and EditorInfo.IME_MASK_ACTION) {
+        } else {
+            when (val editorAction = info.imeOptions and EditorInfo.IME_MASK_ACTION) {
                 EditorInfo.IME_ACTION_UNSPECIFIED,
-                EditorInfo.IME_ACTION_NONE -> sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
-                else -> currentInputConnection.performEditorAction(action)
+                EditorInfo.IME_ACTION_NONE -> {
+                    intent = FunctionKitImeSendIntent(kind = "key.enter")
+                    action = { sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER) }
+                }
+                else -> {
+                    intent = FunctionKitImeSendIntent(kind = "editorAction", actionId = editorAction)
+                    action = {
+                        if (inputConnection != null) {
+                            inputConnection.performEditorAction(editorAction)
+                        } else {
+                            sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+                        }
+                    }
+                }
             }
         }
+
+        val interceptor = localInputTarget as? FunctionKitImeActionSendInterceptor
+        if (interceptor?.maybeInterceptImeActionSend(intent) { allowed ->
+                if (allowed) {
+                    action()
+                }
+            } == true
+        ) {
+            return
+        }
+
+        action()
     }
 
     private fun handleArrowKey(keyCode: Int) {

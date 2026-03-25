@@ -60,11 +60,25 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.Executors
 
+data class FunctionKitImeSendIntent(
+    val kind: String,
+    val actionId: Int? = null,
+    val actionLabel: String? = null
+)
+
+internal interface FunctionKitImeActionSendInterceptor {
+    fun maybeInterceptImeActionSend(
+        intent: FunctionKitImeSendIntent,
+        onDecision: (Boolean) -> Unit
+    ): Boolean
+}
+
 class FunctionKitWindow(
     private val requestedKitId: String? = null
 ) : org.fcitx.fcitx5.android.input.wm.InputWindow.ExtendedInputWindow<FunctionKitWindow>(),
     InputBroadcastReceiver,
-    FcitxInputMethodService.LocalInputTarget {
+    FcitxInputMethodService.LocalInputTarget,
+    FunctionKitImeActionSendInterceptor {
 
     private data class CandidateDraft(
         val id: String,
@@ -72,6 +86,16 @@ class FunctionKitWindow(
         val tone: String,
         val risk: String,
         val rationale: String
+    )
+
+    private data class BindingInvocation(
+        val invocationId: String,
+        val trigger: FunctionKitBindingTrigger,
+        val bindingId: String,
+        val bindingTitle: String,
+        val requestedPayloads: Set<String>,
+        val clipboardText: String? = null,
+        val createdAtEpochMs: Long = System.currentTimeMillis()
     )
 
     private data class ExecutionConfig(
@@ -138,6 +162,13 @@ class FunctionKitWindow(
                 .put("lastAction", lastAction)
                 .put("updatedAtEpochMs", updatedAtEpochMs)
     }
+
+    private data class PendingImeActionSendIntercept(
+        val requestMessageId: String,
+        val createdAtEpochMs: Long,
+        val timeoutRunnable: Runnable,
+        val onDecision: (Boolean) -> Unit
+    )
 
     private val service: FcitxInputMethodService by manager.inputMethodService()
     private val theme: Theme by manager.theme()
@@ -296,6 +327,9 @@ class FunctionKitWindow(
     }
 
     private var panelInitialized = false
+    private var windowAttached = false
+    private var bridgeReady = false
+    private val pendingBindingInvocations = ArrayDeque<BindingInvocation>()
     private var renderSeed = 0
     private var sessionId = newSessionId()
     private var requestedPermissions = emptyList<String>()
@@ -307,6 +341,17 @@ class FunctionKitWindow(
     private var currentCandidateCount = 0
     private var currentPreeditText = ""
     private var composerState = ComposerState(updatedAtEpochMs = System.currentTimeMillis())
+
+    private var inputObserveEnabled = false
+    private var inputObserveThrottleMs: Int = 120
+    private var inputObserveMaxChars: Int = 64
+    private var inputObserveLastSignature: String? = null
+    private var inputObserveLastSentAtEpochMs: Long = 0L
+    private var inputObservePendingRunnable: Runnable? = null
+
+    private var sendInterceptImeActionRegistered = false
+    private var sendInterceptImeActionTimeoutMs: Int = 800
+    private var pendingImeActionSendIntercept: PendingImeActionSendIntercept? = null
     private val functionKitId: String
         get() = functionKitManifest.id
     private val supportedRuntimePermissions: List<String>
@@ -320,6 +365,7 @@ class FunctionKitWindow(
     }
 
     override fun onAttached() {
+        windowAttached = true
         ensureManifestStateInitialized()
         val baseHeight = windowManager.view.layoutParams?.height ?: 0
         if (baseHeight > 0) {
@@ -369,12 +415,26 @@ class FunctionKitWindow(
             label = "Android Function Kit 面板已打开 · ${FunctionKitHostDiagnostics.buildDisplayName(Const.versionName, BuildConfig.BUILD_GIT_HASH)}",
             details = buildHostDetails()
         )
+        flushPendingBindingInvocations()
     }
 
     override fun onDetached() {
+        windowAttached = false
         if (service.localInputTarget === this) {
             service.localInputTarget = null
         }
+        inputObservePendingRunnable?.let { runnable ->
+            webView.removeCallbacks(runnable)
+        }
+        inputObservePendingRunnable = null
+        inputObserveEnabled = false
+        inputObserveLastSignature = null
+        pendingImeActionSendIntercept?.let { pending ->
+            webView.removeCallbacks(pending.timeoutRunnable)
+            pending.onDecision(true)
+        }
+        pendingImeActionSendIntercept = null
+        sendInterceptImeActionRegistered = false
         kawaiiBar.setFunctionKitEmbeddedComposerActive(false)
         if (composerState.open || composerState.focused) {
             // Never keep the composer open after the panel is detached, otherwise users will see it
@@ -430,12 +490,14 @@ class FunctionKitWindow(
         currentInputType = info.inputType
         syncEmbeddedKeyboardLayout()
         pushHostState("输入上下文已切换")
+        scheduleInputObserveSync("start-input")
     }
 
     override fun onSelectionUpdate(start: Int, end: Int) {
         currentSelectionStart = start
         currentSelectionEnd = end
         pushHostState("光标或选择区已更新")
+        scheduleInputObserveSync("selection-update")
     }
 
     override fun onCandidateUpdate(data: FcitxEvent.CandidateListEvent.Data) {
@@ -444,16 +506,41 @@ class FunctionKitWindow(
 
     override fun onClientPreeditUpdate(data: FormattedText) {
         currentPreeditText = data.toString()
+        scheduleInputObserveSync("preedit-update")
     }
 
     override val title: String by lazy { FunctionKitRegistry.displayName(context, functionKitManifest) }
 
     override fun onCreateBarExtension(): View = barExtension
 
+    internal fun enqueueBindingInvocation(
+        binding: FunctionKitBindingEntry,
+        trigger: FunctionKitBindingTrigger,
+        clipboardText: String? = null
+    ) {
+        if (binding.kitId != functionKitId) {
+            Log.w("FunctionKitWindow", "Dropped binding invocation for mismatched kitId=${binding.kitId}")
+            return
+        }
+
+        pendingBindingInvocations.addLast(
+            BindingInvocation(
+                invocationId = "invk-${UUID.randomUUID()}",
+                trigger = trigger,
+                bindingId = binding.bindingId,
+                bindingTitle = binding.title,
+                requestedPayloads = binding.requestedPayloads,
+                clipboardText = clipboardText
+            )
+        )
+        flushPendingBindingInvocations()
+    }
+
     private fun handleUiEnvelope(envelope: JSONObject) {
         FunctionKitEnvelopeProbe.recordInbound(envelope)
         val type = envelope.optString("type")
         val replyTo = envelope.optString("messageId")
+        val replyToHostMessageId = envelope.optString("replyTo")
         val surface = envelope.optString("surface").ifBlank { Surface }
         val payload = envelope.optJSONObject("payload") ?: JSONObject()
 
@@ -464,6 +551,8 @@ class FunctionKitWindow(
             "candidate.insert" -> handleCommit(replyTo, payload, "input.insert", replace = false)
             "candidate.replace" -> handleCommit(replyTo, payload, "input.replace", replace = true)
             "input.commitImage" -> handleCommitImage(replyTo, surface, payload)
+            "input.observe.best_effort.start" -> handleInputObserveBestEffortStart(replyTo, surface, payload)
+            "input.observe.best_effort.stop" -> handleInputObserveBestEffortStop(replyTo, surface, payload)
             "storage.get" -> handleStorageGet(replyTo, payload)
             "storage.set" -> handleStorageSet(replyTo, payload)
             "panel.state.update" -> handlePanelStateUpdate(replyTo, payload)
@@ -472,6 +561,9 @@ class FunctionKitWindow(
             "ai.chat" -> handleAiChat(replyTo, surface, payload)
             "ai.agent.list" -> handleAiAgentList(replyTo, surface)
             "ai.agent.run" -> handleAiAgentRun(replyTo, surface, payload)
+            "send.intercept.ime_action.register" -> handleSendInterceptImeActionRegister(replyTo, surface, payload)
+            "send.intercept.ime_action.unregister" -> handleSendInterceptImeActionUnregister(replyTo, surface, payload)
+            "send.intercept.ime_action.result" -> handleSendInterceptImeActionResult(replyToHostMessageId, surface, payload)
             "composer.open" -> handleComposerOpen(replyTo, surface, payload)
             "composer.focus" -> handleComposerFocus(replyTo, surface, payload)
             "composer.update" -> handleComposerUpdate(replyTo, surface, payload)
@@ -505,6 +597,7 @@ class FunctionKitWindow(
         refreshGrantedPermissions()
         renderSeed = 0
         sessionId = newSessionId()
+        bridgeReady = true
 
         host.dispatchReadyAck(
             replyTo = replyTo,
@@ -527,6 +620,71 @@ class FunctionKitWindow(
         )
         dispatchComposerStateSync(replyTo = null, surface = surface, reason = "bridge.ready")
         pushHostState("宿主握手完成")
+        flushPendingBindingInvocations()
+    }
+
+    private fun flushPendingBindingInvocations() {
+        if (!windowAttached || !panelInitialized || !bridgeReady) {
+            return
+        }
+
+        while (pendingBindingInvocations.isNotEmpty()) {
+            val invocation = pendingBindingInvocations.removeFirst()
+            host.dispatchBindingInvoke(
+                kitId = functionKitId,
+                surface = Surface,
+                payload = buildBindingInvokePayload(invocation)
+            )
+        }
+    }
+
+    private fun buildBindingInvokePayload(invocation: BindingInvocation): JSONObject {
+        val requestedPayloads = invocation.requestedPayloads
+        val payload =
+            JSONObject()
+                .put("invocationId", invocation.invocationId)
+                .put("trigger", invocation.trigger.name.lowercase())
+                .put(
+                    "binding",
+                    JSONObject()
+                        .put("id", invocation.bindingId)
+                        .put("title", invocation.bindingTitle)
+                )
+                .put("context", buildBindingInvocationContextPayload(requestedPayloads))
+                .put("createdAtEpochMs", invocation.createdAtEpochMs)
+
+        if ("clipboard.text" in requestedPayloads) {
+            invocation.clipboardText?.let { text ->
+                payload.put("clipboardText", text)
+            }
+        }
+
+        return payload
+    }
+
+    private fun buildBindingInvocationContextPayload(requestedPayloads: Set<String>): JSONObject {
+        val inputConnection = service.currentInputConnection
+        val beforeCursor = inputConnection?.getTextBeforeCursor(64, 0)?.toString().orEmpty()
+        val afterCursor = inputConnection?.getTextAfterCursor(64, 0)?.toString().orEmpty()
+        val selectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
+
+        return JSONObject()
+            .put("sourcePackage", currentPackageName)
+            .put("selectionStart", currentSelectionStart)
+            .put("selectionEnd", currentSelectionEnd)
+            .put("inputType", currentInputType)
+            .put("candidateCount", currentCandidateCount)
+            .apply {
+                if ("selection.text" in requestedPayloads) {
+                    put("selectedText", selectedText.trim())
+                }
+                if ("selection.beforeCursor" in requestedPayloads) {
+                    put("beforeCursor", beforeCursor)
+                }
+                if ("selection.afterCursor" in requestedPayloads) {
+                    put("afterCursor", afterCursor)
+                }
+            }
     }
 
     private fun handleContextRequest(replyTo: String, payload: JSONObject) {
@@ -936,6 +1094,217 @@ class FunctionKitWindow(
             "${BuildConfig.APPLICATION_ID}.functionkit.fileprovider",
             file
         )
+    }
+
+    private fun handleInputObserveBestEffortStart(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "input.observe.best_effort") ?: return
+
+        inputObserveThrottleMs = payload.optInt("throttleMs", 120).coerceIn(16, 2000)
+        inputObserveMaxChars = payload.optInt("maxChars", 64).coerceIn(16, 1024)
+        inputObserveEnabled = true
+        inputObserveLastSignature = null
+
+        host.dispatchInputObserveBestEffortAck(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload =
+                JSONObject()
+                    .put("enabled", true)
+                    .put("bestEffort", true)
+                    .put("throttleMs", inputObserveThrottleMs)
+                    .put("maxChars", inputObserveMaxChars)
+        )
+        scheduleInputObserveSync("observe-start")
+        pushHostState("已启用输入监听（best-effort）")
+    }
+
+    private fun handleInputObserveBestEffortStop(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        inputObservePendingRunnable?.let { runnable ->
+            webView.removeCallbacks(runnable)
+        }
+        inputObservePendingRunnable = null
+        inputObserveEnabled = false
+        inputObserveLastSignature = null
+
+        host.dispatchInputObserveBestEffortAck(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload =
+                JSONObject()
+                    .put("enabled", false)
+                    .put("bestEffort", true)
+        )
+        pushHostState("已关闭输入监听（best-effort）")
+    }
+
+    private fun scheduleInputObserveSync(trigger: String) {
+        if (!inputObserveEnabled) {
+            return
+        }
+        if (!windowAttached || !panelInitialized || !bridgeReady) {
+            return
+        }
+        refreshGrantedPermissions(notifyUi = false)
+        if ("input.observe.best_effort" !in grantedPermissions) {
+            return
+        }
+
+        inputObservePendingRunnable?.let { runnable ->
+            webView.removeCallbacks(runnable)
+        }
+
+        val nowMs = System.currentTimeMillis()
+        val delayMs = (inputObserveThrottleMs.toLong() - (nowMs - inputObserveLastSentAtEpochMs)).coerceAtLeast(0L)
+        val runnable =
+            Runnable {
+                inputObservePendingRunnable = null
+
+                if (!inputObserveEnabled) {
+                    return@Runnable
+                }
+                if (!windowAttached || !panelInitialized || !bridgeReady) {
+                    return@Runnable
+                }
+                refreshGrantedPermissions(notifyUi = false)
+                if ("input.observe.best_effort" !in grantedPermissions) {
+                    return@Runnable
+                }
+
+                val contextSnapshot =
+                    buildContextSnapshot(
+                        preferredTone = "balanced",
+                        modifiers = emptyList(),
+                        maxChars = inputObserveMaxChars
+                    )
+                val signature =
+                    buildString {
+                        append(contextSnapshot.optString("sourcePackage"))
+                        append('|')
+                        append(contextSnapshot.optInt("selectionStart"))
+                        append('-')
+                        append(contextSnapshot.optInt("selectionEnd"))
+                        append('|')
+                        append(contextSnapshot.optString("selectedText"))
+                        append('|')
+                        append(contextSnapshot.optString("beforeCursor"))
+                        append('|')
+                        append(contextSnapshot.optString("afterCursor"))
+                        append('|')
+                        append(contextSnapshot.optString("preeditText"))
+                    }
+                if (signature == inputObserveLastSignature) {
+                    return@Runnable
+                }
+
+                inputObserveLastSignature = signature
+                inputObserveLastSentAtEpochMs = System.currentTimeMillis()
+
+                val observePayload =
+                    JSONObject()
+                        .put("context", contextSnapshot)
+                        .put(
+                            "request",
+                            JSONObject()
+                                .put("reason", "input.observe.best_effort")
+                                .put("trigger", trigger)
+                        )
+                        .put(
+                            "observe",
+                            JSONObject()
+                                .put("bestEffort", true)
+                                .put("throttleMs", inputObserveThrottleMs)
+                                .put("maxChars", inputObserveMaxChars)
+                        )
+
+                host.dispatchContextSync(
+                    replyTo = null,
+                    kitId = functionKitId,
+                    surface = Surface,
+                    payload = observePayload
+                )
+            }
+
+        inputObservePendingRunnable = runnable
+        if (delayMs <= 0L) {
+            webView.post(runnable)
+        } else {
+            webView.postDelayed(runnable, delayMs)
+        }
+    }
+
+    private fun handleSendInterceptImeActionRegister(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "send.intercept.ime_action") ?: return
+
+        sendInterceptImeActionTimeoutMs = payload.optInt("timeoutMs", 800).coerceIn(100, 5000)
+        sendInterceptImeActionRegistered = true
+
+        host.dispatchSendInterceptImeActionAck(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload =
+                JSONObject()
+                    .put("registered", true)
+                    .put("timeoutMs", sendInterceptImeActionTimeoutMs)
+        )
+        pushHostState("已启用发送拦截（IME action）")
+    }
+
+    private fun handleSendInterceptImeActionUnregister(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        sendInterceptImeActionRegistered = false
+        pendingImeActionSendIntercept?.let { pending ->
+            webView.removeCallbacks(pending.timeoutRunnable)
+            pending.onDecision(true)
+        }
+        pendingImeActionSendIntercept = null
+
+        host.dispatchSendInterceptImeActionAck(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload = JSONObject().put("registered", false)
+        )
+        pushHostState("已关闭发送拦截（IME action）")
+    }
+
+    private fun handleSendInterceptImeActionResult(
+        replyToHostMessageId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        if (replyToHostMessageId.isBlank()) {
+            return
+        }
+
+        val pending = pendingImeActionSendIntercept ?: return
+        if (pending.requestMessageId != replyToHostMessageId) {
+            return
+        }
+
+        webView.removeCallbacks(pending.timeoutRunnable)
+        pendingImeActionSendIntercept = null
+
+        val allow = payload.optBoolean("allow", true)
+        pushHostState(if (allow) "发送已放行" else "发送已被拦截")
+        pending.onDecision(allow)
     }
 
     private fun handleStorageGet(replyTo: String, payload: JSONObject) {
@@ -1425,6 +1794,79 @@ class FunctionKitWindow(
     }
 
     override fun isActive(): Boolean = composerState.open && composerState.focused
+
+    override fun maybeInterceptImeActionSend(
+        intent: FunctionKitImeSendIntent,
+        onDecision: (Boolean) -> Unit
+    ): Boolean {
+        if (!sendInterceptImeActionRegistered) {
+            return false
+        }
+        if (!windowAttached || !panelInitialized || !bridgeReady) {
+            return false
+        }
+        refreshGrantedPermissions(notifyUi = false)
+        if ("send.intercept.ime_action" !in grantedPermissions) {
+            return false
+        }
+        if (pendingImeActionSendIntercept != null) {
+            // The UI can only handle a single pending intent at a time. Fail open to avoid blocking
+            // users from sending messages.
+            return false
+        }
+
+        val contextSnapshot =
+            buildContextSnapshot(
+                preferredTone = "balanced",
+                modifiers = emptyList(),
+                maxChars = 64
+            )
+        val intentPayload =
+            JSONObject()
+                .put("kind", intent.kind)
+                .put("actionId", intent.actionId)
+                .put("actionLabel", intent.actionLabel)
+        val requestPayload =
+            JSONObject()
+                .put("intent", intentPayload)
+                .put("context", contextSnapshot)
+                .put("bestEffort", true)
+
+        val requestMessageId =
+            host.dispatchSendInterceptImeActionIntent(
+                kitId = functionKitId,
+                surface = Surface,
+                payload = requestPayload
+            )
+        if (requestMessageId.isBlank()) {
+            return false
+        }
+
+        val timeoutMs = sendInterceptImeActionTimeoutMs.coerceIn(100, 5000)
+        val timeoutRunnable =
+            Runnable {
+                val pending = pendingImeActionSendIntercept
+                if (pending?.requestMessageId != requestMessageId) {
+                    return@Runnable
+                }
+
+                pendingImeActionSendIntercept = null
+                pushHostState("发送拦截超时，已放行")
+                pending.onDecision(true)
+            }
+
+        pendingImeActionSendIntercept =
+            PendingImeActionSendIntercept(
+                requestMessageId = requestMessageId,
+                createdAtEpochMs = System.currentTimeMillis(),
+                timeoutRunnable = timeoutRunnable,
+                onDecision = onDecision
+            )
+
+        webView.postDelayed(timeoutRunnable, timeoutMs.toLong())
+        pushHostState("发送动作等待功能件确认")
+        return true
+    }
 
     override fun commitText(
         text: String,
@@ -2106,6 +2548,7 @@ class FunctionKitWindow(
         refreshGrantedPermissions()
         renderSeed = 0
         sessionId = newSessionId()
+        bridgeReady = false
         host.initialize(functionKitManifest.entryHtmlAssetPath)
     }
 
@@ -2633,11 +3076,12 @@ class FunctionKitWindow(
 
     private fun buildContextSnapshot(
         preferredTone: String,
-        modifiers: List<String>
+        modifiers: List<String>,
+        maxChars: Int = 64
     ): JSONObject {
         val inputConnection = service.currentInputConnection
-        val beforeCursor = inputConnection?.getTextBeforeCursor(64, 0)?.toString().orEmpty()
-        val afterCursor = inputConnection?.getTextAfterCursor(64, 0)?.toString().orEmpty()
+        val beforeCursor = inputConnection?.getTextBeforeCursor(maxChars, 0)?.toString().orEmpty()
+        val afterCursor = inputConnection?.getTextAfterCursor(maxChars, 0)?.toString().orEmpty()
         val selectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
         val sourceMessage =
             when {

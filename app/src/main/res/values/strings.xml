@@ -311,6 +311,7 @@
     <string name="function_kit_title">Function Kit Panel</string>
     <string name="function_kit_auto_reply">Chat Auto Reply</string>
     <string name="function_kit_settings">Function Kit Settings</string>
+    <string name="function_kit_bindings">Function Kit Actions</string>
     <string name="function_kit_settings_summary">Toolbar shortcut, permissions, network routing, and remote host settings for Function Kit</string>
     <string name="function_kit_status_category">Current status</string>
     <string name="function_kit_status_runtime">Current runtime</string>
@@ -353,7 +354,9 @@
     <string name="function_kit_permission_input_insert">Allow inserting candidate text</string>
     <string name="function_kit_permission_input_replace">Allow replacing current text</string>
     <string name="function_kit_permission_input_commit_image">Allow inserting images</string>
+    <string name="function_kit_permission_input_observe_best_effort">Allow observing input (best-effort)</string>
     <string name="function_kit_permission_candidates_regenerate">Allow regenerating candidates</string>
+    <string name="function_kit_permission_send_intercept_ime_action">Allow intercepting IME send actions</string>
     <string name="function_kit_permission_network_fetch">Allow Android-side network fetch</string>
     <string name="function_kit_permission_ai_chat">Allow Android-side AI chat</string>
     <string name="function_kit_permission_ai_agent_access">Allow desktop-backed agent access</string>

@@ -439,9 +439,19 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             "function_kit_permission_input_commit_image",
             true
         )
+        val allowInputObserveBestEffort = switch(
+            R.string.function_kit_permission_input_observe_best_effort,
+            "function_kit_permission_input_observe_best_effort",
+            true
+        )
         val allowCandidatesRegenerate = switch(
             R.string.function_kit_permission_candidates_regenerate,
             "function_kit_permission_candidates_regenerate",
+            true
+        )
+        val allowSendInterceptImeAction = switch(
+            R.string.function_kit_permission_send_intercept_ime_action,
+            "function_kit_permission_send_intercept_ime_action",
             true
         )
         val allowNetworkFetch = switch(

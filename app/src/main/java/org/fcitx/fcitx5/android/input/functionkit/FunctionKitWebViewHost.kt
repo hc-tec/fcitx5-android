@@ -48,12 +48,17 @@ private val AllowedInboundTypes =
         "candidate.insert",
         "candidate.replace",
         "input.commitImage",
+        "input.observe.best_effort.start",
+        "input.observe.best_effort.stop",
         "candidates.regenerate",
         "network.fetch",
         "ai.chat",
         "ai.chat.status.request",
         "ai.agent.list",
         "ai.agent.run",
+        "send.intercept.ime_action.register",
+        "send.intercept.ime_action.unregister",
+        "send.intercept.ime_action.result",
         "composer.open",
         "composer.focus",
         "composer.update",
@@ -66,11 +71,15 @@ private val AllowedInboundTypes =
 private val AllowedOutboundTypes =
     setOf(
         "bridge.ready.ack",
+        "binding.invoke",
         "permissions.sync",
         "context.sync",
         "candidates.render",
         "storage.sync",
         "panel.state.ack",
+        "input.observe.best_effort.ack",
+        "send.intercept.ime_action.ack",
+        "send.intercept.ime_action.intent",
         "host.state.update",
         "permission.denied",
         "bridge.error",
@@ -496,6 +505,57 @@ class FunctionKitWebViewHost(
         )
     }
 
+    fun dispatchInputObserveBestEffortAck(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "input.observe.best_effort.ack",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchSendInterceptImeActionAck(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "send.intercept.ime_action.ack",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchSendInterceptImeActionIntent(
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ): String {
+        check("send.intercept.ime_action.intent" in AllowedOutboundTypes) {
+            "Unsupported outbound type: send.intercept.ime_action.intent"
+        }
+
+        val envelope =
+            buildEnvelope(
+                type = "send.intercept.ime_action.intent",
+                replyTo = null,
+                kitId = kitId,
+                surface = surface,
+                payload = payload
+            )
+        dispatchEnvelope(envelope)
+        return envelope.optString("messageId")
+    }
+
     fun dispatchHostStateUpdate(
         kitId: String,
         surface: String,
@@ -511,6 +571,20 @@ class FunctionKitWebViewHost(
                 JSONObject()
                     .put("label", label)
                     .put("details", details)
+        )
+    }
+
+    fun dispatchBindingInvoke(
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "binding.invoke",
+            replyTo = null,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
         )
     }
 

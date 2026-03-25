@@ -17,6 +17,7 @@ internal data class FunctionKitManifest(
     val entryHtmlAssetPath: String,
     val runtimePermissions: List<String>,
     val ai: AiConfig,
+    val bindings: List<Binding>,
     val discovery: DiscoveryConfig,
     val manifestAssetPath: String
 ) {
@@ -77,7 +78,33 @@ internal data class FunctionKitManifest(
                 .put("remoteRenderPath", remoteRenderPath)
                 .put("manifestAssetPath", manifestAssetPath)
                 .put("ai", ai.toJson())
+                .put(
+                    "bindings",
+                    JSONArray(
+                        bindings.map { binding ->
+                            binding.toJson()
+                        }
+                    )
+                )
             .put("discovery", discovery.toJson())
+
+    data class Binding(
+        val id: String,
+        val title: String,
+        val triggers: List<String>,
+        val requestedPayloads: List<String> = emptyList(),
+        val preferredPresentation: String? = null
+    ) {
+        fun toJson(): JSONObject =
+            JSONObject()
+                .put("id", id)
+                .put("title", title)
+                .put("triggers", JSONArray(triggers))
+                .put("requestedPayloads", JSONArray(requestedPayloads))
+                .apply {
+                    preferredPresentation?.trim()?.takeIf { it.isNotBlank() }?.let { put("preferredPresentation", it) }
+                }
+    }
 
     data class AiConfig(
         val executionMode: String,
@@ -256,6 +283,7 @@ internal data class FunctionKitManifest(
                                 notes = backendHints?.optJSONArray("notes").toStringList()
                             )
                     ),
+                bindings = parseBindings(root),
                 discovery =
                     DiscoveryConfig(
                         launchMode = discoveryRoot?.optString("launchMode").ifNullOrBlank { "panel-first" },
@@ -295,6 +323,7 @@ internal data class FunctionKitManifest(
                                 notes = emptyList()
                             )
                     ),
+                bindings = emptyList(),
                 discovery =
                     DiscoveryConfig(
                         launchMode = "panel-first",
@@ -305,6 +334,55 @@ internal data class FunctionKitManifest(
                     ),
                 manifestAssetPath = assetPath
             )
+
+        private fun parseBindings(root: JSONObject): List<Binding> {
+            val bindingsNode = root.optJSONArray("bindings") ?: return emptyList()
+            val bindings = mutableListOf<Binding>()
+            val supportedTriggers = setOf("manual", "selection", "clipboard")
+
+            for (index in 0 until bindingsNode.length()) {
+                val item = bindingsNode.optJSONObject(index) ?: continue
+                val id = item.optString("id").trim()
+                if (id.isBlank()) {
+                    continue
+                }
+
+                val title = item.optString("title").trim()
+                if (title.isBlank()) {
+                    continue
+                }
+
+                val triggers =
+                    item.optJSONArray("triggers")
+                        .toStringList()
+                        .map { it.lowercase() }
+                        .filter { it in supportedTriggers }
+                        .distinct()
+                if (triggers.isEmpty()) {
+                    continue
+                }
+
+                val requestedPayloads =
+                    item.optJSONArray("requestedPayloads")
+                        .toStringList()
+                        .map(String::trim)
+                        .filter(String::isNotBlank)
+                        .distinct()
+
+                bindings +=
+                    Binding(
+                        id = id,
+                        title = title,
+                        triggers = triggers,
+                        requestedPayloads = requestedPayloads,
+                        preferredPresentation = item.optString("preferredPresentation").nullIfBlank()
+                    )
+            }
+
+            return bindings
+                .distinctBy { it.id }
+                .sortedWith(compareBy<Binding>({ it.title.lowercase() }, { it.id }))
+        }
 
         private fun parseIconAssets(
             root: JSONObject,

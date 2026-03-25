@@ -7,6 +7,7 @@ package org.fcitx.fcitx5.android.input.status
 import androidx.annotation.DrawableRes
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.core.Action
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingEntry
 
 sealed class StatusAreaEntry(
     val label: String,
@@ -25,6 +26,7 @@ sealed class StatusAreaEntry(
         StatusAreaEntry(label, icon, false, iconAssetPath) {
         enum class Type {
             FunctionKit,
+            FunctionKitBindings,
             FunctionKitSettings,
             InputMethod,
             ReloadConfig,
@@ -35,6 +37,16 @@ sealed class StatusAreaEntry(
 
     class Fcitx(val action: Action, label: String, icon: Int, active: Boolean) :
         StatusAreaEntry(label, icon, active, null)
+
+    internal class FunctionKitBindingAction(
+        val binding: FunctionKitBindingEntry
+    ) :
+        StatusAreaEntry(
+            binding.title,
+            R.drawable.ic_baseline_auto_awesome_24,
+            false,
+            binding.kitIconAssetPath
+        )
 
     companion object {
         private fun drawableFromIconName(icon: String) = when (icon) {

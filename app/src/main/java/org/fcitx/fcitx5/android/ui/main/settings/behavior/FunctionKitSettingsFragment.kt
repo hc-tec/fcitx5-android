@@ -248,7 +248,9 @@ class FunctionKitSettingsFragment :
             "input.insert" -> R.string.function_kit_permission_input_insert
             "input.replace" -> R.string.function_kit_permission_input_replace
             "input.commitImage" -> R.string.function_kit_permission_input_commit_image
+            "input.observe.best_effort" -> R.string.function_kit_permission_input_observe_best_effort
             "candidates.regenerate" -> R.string.function_kit_permission_candidates_regenerate
+            "send.intercept.ime_action" -> R.string.function_kit_permission_send_intercept_ime_action
             "settings.open" -> R.string.function_kit_permission_settings_open
             "storage.read" -> R.string.function_kit_permission_storage_read
             "storage.write" -> R.string.function_kit_permission_storage_write

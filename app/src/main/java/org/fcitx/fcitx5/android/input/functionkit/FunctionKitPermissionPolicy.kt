@@ -13,6 +13,7 @@ internal object FunctionKitPermissionPolicy {
             "input.insert" -> prefs.allowInputInsert.getValue()
             "input.replace" -> prefs.allowInputReplace.getValue()
             "input.commitImage" -> prefs.allowInputCommitImage.getValue()
+            "input.observe.best_effort" -> prefs.allowInputObserveBestEffort.getValue()
             "candidates.regenerate" -> prefs.allowCandidatesRegenerate.getValue()
             "settings.open" -> prefs.allowSettingsOpen.getValue()
             "storage.read" -> prefs.allowStorageRead.getValue()
@@ -21,6 +22,7 @@ internal object FunctionKitPermissionPolicy {
             "network.fetch" -> prefs.allowNetworkFetch.getValue()
             "ai.chat" -> prefs.allowAiChat.getValue()
             "ai.chat.status.request" -> prefs.allowAiChat.getValue()
+            "send.intercept.ime_action" -> prefs.allowSendInterceptImeAction.getValue()
             "ai.agent.list" -> prefs.remoteInferenceEnabled.getValue() && prefs.allowAiAgentAccess.getValue()
             "ai.agent.run" -> prefs.remoteInferenceEnabled.getValue() && prefs.allowAiAgentAccess.getValue()
             else -> false
