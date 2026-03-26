@@ -126,23 +126,6 @@ internal object ClipboardOverlayPromptManager {
             return
         }
 
-        // If IME is already active, open bindings directly (no need to show a prompt chip).
-        val activeWm = InputWindowManager.activeOrNull()
-        if (activeWm != null && activeWm.view.isAttachedToWindow) {
-            Timber.d("Clipboard updated while IME active; open bindings window directly")
-            activeWm.view.post {
-                activeWm.attachWindow(
-                    FunctionKitBindingsWindow(
-                        trigger = FunctionKitBindingTrigger.Clipboard,
-                        clipboardText = text
-                    )
-                )
-            }
-            lastPromptText = text
-            lastPromptAtElapsedMs = now
-            return
-        }
-
         val overlayEnabled = canDrawOverlays(appContext)
         var shown = false
         if (overlayEnabled) shown = showOverlay(text)
@@ -180,6 +163,21 @@ internal object ClipboardOverlayPromptManager {
         // Debug UX: still attempt to auto-pop IME without any extra tap.
         // Keep the visible prompt chip/notification as fallback in case the ROM blocks IME-from-overlay.
         if (BuildConfig.DEBUG && DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY && overlayEnabled) {
+            val activeWm = InputWindowManager.activeOrNull()
+            val imeShown =
+                activeWm != null && activeWm.view.isAttachedToWindow && activeWm.view.isShown
+            Timber.d(
+                "Debug auto-open IME bridge check: active=%s attached=%s shown=%s",
+                activeWm != null,
+                activeWm?.view?.isAttachedToWindow == true,
+                imeShown
+            )
+            if (imeShown) {
+                // IME already visible: keep it non-intrusive. User can tap the chip to open actions.
+                lastPromptText = text
+                lastPromptAtElapsedMs = now
+                return
+            }
             Timber.d("Debug auto-open IME bridge requested for clipboard prompt")
             pendingOpenClipboardText = text
             val bridgeShown = showImeBridgeOverlay()
@@ -378,7 +376,7 @@ internal object ClipboardOverlayPromptManager {
         dismissNotification()
 
         val activeWm = InputWindowManager.activeOrNull()
-        if (activeWm != null && activeWm.view.isAttachedToWindow) {
+        if (activeWm != null && activeWm.view.isAttachedToWindow && activeWm.view.isShown) {
             activeWm.view.post {
                 activeWm.attachWindow(
                     FunctionKitBindingsWindow(
