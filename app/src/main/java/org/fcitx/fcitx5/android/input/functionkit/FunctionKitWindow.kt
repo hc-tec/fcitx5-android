@@ -2272,11 +2272,16 @@ class FunctionKitWindow(
 
         val prompt = payload.optString("prompt").trim()
         val format = payload.optString("format").trim()
+        val responseType = payload.optJSONObject("response")?.optString("type")?.trim().orEmpty()
+        val wantsJson =
+            format.equals("json", ignoreCase = true) ||
+                responseType.equals("json", ignoreCase = true) ||
+                responseType.equals("json-schema", ignoreCase = true)
         val inputPayload = payload.opt("input")
         val userContent =
             buildString {
                 append(prompt.ifBlank { "Continue from the provided input and answer helpfully." })
-                if (format.equals("json", ignoreCase = true)) {
+                if (wantsJson) {
                     append("\n\nReturn strict JSON only.")
                 }
                 if (inputPayload != null && inputPayload != JSONObject.NULL) {
