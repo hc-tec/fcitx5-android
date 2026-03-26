@@ -54,6 +54,13 @@ internal object ClipboardOverlayPromptManager {
 
     private lateinit var appContext: Context
 
+    // ClipboardManager stores listeners in a WeakHashSet, so we must keep a strong reference here.
+    private val clipboardUpdateListener =
+        ClipboardManager.OnClipboardUpdateListener { entry ->
+            // ClipboardManager invokes listeners on Dispatchers.Default. Hop onto main thread for UI.
+            mainHandler.post { onClipboardUpdated(entry) }
+        }
+
     private var lastPromptText: String? = null
     private var lastPromptAtElapsedMs: Long = 0L
 
@@ -81,10 +88,7 @@ internal object ClipboardOverlayPromptManager {
         initialized = true
         appContext = context.applicationContext
         overlayWindowManager = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        ClipboardManager.addOnUpdateListener(ClipboardManager.OnClipboardUpdateListener { entry ->
-            // ClipboardManager invokes listeners on Dispatchers.Default. Hop onto main thread for UI.
-            mainHandler.post { onClipboardUpdated(entry) }
-        })
+        ClipboardManager.addOnUpdateListener(clipboardUpdateListener)
         Timber.d("ClipboardOverlayPromptManager initialized")
     }
 
