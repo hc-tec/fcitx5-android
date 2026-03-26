@@ -38,6 +38,9 @@ import org.fcitx.fcitx5.android.input.picker.emoticonPicker
 import org.fcitx.fcitx5.android.input.picker.symbolPicker
 import org.fcitx.fcitx5.android.input.popup.PopupComponent
 import org.fcitx.fcitx5.android.input.preedit.PreeditComponent
+import org.fcitx.fcitx5.android.input.functionkit.ClipboardOverlayPromptManager
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.unset
@@ -203,6 +206,15 @@ class InputView(
         windowManager.addEssentialWindow(emoticonPicker)
         // show KeyboardWindow by default
         windowManager.attachWindow(KeyboardWindow)
+
+        ClipboardOverlayPromptManager.consumePendingOpenClipboardText()?.let { clipboardText ->
+            windowManager.attachWindow(
+                FunctionKitBindingsWindow(
+                    trigger = FunctionKitBindingTrigger.Clipboard,
+                    clipboardText = clipboardText
+                )
+            )
+        }
 
         broadcaster.onImeUpdate(fcitx.runImmediately { inputMethodEntryCached })
 

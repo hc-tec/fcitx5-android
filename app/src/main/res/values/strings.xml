@@ -314,6 +314,17 @@
     <string name="function_kit_bindings">Function Kit Actions</string>
     <string name="function_kit_bindings_clipboard">Clipboard Actions</string>
     <string name="function_kit_bindings_selection">Selection Actions</string>
+    <string name="function_kit_clipboard_prompt_channel">Clipboard prompt</string>
+    <string name="function_kit_clipboard_prompt_content">Tap to open clipboard actions.</string>
+    <string name="function_kit_clipboard_prompt_focus_input_hint">Copied. Tap an input field to open the keyboard and use clipboard actions.</string>
+    <string name="function_kit_clipboard_prompt_overlay_permission_missing_hint">Overlay permission is missing. Falling back to notification.</string>
+    <string name="function_kit_clipboard_prompt_unavailable_hint">Clipboard prompt is unavailable. Enable notifications or allow drawing over other apps.</string>
+    <string name="function_kit_task_center">Task Center</string>
+    <string name="function_kit_task_center_running">Running</string>
+    <string name="function_kit_task_center_history">History</string>
+    <string name="function_kit_task_center_empty">No tasks</string>
+    <string name="function_kit_task_center_copy_json">Copy JSON</string>
+    <string name="function_kit_task_center_cancel">Cancel</string>
     <string name="function_kit_settings_summary">Toolbar shortcut, permissions, network routing, and remote host settings for Function Kit</string>
     <string name="function_kit_status_category">Current status</string>
     <string name="function_kit_status_runtime">Current runtime</string>
@@ -367,6 +378,8 @@
     <string name="function_kit_permission_storage_write">Allow writing Function Kit storage</string>
     <string name="function_kit_permission_panel_state_write">Allow saving panel state</string>
     <string name="reload_function_kit">Reload Function Kit</string>
+    <string name="function_kit_panel_expand">Expand panel</string>
+    <string name="function_kit_panel_collapse">Collapse panel</string>
     <string name="expand_candidates_list">Expand candidates list</string>
     <string name="hide_candidates_list">Hide candidates list</string>
     <string name="switch_to_voice_input">Switch to voice input</string>

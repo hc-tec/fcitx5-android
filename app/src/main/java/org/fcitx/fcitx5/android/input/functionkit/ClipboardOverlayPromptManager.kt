@@ -4,7 +4,11 @@
  */
 package org.fcitx.fcitx5.android.input.functionkit
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -18,24 +22,30 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.data.clipboard.db.ClipboardEntry
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.AppUtil
+import org.fcitx.fcitx5.android.utils.notificationManager
 import timber.log.Timber
 
 /**
  * Experimental: show a short-lived overlay "chip" when new clipboard content is detected.
  *
  * - Requires SYSTEM_ALERT_WINDOW + TYPE_APPLICATION_OVERLAY (Android O+).
- * - Gracefully degrades when permission is missing.
+ * - Gracefully degrades to a short-lived heads-up notification when permission is missing.
  */
 internal object ClipboardOverlayPromptManager {
 
     private const val AUTO_DISMISS_MS = 5_000L
+    private const val NOTIFICATION_CHANNEL_ID = "function-kit-clipboard-actions"
+    private const val NOTIFICATION_ID = 0xfcb1
     private const val DUPLICATE_TEXT_SUPPRESS_MS = 10_000L
+    private const val BINDINGS_CACHE_MS = 3_000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -49,6 +59,9 @@ internal object ClipboardOverlayPromptManager {
 
     private var didNotifyMissingPermission: Boolean = false
 
+    private var bindingsCacheAtElapsedMs: Long = 0L
+    private var bindingsCacheHasClipboardBindings: Boolean? = null
+
     private var overlayWindowManager: WindowManager? = null
     private var overlayView: View? = null
     private var overlayParams: WindowManager.LayoutParams? = null
@@ -58,6 +71,10 @@ internal object ClipboardOverlayPromptManager {
     private var pendingClipboardText: String? = null
 
     private val dismissRunnable = Runnable { dismissOverlay() }
+    private val dismissNotificationRunnable = Runnable { dismissNotification() }
+
+    @Volatile
+    private var pendingOpenClipboardText: String? = null
 
     fun init(context: Context) {
         if (initialized) return
@@ -79,26 +96,65 @@ internal object ClipboardOverlayPromptManager {
         // Avoid spamming: suppress repeated prompts for the same text in a short window.
         if (text == lastPromptText && now - lastPromptAtElapsedMs < DUPLICATE_TEXT_SUPPRESS_MS) return
 
-        if (!canDrawOverlays(appContext)) {
-            Timber.i("Overlay permission missing; skip clipboard overlay prompt")
+        if (!hasClipboardBindings(now)) return
+
+        val overlayEnabled = canDrawOverlays(appContext)
+        var shown = false
+        if (overlayEnabled) {
+            shown = showOverlay(text)
+        }
+        if (!shown) {
+            shown = showNotificationPrompt()
+        }
+        if (!shown) {
+            Timber.i("Clipboard prompt unavailable (no overlay permission and notifications disabled)")
             if (BuildConfig.DEBUG && !didNotifyMissingPermission) {
                 didNotifyMissingPermission = true
                 Toast.makeText(
                     appContext,
-                    "剪贴板悬浮提示需要「显示在其他应用上层」权限，当前已降级不显示。",
+                    appContext.getString(R.string.function_kit_clipboard_prompt_unavailable_hint),
                     Toast.LENGTH_LONG
                 ).show()
             }
             return
         }
 
-        if (showOverlay(text)) {
-            lastPromptText = text
-            lastPromptAtElapsedMs = now
+        if (BuildConfig.DEBUG && !overlayEnabled && !didNotifyMissingPermission) {
+            didNotifyMissingPermission = true
+            Toast.makeText(
+                appContext,
+                appContext.getString(R.string.function_kit_clipboard_prompt_overlay_permission_missing_hint),
+                Toast.LENGTH_LONG
+            ).show()
         }
+
+        lastPromptText = text
+        lastPromptAtElapsedMs = now
+    }
+
+    private fun hasClipboardBindings(nowElapsedMs: Long): Boolean {
+        val cached = bindingsCacheHasClipboardBindings
+        if (cached != null && nowElapsedMs - bindingsCacheAtElapsedMs < BINDINGS_CACHE_MS) {
+            return cached
+        }
+        val has =
+            try {
+                FunctionKitBindingRegistry
+                    .listForTrigger(appContext, FunctionKitBindingTrigger.Clipboard)
+                    .isNotEmpty()
+            } catch (t: Throwable) {
+                Timber.w(t, "Failed to list clipboard bindings")
+                false
+            }
+        bindingsCacheHasClipboardBindings = has
+        bindingsCacheAtElapsedMs = nowElapsedMs
+        return has
     }
 
     private fun showOverlay(clipboardText: String): Boolean {
+        dismissNotification()
+        mainHandler.removeCallbacks(dismissNotificationRunnable)
+
         val wm = overlayWindowManager ?: return false
         val view = ensureOverlayView()
         val params = ensureOverlayParams()
@@ -123,6 +179,60 @@ internal object ClipboardOverlayPromptManager {
         return true
     }
 
+    private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val channel =
+            NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                appContext.getString(R.string.function_kit_clipboard_prompt_channel),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = NOTIFICATION_CHANNEL_ID
+            }
+        appContext.notificationManager.createNotificationChannel(channel)
+    }
+
+    private fun showNotificationPrompt(): Boolean {
+        dismissOverlay()
+        mainHandler.removeCallbacks(dismissRunnable)
+
+        if (!NotificationManagerCompat.from(appContext).areNotificationsEnabled()) {
+            Timber.i("Notifications disabled; skip clipboard prompt notification")
+            return false
+        }
+        ensureNotificationChannel()
+
+        val intent =
+            Intent(appContext, ClipboardActionsPromptReceiver::class.java).apply {
+                action = ClipboardActionsPromptReceiver.ACTION_OPEN_CLIPBOARD_ACTIONS
+            }
+        val pi =
+            PendingIntent.getBroadcast(
+                appContext,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+        val notification =
+            NotificationCompat.Builder(appContext, NOTIFICATION_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_baseline_content_paste_24)
+                .setContentTitle(appContext.getString(R.string.function_kit_bindings_clipboard))
+                .setContentText(appContext.getString(R.string.function_kit_clipboard_prompt_content))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+
+        appContext.notificationManager.notify(NOTIFICATION_ID, notification)
+
+        // Reset auto-dismiss timer.
+        mainHandler.removeCallbacks(dismissNotificationRunnable)
+        mainHandler.postDelayed(dismissNotificationRunnable, AUTO_DISMISS_MS)
+        return true
+    }
+
     private fun dismissOverlay() {
         val wm = overlayWindowManager
         val view = overlayView
@@ -133,6 +243,14 @@ internal object ClipboardOverlayPromptManager {
             Timber.w(t, "Failed to remove clipboard overlay view")
         } finally {
             overlayAdded = false
+        }
+    }
+
+    private fun dismissNotification() {
+        try {
+            appContext.notificationManager.cancel(NOTIFICATION_ID)
+        } catch (t: Throwable) {
+            Timber.w(t, "Failed to cancel clipboard prompt notification")
         }
     }
 
@@ -194,10 +312,10 @@ internal object ClipboardOverlayPromptManager {
         return params
     }
 
-    private fun onOverlayClicked() {
-        val clipboardText = pendingClipboardText ?: return
+    internal fun handlePromptClicked(clipboardText: String) {
         pendingClipboardText = null
         dismissOverlay()
+        dismissNotification()
 
         val activeWm = InputWindowManager.activeOrNull()
         if (activeWm != null && activeWm.view.isAttachedToWindow) {
@@ -212,13 +330,25 @@ internal object ClipboardOverlayPromptManager {
             return
         }
 
+        pendingOpenClipboardText = clipboardText
         AppUtil.launchMain(appContext)
         // Best-effort hint: user needs to focus an input field to show IME.
         Toast.makeText(
             appContext,
-            "已复制。请点输入框打开键盘后使用剪贴板动作。",
+            appContext.getString(R.string.function_kit_clipboard_prompt_focus_input_hint),
             Toast.LENGTH_SHORT
         ).show()
+    }
+
+    internal fun consumePendingOpenClipboardText(): String? {
+        val text = pendingOpenClipboardText
+        pendingOpenClipboardText = null
+        return text
+    }
+
+    private fun onOverlayClicked() {
+        val clipboardText = pendingClipboardText ?: return
+        handlePromptClicked(clipboardText)
     }
 
     private fun canDrawOverlays(context: Context): Boolean =
