@@ -109,17 +109,27 @@ internal object ClipboardOverlayPromptManager {
 
     private fun onClipboardUpdated(entry: ClipboardEntry) {
         val text = entry.text
-        if (text.isBlank()) return
+        if (text.isBlank()) {
+            Timber.d("Clipboard updated but text is blank; skip prompt")
+            return
+        }
 
         val now = SystemClock.elapsedRealtime()
         // Avoid spamming: suppress repeated prompts for the same text in a short window.
-        if (text == lastPromptText && now - lastPromptAtElapsedMs < DUPLICATE_TEXT_SUPPRESS_MS) return
+        if (text == lastPromptText && now - lastPromptAtElapsedMs < DUPLICATE_TEXT_SUPPRESS_MS) {
+            Timber.d("Clipboard prompt suppressed (duplicate within %dms)", DUPLICATE_TEXT_SUPPRESS_MS)
+            return
+        }
 
-        if (!hasClipboardBindings(now)) return
+        if (!hasClipboardBindings(now)) {
+            Timber.d("No clipboard bindings; skip prompt")
+            return
+        }
 
         // If IME is already active, open bindings directly (no need to show a prompt chip).
         val activeWm = InputWindowManager.activeOrNull()
         if (activeWm != null && activeWm.view.isAttachedToWindow) {
+            Timber.d("Clipboard updated while IME active; open bindings window directly")
             activeWm.view.post {
                 activeWm.attachWindow(
                     FunctionKitBindingsWindow(
@@ -137,6 +147,14 @@ internal object ClipboardOverlayPromptManager {
         var shown = false
         if (overlayEnabled) shown = showOverlay(text)
         if (!shown) shown = showNotificationPrompt(text)
+        Timber.d(
+            "Clipboard prompt attempt: overlayEnabled=%s shown=%s textLen=%d sensitive=%s type=%s",
+            overlayEnabled,
+            shown,
+            text.length,
+            entry.sensitive,
+            entry.type
+        )
         if (!shown) {
             Timber.i("Clipboard prompt unavailable (no overlay permission and notifications disabled)")
             if (BuildConfig.DEBUG && !didNotifyMissingPermission) {
@@ -162,8 +180,10 @@ internal object ClipboardOverlayPromptManager {
         // Debug UX: still attempt to auto-pop IME without any extra tap.
         // Keep the visible prompt chip/notification as fallback in case the ROM blocks IME-from-overlay.
         if (BuildConfig.DEBUG && DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY && overlayEnabled) {
+            Timber.d("Debug auto-open IME bridge requested for clipboard prompt")
             pendingOpenClipboardText = text
-            showImeBridgeOverlay()
+            val bridgeShown = showImeBridgeOverlay()
+            Timber.d("IME bridge overlay shown=%s", bridgeShown)
         }
 
         lastPromptText = text
@@ -175,15 +195,16 @@ internal object ClipboardOverlayPromptManager {
         if (cached != null && nowElapsedMs - bindingsCacheAtElapsedMs < BINDINGS_CACHE_MS) {
             return cached
         }
-        val has =
+        val entries =
             try {
                 FunctionKitBindingRegistry
                     .listForTrigger(appContext, FunctionKitBindingTrigger.Clipboard)
-                    .isNotEmpty()
             } catch (t: Throwable) {
                 Timber.w(t, "Failed to list clipboard bindings")
-                false
+                emptyList()
             }
+        val has = entries.isNotEmpty()
+        Timber.d("Clipboard bindings count=%d", entries.size)
         bindingsCacheHasClipboardBindings = has
         bindingsCacheAtElapsedMs = nowElapsedMs
         return has
