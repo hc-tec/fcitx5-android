@@ -319,12 +319,6 @@
     <string name="function_kit_clipboard_prompt_focus_input_hint">已复制。请点输入框打开键盘后使用剪贴板动作。</string>
     <string name="function_kit_clipboard_prompt_overlay_permission_missing_hint">未授予「显示在其他应用上层」权限，已降级为通知提示。</string>
     <string name="function_kit_clipboard_prompt_unavailable_hint">剪贴板提示不可用。请启用通知或授予「显示在其他应用上层」权限。</string>
-    <string name="function_kit_task_center">任务中心</string>
-    <string name="function_kit_task_center_running">进行中</string>
-    <string name="function_kit_task_center_history">历史</string>
-    <string name="function_kit_task_center_empty">暂无任务</string>
-    <string name="function_kit_task_center_copy_json">复制 JSON</string>
-    <string name="function_kit_task_center_cancel">取消</string>
     <string name="function_kit_settings_summary">功能件工具栏快捷入口、权限开关、网络路由与远程宿主设置</string>
     <string name="function_kit_status_category">当前状态</string>
     <string name="function_kit_status_runtime">当前运行方式</string>

@@ -319,12 +319,6 @@
     <string name="function_kit_clipboard_prompt_focus_input_hint">Copied. Tap an input field to open the keyboard and use clipboard actions.</string>
     <string name="function_kit_clipboard_prompt_overlay_permission_missing_hint">Overlay permission is missing. Falling back to notification.</string>
     <string name="function_kit_clipboard_prompt_unavailable_hint">Clipboard prompt is unavailable. Enable notifications or allow drawing over other apps.</string>
-    <string name="function_kit_task_center">Task Center</string>
-    <string name="function_kit_task_center_running">Running</string>
-    <string name="function_kit_task_center_history">History</string>
-    <string name="function_kit_task_center_empty">No tasks</string>
-    <string name="function_kit_task_center_copy_json">Copy JSON</string>
-    <string name="function_kit_task_center_cancel">Cancel</string>
     <string name="function_kit_settings_summary">Toolbar shortcut, permissions, network routing, and remote host settings for Function Kit</string>
     <string name="function_kit_status_category">Current status</string>
     <string name="function_kit_status_runtime">Current runtime</string>
