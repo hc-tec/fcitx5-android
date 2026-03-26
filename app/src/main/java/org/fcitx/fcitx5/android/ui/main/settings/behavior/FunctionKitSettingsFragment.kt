@@ -53,6 +53,10 @@ class FunctionKitSettingsFragment :
     }
 
     override fun onPreferenceUiCreated(screen: PreferenceScreen) {
+        // AI runtime config lives in the dedicated AI settings page.
+        // Keep the underlying permission toggles functional, but don't render them here to avoid duplication.
+        hideAiPreferences(screen)
+
         val context = requireContext()
         val statusCategory =
             PreferenceCategory(context).apply {
@@ -131,6 +135,15 @@ class FunctionKitSettingsFragment :
         capabilityCategory.addPreference(remotePermissionsPreference)
 
         refreshStatus()
+    }
+
+    private fun hideAiPreferences(screen: PreferenceScreen) {
+        listOf(
+            "function_kit_permission_ai_chat",
+            "function_kit_permission_ai_agent_access"
+        ).forEach { key ->
+            findPreference<Preference>(key)?.let { screen.removePreference(it) }
+        }
     }
 
     private fun refreshStatus() {

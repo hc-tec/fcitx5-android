@@ -384,6 +384,19 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             300,
             "s"
         ) { chatEnabled.getValue() }
+
+        // Function Kit integrations related to AI are configured in the AI page (not Function Kit settings).
+        // Keep using the existing preference keys so the runtime permission policy stays consistent.
+        val allowFunctionKitAiChat = switch(
+            R.string.function_kit_permission_ai_chat,
+            "function_kit_permission_ai_chat",
+            true
+        )
+        val allowDesktopAgentAccess = switch(
+            R.string.function_kit_permission_ai_agent_access,
+            "function_kit_permission_ai_agent_access",
+            true
+        )
     }
 
     inner class FunctionKit : ManagedPreferenceCategory(R.string.function_kit, sharedPreferences) {
