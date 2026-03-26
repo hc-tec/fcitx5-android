@@ -50,8 +50,10 @@ internal object ClipboardOverlayPromptManager {
     private const val NOTIFICATION_ID = 0xfcb1
     private const val DUPLICATE_TEXT_SUPPRESS_MS = 10_000L
     private const val BINDINGS_CACHE_MS = 3_000L
-    // Prevent a focusable overlay window from trapping system back/home navigation.
-    private const val IME_BRIDGE_AUTO_DISMISS_MS = 5_000L
+    // The IME bridge overlay is a focusable TYPE_APPLICATION_OVERLAY hosting a hidden EditText.
+    // Some ROMs refuse to show IME for overlays; in that case we should clean it up to avoid
+    // leaving an invisible focused window around.
+    private const val IME_BRIDGE_NO_IME_CLEANUP_MS = 5_000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -84,7 +86,17 @@ internal object ClipboardOverlayPromptManager {
     private var imeBridgeOverlayParams: WindowManager.LayoutParams? = null
     private var imeBridgeOverlayAdded: Boolean = false
     private var imeBridgeEditText: EditText? = null
-    private val dismissImeBridgeRunnable = Runnable { dismissImeBridgeOverlay() }
+    private val dismissImeBridgeIfNoImeRunnable =
+        Runnable {
+            val activeWm = InputWindowManager.activeOrNull()
+            val imeShown = activeWm != null && activeWm.view.isAttachedToWindow && activeWm.view.isShown
+            if (imeShown) {
+                Timber.d("IME bridge overlay: IME is shown; keep focus bridge until user closes it")
+                return@Runnable
+            }
+            Timber.d("IME bridge overlay: IME still not shown; dismiss focus bridge")
+            dismissImeBridgeOverlay()
+        }
 
     @Volatile
     private var pendingClipboardText: String? = null
@@ -406,10 +418,10 @@ internal object ClipboardOverlayPromptManager {
 
         val editText = imeBridgeEditText ?: return false
         requestImeFor(editText)
-        // Even if IME didn't show, keeping a focusable overlay around can break the system back key.
-        // Auto-dismiss quickly; InputView will also call dismiss when IME becomes active.
-        mainHandler.removeCallbacks(dismissImeBridgeRunnable)
-        mainHandler.postDelayed(dismissImeBridgeRunnable, IME_BRIDGE_AUTO_DISMISS_MS)
+        // Only clean up automatically when IME didn't show. If IME is shown, keep the bridge
+        // so the user has time to pick actions in the IME UI.
+        mainHandler.removeCallbacks(dismissImeBridgeIfNoImeRunnable)
+        mainHandler.postDelayed(dismissImeBridgeIfNoImeRunnable, IME_BRIDGE_NO_IME_CLEANUP_MS)
         return true
     }
 
@@ -435,7 +447,7 @@ internal object ClipboardOverlayPromptManager {
         val wm = overlayWindowManager
         val view = imeBridgeOverlayView
         if (!imeBridgeOverlayAdded || wm == null || view == null) return
-        mainHandler.removeCallbacks(dismissImeBridgeRunnable)
+        mainHandler.removeCallbacks(dismissImeBridgeIfNoImeRunnable)
         try {
             wm.removeView(view)
         } catch (t: Throwable) {

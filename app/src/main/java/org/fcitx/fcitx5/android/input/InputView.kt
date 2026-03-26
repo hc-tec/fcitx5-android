@@ -207,10 +207,6 @@ class InputView(
         // show KeyboardWindow by default
         windowManager.attachWindow(KeyboardWindow)
 
-        // If we used an overlay focus bridge to summon the IME (no active input field),
-        // remove it now to avoid trapping system back navigation.
-        ClipboardOverlayPromptManager.dismissImeBridgeOverlayIfPresent()
-
         ClipboardOverlayPromptManager.consumePendingOpenClipboardText()?.let { clipboardText ->
             windowManager.attachWindow(
                 FunctionKitBindingsWindow(
