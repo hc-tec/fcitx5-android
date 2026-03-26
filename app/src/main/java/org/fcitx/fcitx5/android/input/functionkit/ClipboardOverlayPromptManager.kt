@@ -18,6 +18,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
@@ -52,6 +53,8 @@ internal object ClipboardOverlayPromptManager {
     // Debug-only: make clipboard workflows fast to iterate.
     // In release we should not auto-pop the keyboard on every copy.
     private const val DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY = true
+    // Prevent a focusable overlay window from trapping system back/home navigation.
+    private const val IME_BRIDGE_AUTO_DISMISS_MS = 1_500L
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -84,6 +87,7 @@ internal object ClipboardOverlayPromptManager {
     private var imeBridgeOverlayParams: WindowManager.LayoutParams? = null
     private var imeBridgeOverlayAdded: Boolean = false
     private var imeBridgeEditText: EditText? = null
+    private val dismissImeBridgeRunnable = Runnable { dismissImeBridgeOverlay() }
 
     @Volatile
     private var pendingClipboardText: String? = null
@@ -401,6 +405,11 @@ internal object ClipboardOverlayPromptManager {
         return text
     }
 
+    internal fun dismissImeBridgeOverlayIfPresent() {
+        // No-op if not present.
+        dismissImeBridgeOverlay()
+    }
+
     private fun showImeBridgeOverlay(): Boolean {
         val wm = overlayWindowManager ?: return false
         val view = ensureImeBridgeOverlayView()
@@ -419,6 +428,10 @@ internal object ClipboardOverlayPromptManager {
 
         val editText = imeBridgeEditText ?: return false
         requestImeFor(editText)
+        // Even if IME didn't show, keeping a focusable overlay around can break the system back key.
+        // Auto-dismiss quickly; InputView will also call dismiss when IME becomes active.
+        mainHandler.removeCallbacks(dismissImeBridgeRunnable)
+        mainHandler.postDelayed(dismissImeBridgeRunnable, IME_BRIDGE_AUTO_DISMISS_MS)
         return true
     }
 
@@ -444,6 +457,7 @@ internal object ClipboardOverlayPromptManager {
         val wm = overlayWindowManager
         val view = imeBridgeOverlayView
         if (!imeBridgeOverlayAdded || wm == null || view == null) return
+        mainHandler.removeCallbacks(dismissImeBridgeRunnable)
         try {
             wm.removeView(view)
         } catch (t: Throwable) {
@@ -464,7 +478,18 @@ internal object ClipboardOverlayPromptManager {
             }
 
         val editText =
-            EditText(appContext).apply {
+            object : EditText(appContext) {
+                override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+                    if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                        val imm =
+                            appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                        imm?.hideSoftInputFromWindow(windowToken, 0)
+                        dismissImeBridgeOverlay()
+                        return true
+                    }
+                    return super.onKeyPreIme(keyCode, event)
+                }
+            }.apply {
                 setBackgroundColor(Color.TRANSPARENT)
                 setTextColor(Color.TRANSPARENT)
                 setHintTextColor(Color.TRANSPARENT)
