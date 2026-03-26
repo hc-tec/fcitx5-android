@@ -56,6 +56,8 @@ private val AllowedInboundTypes =
         "ai.chat.status.request",
         "ai.agent.list",
         "ai.agent.run",
+        "tasks.sync.request",
+        "task.cancel",
         "send.intercept.ime_action.register",
         "send.intercept.ime_action.unregister",
         "send.intercept.ime_action.result",
@@ -88,6 +90,9 @@ private val AllowedOutboundTypes =
         "ai.chat.result",
         "ai.agent.list.result",
         "ai.agent.run.result",
+        "task.update",
+        "tasks.sync",
+        "task.cancel.ack",
         "composer.state.sync",
     )
 
@@ -718,6 +723,50 @@ class FunctionKitWebViewHost(
     ) {
         dispatchTypedPayload(
             type = "composer.state.sync",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchTaskUpdate(
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "task.update",
+            replyTo = null,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchTasksSync(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "tasks.sync",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchTaskCancelAck(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "task.cancel.ack",
             replyTo = replyTo,
             kitId = kitId,
             surface = surface,

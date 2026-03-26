@@ -1509,12 +1509,57 @@ class FunctionKitWindow(
         val init = payload.optJSONObject("init") ?: JSONObject()
         val executionConfig = currentExecutionConfig()
         val requestSessionId = sessionId
+        val taskId =
+            taskTracker.create(
+                kind = "network.fetch",
+                surface = surface,
+                status = "queued",
+                cancellable = true,
+                progress = JSONObject().put("stage", "queued").put("message", "network.fetch queued").put("url", rawUrl)
+            )
 
-        remoteExecutor.execute {
+        val future =
+            remoteExecutor.submit {
             try {
+                taskTracker.update(
+                    taskId = taskId,
+                    status = "running",
+                    progress = JSONObject().put("stage", "request").put("message", "network.fetch running").put("url", rawUrl)
+                )
                 val responsePayload = executeNetworkFetch(rawUrl, init, executionConfig)
                 ContextCompat.getMainExecutor(service).execute {
-                    if (requestSessionId != sessionId) {
+                    val sessionMismatch = requestSessionId != sessionId
+                    val canceled =
+                        taskTracker.cancelRequested(taskId) ||
+                            taskTracker.status(taskId) in setOf("canceling", "canceled")
+
+                    if (canceled) {
+                        taskTracker.update(taskId = taskId, status = "canceled")
+                        if (!sessionMismatch) {
+                            host.dispatchBridgeError(
+                                replyTo = replyTo,
+                                kitId = functionKitId,
+                                surface = surface,
+                                code = "task_canceled",
+                                message = "network.fetch canceled.",
+                                retryable = false,
+                                details = JSONObject().put("taskId", taskId).put("url", rawUrl)
+                            )
+                        }
+                        return@execute
+                    }
+
+                    taskTracker.update(
+                        taskId = taskId,
+                        status = "succeeded",
+                        result =
+                            JSONObject()
+                                .put(
+                                    "summary",
+                                    "HTTP ${responsePayload.optJSONObject("response")?.optInt("status")}"
+                                )
+                    )
+                    if (sessionMismatch) {
                         return@execute
                     }
 
@@ -1522,7 +1567,7 @@ class FunctionKitWindow(
                         replyTo = replyTo,
                         kitId = functionKitId,
                         surface = surface,
-                        payload = responsePayload
+                        payload = responsePayload.put("taskId", taskId)
                     )
                     host.dispatchHostStateUpdate(
                         kitId = functionKitId,
@@ -1530,12 +1575,23 @@ class FunctionKitWindow(
                         label = "network.fetch 已完成",
                         details =
                             buildHostDetails(executionConfig)
+                                .put("taskId", taskId)
                                 .put("url", rawUrl)
                                 .put("status", responsePayload.optJSONObject("response")?.optInt("status"))
                     )
                 }
             } catch (error: RemoteInferenceException) {
                 ContextCompat.getMainExecutor(service).execute {
+                    taskTracker.update(
+                        taskId = taskId,
+                        status = "failed",
+                        error =
+                            JSONObject()
+                                .put("code", error.code)
+                                .put("message", error.message)
+                                .put("retryable", error.retryable)
+                                .put("details", JSONObject.wrap(error.details))
+                    )
                     if (requestSessionId != sessionId) {
                         return@execute
                     }
@@ -1549,6 +1605,7 @@ class FunctionKitWindow(
                         retryable = error.retryable,
                         details =
                             JSONObject()
+                                .put("taskId", taskId)
                                 .put("url", rawUrl)
                                 .put("statusCode", error.statusCode)
                                 .put("details", JSONObject.wrap(error.details))
@@ -1556,6 +1613,7 @@ class FunctionKitWindow(
                 }
             }
         }
+        taskTracker.attachFuture(taskId, future)
     }
 
     private fun handleAiChatStatusRequest(
@@ -1599,6 +1657,14 @@ class FunctionKitWindow(
         val messages = buildAiChatMessages(payload)
         val temperature = payload.optDouble("temperature").takeIf { payload.has("temperature") }
         val maxOutputTokens = payload.optInt("maxTokens").takeIf { payload.has("maxTokens") }
+        val taskId =
+            taskTracker.create(
+                kind = "ai.chat",
+                surface = surface,
+                status = "queued",
+                cancellable = true,
+                progress = JSONObject().put("stage", "queued").put("message", "ai.chat queued").put("model", aiChatConfig.model)
+            )
 
         host.dispatchHostStateUpdate(
             kitId = functionKitId,
@@ -1607,10 +1673,18 @@ class FunctionKitWindow(
             details =
                 buildHostDetails(executionConfig)
                     .put("reason", "ai.chat")
+                    .put("taskId", taskId)
+                    .put("model", aiChatConfig.model)
         )
 
-        remoteExecutor.execute {
+        val future =
+            remoteExecutor.submit {
             try {
+                taskTracker.update(
+                    taskId = taskId,
+                    status = "running",
+                    progress = JSONObject().put("stage", "request").put("message", "ai.chat running").put("model", aiChatConfig.model)
+                )
                 val completion =
                     requestLocalAiChatCompletion(
                         aiChatConfig = aiChatConfig,
@@ -1619,7 +1693,33 @@ class FunctionKitWindow(
                         maxOutputTokens = maxOutputTokens
                     )
                 ContextCompat.getMainExecutor(service).execute {
-                    if (requestSessionId != sessionId) {
+                    val sessionMismatch = requestSessionId != sessionId
+                    val canceled =
+                        taskTracker.cancelRequested(taskId) ||
+                            taskTracker.status(taskId) in setOf("canceling", "canceled")
+
+                    if (canceled) {
+                        taskTracker.update(taskId = taskId, status = "canceled")
+                        if (!sessionMismatch) {
+                            host.dispatchBridgeError(
+                                replyTo = replyTo,
+                                kitId = functionKitId,
+                                surface = surface,
+                                code = "task_canceled",
+                                message = "ai.chat canceled.",
+                                retryable = false,
+                                details = JSONObject().put("taskId", taskId)
+                            )
+                        }
+                        return@execute
+                    }
+
+                    taskTracker.update(
+                        taskId = taskId,
+                        status = "succeeded",
+                        result = JSONObject().put("summary", "AI chat completed")
+                    )
+                    if (sessionMismatch) {
                         return@execute
                     }
 
@@ -1629,6 +1729,7 @@ class FunctionKitWindow(
                         surface = surface,
                         payload =
                             JSONObject()
+                                .put("taskId", taskId)
                                 .put("text", completion.text)
                                 .put(
                                     "message",
@@ -1660,10 +1761,22 @@ class FunctionKitWindow(
                         details =
                             buildHostDetails(executionConfig)
                                 .put("reason", "ai.chat")
+                                .put("taskId", taskId)
+                                .put("model", aiChatConfig.model)
                     )
                 }
             } catch (error: RemoteInferenceException) {
                 ContextCompat.getMainExecutor(service).execute {
+                    taskTracker.update(
+                        taskId = taskId,
+                        status = "failed",
+                        error =
+                            JSONObject()
+                                .put("code", error.code)
+                                .put("message", error.message)
+                                .put("retryable", error.retryable)
+                                .put("details", JSONObject.wrap(error.details))
+                    )
                     if (requestSessionId != sessionId) {
                         return@execute
                     }
@@ -1674,11 +1787,13 @@ class FunctionKitWindow(
                         reason = "ai.chat",
                         executionConfig = executionConfig,
                         aiChatConfig = aiChatConfig,
-                        error = error
+                        error = error,
+                        taskId = taskId
                     )
                 }
             }
         }
+        taskTracker.attachFuture(taskId, future)
     }
 
     private fun handleAiAgentList(
@@ -2383,6 +2498,7 @@ class FunctionKitWindow(
         executionConfig: ExecutionConfig,
         aiChatConfig: HostAiChatConfig,
         error: RemoteInferenceException,
+        taskId: String? = null,
         fallbackCandidatesPayload: JSONObject? = null
     ) {
         host.dispatchHostStateUpdate(
@@ -2392,6 +2508,7 @@ class FunctionKitWindow(
             details =
                 buildHostDetails(executionConfig)
                     .put("reason", reason)
+                    .apply { taskId?.let { put("taskId", it) } }
                     .put("error", JSONObject().put("code", error.code).put("message", error.message))
         )
         fallbackCandidatesPayload?.let { payload ->
@@ -2411,6 +2528,7 @@ class FunctionKitWindow(
             retryable = error.retryable,
             details =
                 JSONObject()
+                    .apply { taskId?.let { put("taskId", it) } }
                     .put("reason", reason)
                     .put("statusCode", error.statusCode)
                     .put("details", JSONObject.wrap(error.details))
