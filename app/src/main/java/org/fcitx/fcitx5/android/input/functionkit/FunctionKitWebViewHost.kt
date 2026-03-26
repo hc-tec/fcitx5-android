@@ -170,7 +170,9 @@ class FunctionKitWebViewHost(
 
         val settings = webView.settings
         settings.javaScriptEnabled = true
-        settings.domStorageEnabled = true
+        // Keep all kits on a single origin for now, so DOM storage would break kit isolation.
+        // Persisted state must go through `storage.*` which is namespaced per kit.
+        settings.domStorageEnabled = false
         settings.allowFileAccess = false
         settings.allowContentAccess = false
         settings.allowFileAccessFromFileURLs = false

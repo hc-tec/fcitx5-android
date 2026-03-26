@@ -206,6 +206,7 @@ class FunctionKitWindow(
     private var windowManagerHeightBeforeAttach: Int? = null
     private var embeddedKeyboardView: View? = null
     private var embeddedKeyboardWindow: KeyboardWindow? = null
+    private var embeddedKeyboardPinned: Boolean = false
 
     private fun resolvePanelPeekHeightPx(baseHeightPx: Int): Int {
         val preferred = context.dp(320)
@@ -228,10 +229,23 @@ class FunctionKitWindow(
         return context.resources.displayMetrics.heightPixels * percent / 100
     }
 
-    private fun shouldShowEmbeddedKeyboard(): Boolean = composerState.open && composerState.focused
+    private fun shouldShowEmbeddedKeyboard(): Boolean =
+        embeddedKeyboardPinned || (composerState.open && composerState.focused)
+
+    private fun applyEmbeddedKeyboardPinnedButtonState(button: ToolButton, pinned: Boolean) {
+        if (pinned) {
+            button.setIcon(R.drawable.ic_baseline_arrow_drop_down_24)
+            button.contentDescription = context.getString(R.string.hide_keyboard)
+        } else {
+            button.setIcon(R.drawable.ic_baseline_keyboard_24)
+            button.contentDescription = context.getString(R.string.back_to_keyboard)
+        }
+    }
 
     private fun syncEmbeddedKeyboardLayout() {
         val showKeyboard = shouldShowEmbeddedKeyboard()
+        // When the embedded keyboard is visible (either via WebView input focus or manual pin),
+        // keep candidate/preedit UI usable so users can commit Chinese input.
         kawaiiBar.setFunctionKitEmbeddedComposerActive(showKeyboard)
         embeddedKeyboardContainer.visibility = if (showKeyboard) View.VISIBLE else View.GONE
 
@@ -302,8 +316,20 @@ class FunctionKitWindow(
             setOnClickListener { AppUtil.launchMainToFunctionKitSettings(context) }
         }
     }
+    private val pinnedKeyboardButton by lazy {
+        ToolButton(context, R.drawable.ic_baseline_keyboard_24, theme).apply {
+            applyEmbeddedKeyboardPinnedButtonState(this, embeddedKeyboardPinned)
+            setOnClickListener {
+                embeddedKeyboardPinned = !embeddedKeyboardPinned
+                applyEmbeddedKeyboardPinnedButtonState(this, embeddedKeyboardPinned)
+                syncEmbeddedKeyboardLayout()
+                pushHostState(if (embeddedKeyboardPinned) "键盘已固定" else "键盘已恢复自动隐藏")
+            }
+        }
+    }
     private val barExtension by lazy {
         context.horizontalLayout {
+            add(pinnedKeyboardButton, lParams(dp(40), dp(40)))
             add(settingsButton, lParams(dp(40), dp(40)))
             add(refreshButton, lParams(dp(40), dp(40)))
         }
@@ -355,7 +381,12 @@ class FunctionKitWindow(
     private val functionKitId: String
         get() = functionKitManifest.id
     private val supportedRuntimePermissions: List<String>
-        get() = (functionKitManifest.runtimePermissions + FunctionKitDefaults.supportedPermissions).distinct()
+        // Manifest runtimePermissions is an allowlist. Never "union" in host permissions here.
+        get() =
+            FunctionKitRuntimePermissionResolver.resolveSupported(
+                manifestDeclared = functionKitManifest.runtimePermissions,
+                hostSupported = FunctionKitDefaults.supportedPermissions
+            )
 
     override fun onCreateView(): View {
         ensureManifestStateInitialized()
@@ -435,6 +466,8 @@ class FunctionKitWindow(
         }
         pendingImeActionSendIntercept = null
         sendInterceptImeActionRegistered = false
+        embeddedKeyboardPinned = false
+        applyEmbeddedKeyboardPinnedButtonState(pinnedKeyboardButton, embeddedKeyboardPinned)
         kawaiiBar.setFunctionKitEmbeddedComposerActive(false)
         if (composerState.open || composerState.focused) {
             // Never keep the composer open after the panel is detached, otherwise users will see it
@@ -476,12 +509,15 @@ class FunctionKitWindow(
         if (requestedPermissions.isNotEmpty() && grantedPermissions.isNotEmpty()) {
             return
         }
-        val manifestPermissions = supportedRuntimePermissions
         if (requestedPermissions.isEmpty()) {
-            requestedPermissions = manifestPermissions
+            requestedPermissions = supportedRuntimePermissions
         }
         if (grantedPermissions.isEmpty()) {
-            grantedPermissions = manifestPermissions
+            grantedPermissions =
+                FunctionKitPermissionPolicy.grantedPermissions(
+                    requestedPermissions = requestedPermissions,
+                    prefs = functionKitPrefs
+                )
         }
     }
 
@@ -518,8 +554,14 @@ class FunctionKitWindow(
         trigger: FunctionKitBindingTrigger,
         clipboardText: String? = null
     ) {
-        if (binding.kitId != functionKitId) {
-            Log.w("FunctionKitWindow", "Dropped binding invocation for mismatched kitId=${binding.kitId}")
+        val resolvedKitId =
+            requestedKitId?.takeIf { it.isNotBlank() }
+                ?: runCatching { functionKitId }.getOrNull()
+        if (resolvedKitId != null && binding.kitId != resolvedKitId) {
+            Log.w(
+                "FunctionKitWindow",
+                "Dropped binding invocation for mismatched kitId=${binding.kitId} resolved=$resolvedKitId"
+            )
             return
         }
 
@@ -589,11 +631,14 @@ class FunctionKitWindow(
         payload: JSONObject
     ) {
         val executionConfig = currentExecutionConfig()
-        requestedPermissions = payload.optJSONArray("requestedPermissions")
-            .toStringList()
-            .filter { it in supportedRuntimePermissions }
-            .distinct()
-            .ifEmpty { supportedRuntimePermissions }
+        val supported = supportedRuntimePermissions
+        val uiRequested = payload.optJSONArray("requestedPermissions").toStringList()
+        requestedPermissions =
+            FunctionKitRuntimePermissionResolver.resolveRequested(
+                uiRequested = uiRequested,
+                supported = supported,
+                fallback = supported
+            )
         refreshGrantedPermissions()
         renderSeed = 0
         sessionId = newSessionId()
@@ -1261,7 +1306,8 @@ class FunctionKitWindow(
                     .put("registered", true)
                     .put("timeoutMs", sendInterceptImeActionTimeoutMs)
         )
-        pushHostState("已启用发送拦截（IME action）")
+        syncEmbeddedKeyboardLayout()
+        pushHostState("已启用发送拦截（IME action）；如需测试请点面板右上角键盘图标固定键盘")
     }
 
     private fun handleSendInterceptImeActionUnregister(
@@ -1282,6 +1328,7 @@ class FunctionKitWindow(
             surface = surface,
             payload = JSONObject().put("registered", false)
         )
+        syncEmbeddedKeyboardLayout()
         pushHostState("已关闭发送拦截（IME action）")
     }
 
@@ -3188,7 +3235,12 @@ class FunctionKitWindow(
             .put("platform", "android")
             .put("runtime", "fcitx5-android-webview")
             .put("protocol", FunctionKitWebViewHost.protocolInfo())
-            .put("supportedRuntimePermissions", JSONArray(supportedRuntimePermissions))
+            .put(
+                "hostSupportedRuntimePermissions",
+                JSONArray(FunctionKitDefaults.supportedPermissions.toList())
+            )
+            .put("kitDeclaredRuntimePermissions", JSONArray(functionKitManifest.runtimePermissions))
+            .put("effectiveRuntimePermissions", JSONArray(supportedRuntimePermissions))
             .put("grantedPermissions", JSONArray(grantedPermissions))
             .put("executionMode", resolvedMode.executionMode)
             .put("requestedExecutionMode", executionConfig.requestedExecutionMode)
@@ -3252,7 +3304,12 @@ class FunctionKitWindow(
             .put("platform", "android")
             .put("runtime", "fcitx5-android-webview")
             .put("protocol", FunctionKitWebViewHost.protocolInfo())
-            .put("supportedRuntimePermissions", JSONArray(supportedRuntimePermissions))
+            .put(
+                "hostSupportedRuntimePermissions",
+                JSONArray(FunctionKitDefaults.supportedPermissions.toList())
+            )
+            .put("kitDeclaredRuntimePermissions", JSONArray(functionKitManifest.runtimePermissions))
+            .put("effectiveRuntimePermissions", JSONArray(supportedRuntimePermissions))
             .put("grantedPermissions", JSONArray(grantedPermissions))
             .put("executionMode", resolvedMode.executionMode)
             .put("requestedExecutionMode", executionConfig.requestedExecutionMode)
@@ -3284,7 +3341,6 @@ class FunctionKitWindow(
 
     private fun buildManifestSnapshot(): JSONObject =
         JSONObject(functionKitManifest.toJson().toString())
-            .put("runtimePermissions", JSONArray(supportedRuntimePermissions))
 
     private fun buildRoutingSnapshot(
         executionConfig: ExecutionConfig,

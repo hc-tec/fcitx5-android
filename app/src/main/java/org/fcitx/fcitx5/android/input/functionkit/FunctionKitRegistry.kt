@@ -29,7 +29,7 @@ internal object FunctionKitRegistry {
                 assetPath = assetPath,
                 fallbackId = directory,
                 fallbackEntryHtmlAssetPath = "$AssetRoot/$directory/ui/app/index.html",
-                fallbackRuntimePermissions = FunctionKitDefaults.supportedPermissions
+                fallbackRuntimePermissions = emptySet()
             )
         }
     }
@@ -51,7 +51,7 @@ internal object FunctionKitRegistry {
                 assetPath = FunctionKitDefaults.manifestAssetPath,
                 fallbackId = FunctionKitDefaults.kitId,
                 fallbackEntryHtmlAssetPath = FunctionKitDefaults.entryAssetPath,
-                fallbackRuntimePermissions = FunctionKitDefaults.supportedPermissions
+                fallbackRuntimePermissions = emptySet()
             )
     }
 
