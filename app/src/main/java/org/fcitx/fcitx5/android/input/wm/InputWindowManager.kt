@@ -24,6 +24,7 @@ import splitties.views.dsl.core.frameLayout
 import splitties.views.dsl.core.lParams
 import splitties.views.dsl.core.matchParent
 import timber.log.Timber
+import java.lang.ref.WeakReference
 
 class InputWindowManager : UniqueViewComponent<InputWindowManager, FrameLayout>(),
     InputBroadcastReceiver {
@@ -177,7 +178,19 @@ class InputWindowManager : UniqueViewComponent<InputWindowManager, FrameLayout>(
 
     override fun onScopeSetupFinished(scope: DynamicScope) {
         this.scope = scope
+        markActive(this)
     }
 
     fun isAttached(window: InputWindow) = currentWindow === window
+
+    companion object {
+        @Volatile
+        private var activeRef: WeakReference<InputWindowManager>? = null
+
+        fun activeOrNull(): InputWindowManager? = activeRef?.get()
+
+        private fun markActive(manager: InputWindowManager) {
+            activeRef = WeakReference(manager)
+        }
+    }
 }
