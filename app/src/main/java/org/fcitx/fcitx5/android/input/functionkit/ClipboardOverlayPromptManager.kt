@@ -11,12 +11,14 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
+import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.data.clipboard.db.ClipboardEntry
@@ -33,6 +35,7 @@ import timber.log.Timber
 internal object ClipboardOverlayPromptManager {
 
     private const val AUTO_DISMISS_MS = 5_000L
+    private const val DUPLICATE_TEXT_SUPPRESS_MS = 10_000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -41,7 +44,10 @@ internal object ClipboardOverlayPromptManager {
 
     private lateinit var appContext: Context
 
-    private var lastSeenText: String? = null
+    private var lastPromptText: String? = null
+    private var lastPromptAtElapsedMs: Long = 0L
+
+    private var didNotifyMissingPermission: Boolean = false
 
     private var overlayWindowManager: WindowManager? = null
     private var overlayView: View? = null
@@ -68,25 +74,32 @@ internal object ClipboardOverlayPromptManager {
     private fun onClipboardUpdated(entry: ClipboardEntry) {
         val text = entry.text
         if (text.isBlank()) return
-        // Only react to "new content" (by text).
-        if (text == lastSeenText) return
-        lastSeenText = text
 
-        // Avoid noisy overlay when there's nothing to do.
-        val bindings =
-            FunctionKitBindingRegistry.listForTrigger(appContext, FunctionKitBindingTrigger.Clipboard)
-        if (bindings.isEmpty()) return
+        val now = SystemClock.elapsedRealtime()
+        // Avoid spamming: suppress repeated prompts for the same text in a short window.
+        if (text == lastPromptText && now - lastPromptAtElapsedMs < DUPLICATE_TEXT_SUPPRESS_MS) return
 
         if (!canDrawOverlays(appContext)) {
             Timber.i("Overlay permission missing; skip clipboard overlay prompt")
+            if (BuildConfig.DEBUG && !didNotifyMissingPermission) {
+                didNotifyMissingPermission = true
+                Toast.makeText(
+                    appContext,
+                    "剪贴板悬浮提示需要「显示在其他应用上层」权限，当前已降级不显示。",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
             return
         }
 
-        showOverlay(text)
+        if (showOverlay(text)) {
+            lastPromptText = text
+            lastPromptAtElapsedMs = now
+        }
     }
 
-    private fun showOverlay(clipboardText: String) {
-        val wm = overlayWindowManager ?: return
+    private fun showOverlay(clipboardText: String): Boolean {
+        val wm = overlayWindowManager ?: return false
         val view = ensureOverlayView()
         val params = ensureOverlayParams()
 
@@ -100,13 +113,14 @@ internal object ClipboardOverlayPromptManager {
                 Timber.w(t, "Failed to add clipboard overlay view")
                 overlayAdded = false
                 // Degrade: keep silent (no crash).
-                return
+                return false
             }
         }
 
         // Reset auto-dismiss timer.
         mainHandler.removeCallbacks(dismissRunnable)
         mainHandler.postDelayed(dismissRunnable, AUTO_DISMISS_MS)
+        return true
     }
 
     private fun dismissOverlay() {
