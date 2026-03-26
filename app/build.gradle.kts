@@ -199,9 +199,10 @@ val functionKitWorkspaceRoot =
         ?: rootDir.resolve("../../../")
 val functionKitRuntimeSdkDir = functionKitWorkspaceRoot.resolve("function-kit-runtime-sdk")
 val functionKitCatalogDir = functionKitWorkspaceRoot.resolve("function-kits")
+val functionKitExcludedIds = setOf("bridge-debugger")
 val functionKitDirectories =
     functionKitCatalogDir.listFiles()
-        ?.filter { it.isDirectory && it.resolve("manifest.json").isFile }
+        ?.filter { it.isDirectory && it.resolve("manifest.json").isFile && it.name !in functionKitExcludedIds }
         .orEmpty()
         .sortedBy { it.name }
 val functionKitAssetsDir = layout.buildDirectory.dir("generated/function-kit-assets")
