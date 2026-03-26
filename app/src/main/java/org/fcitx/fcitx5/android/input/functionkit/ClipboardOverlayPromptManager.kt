@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -19,6 +20,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
@@ -465,6 +467,38 @@ internal object ClipboardOverlayPromptManager {
         val root =
             LinearLayout(appContext).apply {
                 orientation = LinearLayout.HORIZONTAL
+                // User may want to cancel by tapping outside the keyboard area.
+                // With FLAG_WATCH_OUTSIDE_TOUCH we can observe those touches without blocking the app.
+                setOnTouchListener { _, event ->
+                    if (event.action != MotionEvent.ACTION_OUTSIDE) return@setOnTouchListener false
+
+                    val rawX = event.rawX.toInt()
+                    val rawY = event.rawY.toInt()
+                    val imeRect = getImeVisibleRectOrNull()
+
+                    Timber.d(
+                        "IME bridge overlay: ACTION_OUTSIDE raw=(%d,%d) imeRect=%s",
+                        rawX,
+                        rawY,
+                        imeRect?.toShortString()
+                    )
+
+                    if (imeRect != null && imeRect.contains(rawX, rawY)) {
+                        // Touch is within IME window area (keyboard / bindings UI). Don't close.
+                        return@setOnTouchListener false
+                    }
+
+                    // Treat as cancel: hide IME and dismiss focus bridge.
+                    pendingOpenClipboardText = null
+                    val editText = imeBridgeEditText
+                    val imm =
+                        appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                    if (editText != null) {
+                        imm?.hideSoftInputFromWindow(editText.windowToken, 0)
+                    }
+                    dismissImeBridgeOverlay()
+                    true
+                }
             }
 
         val editText =
@@ -502,6 +536,30 @@ internal object ClipboardOverlayPromptManager {
         return root
     }
 
+    private fun getImeVisibleRectOrNull(): Rect? {
+        val activeWm = InputWindowManager.activeOrNull() ?: return null
+        val view = activeWm.view
+        if (!view.isAttachedToWindow || !view.isShown) return null
+
+        fun rectFor(v: View): Rect? {
+            val rect = Rect()
+            if (!v.getGlobalVisibleRect(rect) || rect.isEmpty) return null
+            return rect
+        }
+
+        val screenH = appContext.resources.displayMetrics.heightPixels
+        val rootRect = rectFor(view.rootView)
+        val viewRect = rectFor(view)
+
+        return when {
+            rootRect == null -> viewRect
+            viewRect == null -> rootRect
+            // Some ROMs report a fullscreen root; fall back to the content rect in that case.
+            rootRect.height() > (screenH * 0.9f) -> viewRect
+            else -> rootRect
+        }
+    }
+
     private fun ensureImeBridgeOverlayParams(): WindowManager.LayoutParams {
         imeBridgeOverlayParams?.let { return it }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -513,7 +571,8 @@ internal object ClipboardOverlayPromptManager {
         // Focusable window to host the hidden EditText (needed to summon IME).
         val flags =
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
 
         val params =
             WindowManager.LayoutParams(
