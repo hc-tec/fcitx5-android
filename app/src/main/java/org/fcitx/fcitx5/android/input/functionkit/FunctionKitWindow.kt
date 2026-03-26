@@ -205,6 +205,12 @@ class FunctionKitWindow(
             config = hostConfig
         )
     }
+    private val taskTracker by lazy {
+        FunctionKitTaskTracker(
+            kitId = functionKitId,
+            host = host
+        )
+    }
 
     private var panelPeekHeightPx: Int = 0
     private var windowManagerHeightBeforeAttach: Int? = null
@@ -379,6 +385,9 @@ class FunctionKitWindow(
     private var inputObserveLastSentAtEpochMs: Long = 0L
     private var inputObservePendingRunnable: Runnable? = null
 
+    private var hostStateThrottledLastSentAtEpochMs: Long = 0L
+    private var hostStateThrottledLastLabel: String? = null
+
     private var sendInterceptImeActionRegistered = false
     private var sendInterceptImeActionTimeoutMs: Int = 800
     private var pendingImeActionSendIntercept: PendingImeActionSendIntercept? = null
@@ -536,7 +545,7 @@ class FunctionKitWindow(
     override fun onSelectionUpdate(start: Int, end: Int) {
         currentSelectionStart = start
         currentSelectionEnd = end
-        pushHostState("光标或选择区已更新")
+        pushHostStateThrottled("光标或选择区已更新", throttleMs = 250)
         scheduleInputObserveSync("selection-update")
     }
 
@@ -607,6 +616,8 @@ class FunctionKitWindow(
             "ai.chat" -> handleAiChat(replyTo, surface, payload)
             "ai.agent.list" -> handleAiAgentList(replyTo, surface)
             "ai.agent.run" -> handleAiAgentRun(replyTo, surface, payload)
+            "tasks.sync.request" -> handleTasksSyncRequest(replyTo, surface, payload)
+            "task.cancel" -> handleTaskCancel(replyTo, surface, payload)
             "send.intercept.ime_action.register" -> handleSendInterceptImeActionRegister(replyTo, surface, payload)
             "send.intercept.ime_action.unregister" -> handleSendInterceptImeActionUnregister(replyTo, surface, payload)
             "send.intercept.ime_action.result" -> handleSendInterceptImeActionResult(replyToHostMessageId, surface, payload)
@@ -1420,6 +1431,55 @@ class FunctionKitWindow(
             kitId = functionKitId,
             surface = Surface,
             label = if (section == "ai") "已打开 AI 设置" else "已打开功能件设置"
+        )
+    }
+
+    private fun handleTasksSyncRequest(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        val includeHistory = payload.optBoolean("includeHistory", true)
+        val historyLimit = payload.optInt("historyLimit", 30).coerceAtLeast(0)
+
+        host.dispatchTasksSync(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload =
+                taskTracker.buildSyncPayload(
+                    surface = surface,
+                    includeHistory = includeHistory,
+                    historyLimit = historyLimit
+                )
+        )
+    }
+
+    private fun handleTaskCancel(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        val taskId = payload.optString("taskId").trim()
+        if (taskId.isBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "task_cancel_invalid_payload",
+                message = "task.cancel requires a non-empty taskId.",
+                retryable = false
+            )
+            return
+        }
+
+        val reason = payload.optString("reason").trim().takeIf { it.isNotBlank() }
+        val decision = taskTracker.requestCancel(taskId = taskId, reason = reason)
+        host.dispatchTaskCancelAck(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload = decision.toJson(taskId)
         )
     }
 
@@ -2545,6 +2605,18 @@ class FunctionKitWindow(
         return null
     }
 
+    private fun buildHostStateDetailsLite(): JSONObject =
+        JSONObject()
+            .put("sessionId", sessionId)
+            .put("kitId", functionKitId)
+            .put("packageName", currentPackageName)
+            .put("selectionStart", currentSelectionStart)
+            .put("selectionEnd", currentSelectionEnd)
+            .put("inputType", currentInputType)
+            .put("candidateCount", currentCandidateCount)
+            .put("grantedPermissions", JSONArray(grantedPermissions))
+            .put("build", buildDebugInfo())
+
     private fun pushHostState(label: String) {
         if (!panelInitialized) {
             return
@@ -2554,8 +2626,28 @@ class FunctionKitWindow(
             kitId = functionKitId,
             surface = Surface,
             label = label,
-            details = buildHostDetails()
+            details = buildHostStateDetailsLite()
         )
+    }
+
+    private fun pushHostStateThrottled(
+        label: String,
+        throttleMs: Int
+    ) {
+        if (!panelInitialized) {
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (label == hostStateThrottledLastLabel &&
+            now - hostStateThrottledLastSentAtEpochMs < throttleMs
+        ) {
+            return
+        }
+
+        hostStateThrottledLastLabel = label
+        hostStateThrottledLastSentAtEpochMs = now
+        pushHostState(label)
     }
 
     private fun syncCurrentInputState() {
@@ -3314,7 +3406,7 @@ class FunctionKitWindow(
             kitId = functionKitId,
             surface = Surface,
             label = message,
-            details = buildHostDetails()
+            details = buildHostStateDetailsLite()
         )
     }
 
