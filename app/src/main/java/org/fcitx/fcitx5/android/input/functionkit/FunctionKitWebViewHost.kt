@@ -718,6 +718,11 @@ class FunctionKitWebViewHost(
         surface: String,
         payload: JSONObject
     ) {
+        try {
+            FunctionKitTaskHub.recordTaskUpdate(kitId = kitId, surface = surface, payload = payload)
+        } catch (error: Throwable) {
+            Log.w(LogTag, "TaskHub recordTaskUpdate failed kitId=$kitId surface=$surface", error)
+        }
         dispatchTypedPayload(
             type = "task.update",
             replyTo = null,

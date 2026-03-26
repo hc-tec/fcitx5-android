@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="function_kit_task_center">Task Center</string>
+    <string name="function_kit_task_center_running">Running</string>
+    <string name="function_kit_task_center_history">History</string>
+    <string name="function_kit_task_center_empty">No tasks</string>
+    <string name="function_kit_task_center_copy_json">Copy JSON</string>
+    <string name="function_kit_task_center_cancel">Cancel</string>
+</resources>
+

@@ -15,6 +15,10 @@ internal class FunctionKitTaskTracker(
     private val host: FunctionKitWebViewHost,
     private val maxHistory: Int = 50
 ) {
+    init {
+        FunctionKitTaskHub.registerTracker(kitId, this)
+    }
+
     data class CancelDecision(
         val ok: Boolean,
         val code: String? = null,

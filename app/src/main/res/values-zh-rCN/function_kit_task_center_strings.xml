@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="function_kit_task_center">任务中心</string>
+    <string name="function_kit_task_center_running">进行中</string>
+    <string name="function_kit_task_center_history">历史</string>
+    <string name="function_kit_task_center_empty">暂无任务</string>
+    <string name="function_kit_task_center_copy_json">复制 JSON</string>
+    <string name="function_kit_task_center_cancel">取消</string>
+</resources>
+

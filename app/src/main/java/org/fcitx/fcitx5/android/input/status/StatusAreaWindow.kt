@@ -30,12 +30,14 @@ import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitTaskCenterWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.InputMethod
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKit
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKitBindings
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKitSettings
+import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKitTasks
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.Keyboard
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.ReloadConfig
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.ThemeList
@@ -98,6 +100,11 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                 context.getString(R.string.function_kit_settings),
                 R.drawable.ic_baseline_settings_24,
                 FunctionKitSettings
+            ),
+            StatusAreaEntry.Android(
+                context.getString(R.string.function_kit_task_center),
+                R.drawable.ic_baseline_access_time_24,
+                FunctionKitTasks
             ),
             StatusAreaEntry.Android(
                 context.getString(R.string.theme),
@@ -201,6 +208,7 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                         }
                         FunctionKitBindings -> windowManager.attachWindow(FunctionKitBindingsWindow())
                         FunctionKitSettings -> AppUtil.launchMainToFunctionKitSettings(context)
+                        FunctionKitTasks -> windowManager.attachWindow(FunctionKitTaskCenterWindow())
                         InputMethod -> fcitx.runImmediately { inputMethodEntryCached }.let {
                             AppUtil.launchMainToInputMethodConfig(
                                 context, it.uniqueName, it.displayName

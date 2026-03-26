@@ -28,6 +28,7 @@ sealed class StatusAreaEntry(
             FunctionKit,
             FunctionKitBindings,
             FunctionKitSettings,
+            FunctionKitTasks,
             InputMethod,
             ReloadConfig,
             Keyboard,
