@@ -49,6 +49,9 @@ internal object ClipboardOverlayPromptManager {
     private const val NOTIFICATION_ID = 0xfcb1
     private const val DUPLICATE_TEXT_SUPPRESS_MS = 10_000L
     private const val BINDINGS_CACHE_MS = 3_000L
+    // Debug-only: make clipboard workflows fast to iterate.
+    // In release we should not auto-pop the keyboard on every copy.
+    private const val DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY = true
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -110,14 +113,18 @@ internal object ClipboardOverlayPromptManager {
 
         if (!hasClipboardBindings(now)) return
 
+        // Best UX: if IME is already active, open bindings directly without any extra tap.
+        // Debug UX: optionally auto-pop IME even without a focused input field.
+        if (maybeAutoOpenClipboardActions(text)) {
+            lastPromptText = text
+            lastPromptAtElapsedMs = now
+            return
+        }
+
         val overlayEnabled = canDrawOverlays(appContext)
         var shown = false
-        if (overlayEnabled) {
-            shown = showOverlay(text)
-        }
-        if (!shown) {
-            shown = showNotificationPrompt(text)
-        }
+        if (overlayEnabled) shown = showOverlay(text)
+        if (!shown) shown = showNotificationPrompt(text)
         if (!shown) {
             Timber.i("Clipboard prompt unavailable (no overlay permission and notifications disabled)")
             if (BuildConfig.DEBUG && !didNotifyMissingPermission) {
@@ -142,6 +149,35 @@ internal object ClipboardOverlayPromptManager {
 
         lastPromptText = text
         lastPromptAtElapsedMs = now
+    }
+
+    private fun maybeAutoOpenClipboardActions(clipboardText: String): Boolean {
+        val activeWm = InputWindowManager.activeOrNull()
+        if (activeWm != null && activeWm.view.isAttachedToWindow) {
+            // IME already visible: open immediately.
+            activeWm.view.post {
+                activeWm.attachWindow(
+                    FunctionKitBindingsWindow(
+                        trigger = FunctionKitBindingTrigger.Clipboard,
+                        clipboardText = clipboardText
+                    )
+                )
+            }
+            return true
+        }
+
+        if (!BuildConfig.DEBUG || !DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY) return false
+        if (!canDrawOverlays(appContext)) return false
+
+        // No input focus: best-effort summon IME without requiring a second tap.
+        pendingOpenClipboardText = clipboardText
+        if (showImeBridgeOverlay()) {
+            // Don't show a visible prompt chip in this path; the IME should appear immediately.
+            dismissOverlay()
+            dismissNotification()
+            return true
+        }
+        return false
     }
 
     private fun hasClipboardBindings(nowElapsedMs: Long): Boolean {
@@ -382,11 +418,26 @@ internal object ClipboardOverlayPromptManager {
         }
 
         val editText = imeBridgeEditText ?: return false
-        editText.requestFocus()
-        val imm = appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-        // Best effort: show IME for this temporary input target.
-        imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+        requestImeFor(editText)
         return true
+    }
+
+    private fun requestImeFor(editText: EditText) {
+        editText.isFocusableInTouchMode = true
+        editText.requestFocus()
+        try {
+            editText.requestFocusFromTouch()
+        } catch (_: Throwable) {
+            // Some ROMs throw if the view isn't touch-focused; ignore.
+        }
+        val imm = appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        // Best effort: force-show IME for this temporary input target.
+        imm?.showSoftInput(editText, InputMethodManager.SHOW_FORCED)
+        // Some systems ignore the first call; retry shortly.
+        mainHandler.postDelayed(
+            { imm?.showSoftInput(editText, InputMethodManager.SHOW_FORCED) },
+            200L
+        )
     }
 
     private fun dismissImeBridgeOverlay() {
@@ -405,49 +456,12 @@ internal object ClipboardOverlayPromptManager {
     private fun ensureImeBridgeOverlayView(): View {
         imeBridgeOverlayView?.let { return it }
 
-        val dp12 = dp(12)
-        val dp10 = dp(10)
-        val dp16 = dp(16)
-
+        // Invisible focus bridge (do NOT look like an "ad" on screen).
+        // We only need a real focused view to be able to summon the IME.
         val root =
             LinearLayout(appContext).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(dp16, dp10, dp16, dp10)
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = dp(999).toFloat()
-                    setColor(0xCC000000.toInt())
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    elevation = dp12.toFloat()
-                }
             }
-
-        val label =
-            TextView(appContext).apply {
-                text = appContext.getString(R.string.function_kit_bindings_clipboard)
-                setTextColor(Color.WHITE)
-                textSize = 14f
-            }
-        root.addView(label)
-
-        val close =
-            TextView(appContext).apply {
-                text = " x"
-                setTextColor(Color.WHITE)
-                textSize = 14f
-                isClickable = true
-                setOnClickListener {
-                    val editText = imeBridgeEditText
-                    if (editText != null) {
-                        val imm =
-                            appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                        imm?.hideSoftInputFromWindow(editText.windowToken, 0)
-                    }
-                    dismissImeBridgeOverlay()
-                }
-            }
-        root.addView(close)
 
         val editText =
             EditText(appContext).apply {
@@ -459,19 +473,15 @@ internal object ClipboardOverlayPromptManager {
                 layoutParams = LinearLayout.LayoutParams(1, 1)
                 setOnFocusChangeListener { _, hasFocus ->
                     if (!hasFocus) {
+                        val imm =
+                            appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                        imm?.hideSoftInputFromWindow(windowToken, 0)
                         dismissImeBridgeOverlay()
                     }
                 }
             }
         imeBridgeEditText = editText
         root.addView(editText)
-
-        root.isClickable = true
-        root.setOnClickListener {
-            editText.requestFocus()
-            val imm = appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
-        }
 
         imeBridgeOverlayView = root
         return root
@@ -498,8 +508,9 @@ internal object ClipboardOverlayPromptManager {
                 flags,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = dp(72)
+                gravity = Gravity.TOP or Gravity.START
+                x = 0
+                y = 0
                 title = "FcitxClipboardImeBridge"
             }
         imeBridgeOverlayParams = params
