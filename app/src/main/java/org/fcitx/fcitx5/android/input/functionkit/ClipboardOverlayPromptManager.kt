@@ -54,7 +54,7 @@ internal object ClipboardOverlayPromptManager {
     // In release we should not auto-pop the keyboard on every copy.
     private const val DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY = true
     // Prevent a focusable overlay window from trapping system back/home navigation.
-    private const val IME_BRIDGE_AUTO_DISMISS_MS = 1_500L
+    private const val IME_BRIDGE_AUTO_DISMISS_MS = 5_000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -117,9 +117,17 @@ internal object ClipboardOverlayPromptManager {
 
         if (!hasClipboardBindings(now)) return
 
-        // Best UX: if IME is already active, open bindings directly without any extra tap.
-        // Debug UX: optionally auto-pop IME even without a focused input field.
-        if (maybeAutoOpenClipboardActions(text)) {
+        // If IME is already active, open bindings directly (no need to show a prompt chip).
+        val activeWm = InputWindowManager.activeOrNull()
+        if (activeWm != null && activeWm.view.isAttachedToWindow) {
+            activeWm.view.post {
+                activeWm.attachWindow(
+                    FunctionKitBindingsWindow(
+                        trigger = FunctionKitBindingTrigger.Clipboard,
+                        clipboardText = text
+                    )
+                )
+            }
             lastPromptText = text
             lastPromptAtElapsedMs = now
             return
@@ -151,37 +159,15 @@ internal object ClipboardOverlayPromptManager {
             ).show()
         }
 
+        // Debug UX: still attempt to auto-pop IME without any extra tap.
+        // Keep the visible prompt chip/notification as fallback in case the ROM blocks IME-from-overlay.
+        if (BuildConfig.DEBUG && DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY && overlayEnabled) {
+            pendingOpenClipboardText = text
+            showImeBridgeOverlay()
+        }
+
         lastPromptText = text
         lastPromptAtElapsedMs = now
-    }
-
-    private fun maybeAutoOpenClipboardActions(clipboardText: String): Boolean {
-        val activeWm = InputWindowManager.activeOrNull()
-        if (activeWm != null && activeWm.view.isAttachedToWindow) {
-            // IME already visible: open immediately.
-            activeWm.view.post {
-                activeWm.attachWindow(
-                    FunctionKitBindingsWindow(
-                        trigger = FunctionKitBindingTrigger.Clipboard,
-                        clipboardText = clipboardText
-                    )
-                )
-            }
-            return true
-        }
-
-        if (!BuildConfig.DEBUG || !DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY) return false
-        if (!canDrawOverlays(appContext)) return false
-
-        // No input focus: best-effort summon IME without requiring a second tap.
-        pendingOpenClipboardText = clipboardText
-        if (showImeBridgeOverlay()) {
-            // Don't show a visible prompt chip in this path; the IME should appear immediately.
-            dismissOverlay()
-            dismissNotification()
-            return true
-        }
-        return false
     }
 
     private fun hasClipboardBindings(nowElapsedMs: Long): Boolean {
