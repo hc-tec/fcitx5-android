@@ -50,9 +50,6 @@ internal object ClipboardOverlayPromptManager {
     private const val NOTIFICATION_ID = 0xfcb1
     private const val DUPLICATE_TEXT_SUPPRESS_MS = 10_000L
     private const val BINDINGS_CACHE_MS = 3_000L
-    // Debug-only: make clipboard workflows fast to iterate.
-    // In release we should not auto-pop the keyboard on every copy.
-    private const val DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY = true
     // Prevent a focusable overlay window from trapping system back/home navigation.
     private const val IME_BRIDGE_AUTO_DISMISS_MS = 5_000L
 
@@ -158,30 +155,6 @@ internal object ClipboardOverlayPromptManager {
                 appContext.getString(R.string.function_kit_clipboard_prompt_overlay_permission_missing_hint),
                 Toast.LENGTH_LONG
             ).show()
-        }
-
-        // Debug UX: still attempt to auto-pop IME without any extra tap.
-        // Keep the visible prompt chip/notification as fallback in case the ROM blocks IME-from-overlay.
-        if (BuildConfig.DEBUG && DEBUG_AUTO_OPEN_ON_CLIPBOARD_COPY && overlayEnabled) {
-            val activeWm = InputWindowManager.activeOrNull()
-            val imeShown =
-                activeWm != null && activeWm.view.isAttachedToWindow && activeWm.view.isShown
-            Timber.d(
-                "Debug auto-open IME bridge check: active=%s attached=%s shown=%s",
-                activeWm != null,
-                activeWm?.view?.isAttachedToWindow == true,
-                imeShown
-            )
-            if (imeShown) {
-                // IME already visible: keep it non-intrusive. User can tap the chip to open actions.
-                lastPromptText = text
-                lastPromptAtElapsedMs = now
-                return
-            }
-            Timber.d("Debug auto-open IME bridge requested for clipboard prompt")
-            pendingOpenClipboardText = text
-            val bridgeShown = showImeBridgeOverlay()
-            Timber.d("IME bridge overlay shown=%s", bridgeShown)
         }
 
         lastPromptText = text
