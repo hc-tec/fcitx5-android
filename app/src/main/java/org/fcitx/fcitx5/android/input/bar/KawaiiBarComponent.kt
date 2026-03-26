@@ -15,7 +15,6 @@ import android.view.inputmethod.InlineSuggestion
 import android.view.inputmethod.InlineSuggestionsResponse
 import android.view.inputmethod.InputMethodSubtype
 import android.widget.FrameLayout
-import android.widget.PopupMenu
 import android.widget.ViewAnimator
 import android.widget.inline.InlineContentView
 import androidx.annotation.Keep
@@ -60,7 +59,9 @@ import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editing.TextEditingWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.keyboard.CommonKeyActionListener
 import org.fcitx.fcitx5.android.input.keyboard.CustomGestureView
@@ -122,11 +123,10 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private var isKeyboardLayoutNumber: Boolean = false
     private var isToolbarManuallyToggled: Boolean = false
 
-    // Keep Function Kit WebViews alive across window switching so runtime / UI state is not reset.
-    private val functionKitWindowCache = mutableMapOf<String, FunctionKitWindow>()
+    private val functionKitWindowPool: FunctionKitWindowPool by manager.must()
 
     private fun requireFunctionKitWindow(kitId: String): FunctionKitWindow =
-        functionKitWindowCache.getOrPut(kitId) { FunctionKitWindow(kitId) }
+        functionKitWindowPool.require(kitId)
 
     private enum class NumberRowState { Auto, ForceShow, ForceHide }
 
@@ -221,44 +221,6 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         clipboardTimeoutJob = null
         isClipboardFresh = false
         evalIdleUiState()
-    }
-
-    private fun showClipboardBindingsMenu(anchor: View, clipboardText: String) {
-        if (clipboardFunctionKitBindings.isEmpty()) {
-            service.commitText(clipboardText)
-            dismissClipboardSuggestion()
-            return
-        }
-
-        val pasteItemId = 1
-        val popup = PopupMenu(context, anchor)
-        popup.menu.add(0, pasteItemId, 0, android.R.string.paste)
-        clipboardFunctionKitBindings.forEachIndexed { index, binding ->
-            val itemId = pasteItemId + 1 + index
-            popup.menu.add(0, itemId, itemId, "${binding.kitLabel} · ${binding.title}")
-        }
-        popup.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                pasteItemId -> {
-                    service.commitText(clipboardText)
-                }
-                else -> {
-                    val index = item.itemId - (pasteItemId + 1)
-                    val binding = clipboardFunctionKitBindings.getOrNull(index)
-                        ?: return@setOnMenuItemClickListener false
-                    val window = requireFunctionKitWindow(binding.kitId)
-                    window.enqueueBindingInvocation(
-                        binding = binding,
-                        trigger = FunctionKitBindingTrigger.Clipboard,
-                        clipboardText = clipboardText
-                    )
-                    windowManager.attachWindow(window)
-                }
-            }
-            dismissClipboardSuggestion()
-            true
-        }
-        popup.show()
     }
 
     private fun evalIdleUiState(fromUser: Boolean = false) {
@@ -402,7 +364,8 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 }
                 functionKitButtons.forEach { kitButton ->
                     kitButton.button.setOnClickListener {
-                        windowManager.attachWindow(requireFunctionKitWindow(kitButton.entry.kitId))
+                        val window = requireFunctionKitWindow(kitButton.entry.kitId)
+                        windowManager.view.post { windowManager.attachWindow(window) }
                     }
                     kitButton.button.setOnLongClickListener {
                         AppUtil.launchMainToFunctionKitSettings(context)
@@ -427,7 +390,15 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                         return@setOnClickListener
                     }
 
-                    showClipboardBindingsMenu(this, clipboardText)
+                    windowManager.view.post {
+                        windowManager.attachWindow(
+                            FunctionKitBindingsWindow(
+                                trigger = FunctionKitBindingTrigger.Clipboard,
+                                clipboardText = clipboardText
+                            )
+                        )
+                    }
+                    dismissClipboardSuggestion()
                 }
                 setOnLongClickListener {
                     ClipboardManager.lastEntry?.let {

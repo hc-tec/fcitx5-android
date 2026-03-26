@@ -48,6 +48,12 @@ sealed class StatusAreaEntry(
             binding.kitIconAssetPath
         )
 
+    internal class LocalAction(
+        val actionId: String,
+        label: String,
+        icon: Int
+    ) : StatusAreaEntry(label, icon, false, null)
+
     companion object {
         private fun drawableFromIconName(icon: String) = when (icon) {
             // androidkeyboard

@@ -312,6 +312,8 @@
     <string name="function_kit_auto_reply">Chat Auto Reply</string>
     <string name="function_kit_settings">Function Kit Settings</string>
     <string name="function_kit_bindings">Function Kit Actions</string>
+    <string name="function_kit_bindings_clipboard">Clipboard Actions</string>
+    <string name="function_kit_bindings_selection">Selection Actions</string>
     <string name="function_kit_settings_summary">Toolbar shortcut, permissions, network routing, and remote host settings for Function Kit</string>
     <string name="function_kit_status_category">Current status</string>
     <string name="function_kit_status_runtime">Current runtime</string>

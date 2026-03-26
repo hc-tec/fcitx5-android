@@ -312,6 +312,8 @@
     <string name="function_kit_auto_reply">聊天自动回复</string>
     <string name="function_kit_settings">功能件设置</string>
     <string name="function_kit_bindings">功能件动作</string>
+    <string name="function_kit_bindings_clipboard">剪贴板动作</string>
+    <string name="function_kit_bindings_selection">选区动作</string>
     <string name="function_kit_settings_summary">功能件工具栏快捷入口、权限开关、网络路由与远程宿主设置</string>
     <string name="function_kit_status_category">当前状态</string>
     <string name="function_kit_status_runtime">当前运行方式</string>

@@ -31,6 +31,7 @@ import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.InputMethod
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKit
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKitBindings
@@ -63,17 +64,10 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
 
     private val editorInfoInspector by AppPrefs.getInstance().internal.editorInfoInspector
 
-    // Keep Function Kit WebViews alive across window switching so runtime / UI state is not reset.
-    private val functionKitWindowCache = mutableMapOf<String, FunctionKitWindow>()
+    private val functionKitWindowPool: FunctionKitWindowPool by manager.must()
 
-    private fun requireFunctionKitWindow(kitId: String?): FunctionKitWindow {
-        val resolvedKitId =
-            kitId
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?: FunctionKitRegistry.resolve(context).id
-        return functionKitWindowCache.getOrPut(resolvedKitId) { FunctionKitWindow(resolvedKitId) }
-    }
+    private fun requireFunctionKitWindow(kitId: String?): FunctionKitWindow =
+        functionKitWindowPool.require(kitId)
 
     private fun staticEntries(): Array<StatusAreaEntry.Android> {
         val kitEntries =
@@ -198,10 +192,13 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                             trigger = FunctionKitBindingTrigger.Manual,
                             clipboardText = clipboardText
                         )
-                        windowManager.attachWindow(window)
+                        windowManager.view.post { windowManager.attachWindow(window) }
                     }
                     is StatusAreaEntry.Android -> when (entry.type) {
-                        FunctionKit -> windowManager.attachWindow(requireFunctionKitWindow(entry.functionKitId))
+                        FunctionKit -> {
+                            val window = requireFunctionKitWindow(entry.functionKitId)
+                            windowManager.view.post { windowManager.attachWindow(window) }
+                        }
                         FunctionKitBindings -> windowManager.attachWindow(FunctionKitBindingsWindow())
                         FunctionKitSettings -> AppUtil.launchMainToFunctionKitSettings(context)
                         InputMethod -> fcitx.runImmediately { inputMethodEntryCached }.let {
@@ -221,6 +218,9 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                         Keyboard -> AppUtil.launchMainToKeyboard(context)
                         ThemeList -> AppUtil.launchMainToThemeList(context)
                     }
+                    is StatusAreaEntry.LocalAction -> {
+                        // Reserved for other windows (e.g. Function Kit clipboard actions menu).
+                    }
                 }
             }
 
@@ -234,6 +234,7 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                             }
                             else -> false
                         }
+                    is StatusAreaEntry.LocalAction -> false
                     else -> false
                 }
 
