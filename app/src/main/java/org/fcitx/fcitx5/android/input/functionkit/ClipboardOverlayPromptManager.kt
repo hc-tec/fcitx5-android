@@ -116,7 +116,7 @@ internal object ClipboardOverlayPromptManager {
             shown = showOverlay(text)
         }
         if (!shown) {
-            shown = showNotificationPrompt()
+            shown = showNotificationPrompt(text)
         }
         if (!shown) {
             Timber.i("Clipboard prompt unavailable (no overlay permission and notifications disabled)")
@@ -204,7 +204,7 @@ internal object ClipboardOverlayPromptManager {
         appContext.notificationManager.createNotificationChannel(channel)
     }
 
-    private fun showNotificationPrompt(): Boolean {
+    private fun showNotificationPrompt(clipboardText: String): Boolean {
         dismissOverlay()
         mainHandler.removeCallbacks(dismissRunnable)
 
@@ -217,6 +217,7 @@ internal object ClipboardOverlayPromptManager {
         val intent =
             Intent(appContext, ClipboardActionsPromptReceiver::class.java).apply {
                 action = ClipboardActionsPromptReceiver.ACTION_OPEN_CLIPBOARD_ACTIONS
+                putExtra(ClipboardActionsPromptReceiver.EXTRA_CLIPBOARD_TEXT, clipboardText)
             }
         val pi =
             PendingIntent.getBroadcast(
