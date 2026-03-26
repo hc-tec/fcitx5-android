@@ -20,6 +20,9 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -73,6 +76,11 @@ internal object ClipboardOverlayPromptManager {
     private var overlayView: View? = null
     private var overlayParams: WindowManager.LayoutParams? = null
     private var overlayAdded: Boolean = false
+
+    private var imeBridgeOverlayView: View? = null
+    private var imeBridgeOverlayParams: WindowManager.LayoutParams? = null
+    private var imeBridgeOverlayAdded: Boolean = false
+    private var imeBridgeEditText: EditText? = null
 
     @Volatile
     private var pendingClipboardText: String? = null
@@ -335,8 +343,14 @@ internal object ClipboardOverlayPromptManager {
         }
 
         pendingOpenClipboardText = clipboardText
+
+        // No input focus: if overlay is available, focus a hidden EditText to bring up IME in-place.
+        if (canDrawOverlays(appContext) && showImeBridgeOverlay()) {
+            return
+        }
+
+        // Fallback: open the app, user can tap an input field to show IME.
         AppUtil.launchMain(appContext)
-        // Best-effort hint: user needs to focus an input field to show IME.
         Toast.makeText(
             appContext,
             appContext.getString(R.string.function_kit_clipboard_prompt_focus_input_hint),
@@ -348,6 +362,147 @@ internal object ClipboardOverlayPromptManager {
         val text = pendingOpenClipboardText
         pendingOpenClipboardText = null
         return text
+    }
+
+    private fun showImeBridgeOverlay(): Boolean {
+        val wm = overlayWindowManager ?: return false
+        val view = ensureImeBridgeOverlayView()
+        val params = ensureImeBridgeOverlayParams()
+
+        if (!imeBridgeOverlayAdded) {
+            try {
+                wm.addView(view, params)
+                imeBridgeOverlayAdded = true
+            } catch (t: Throwable) {
+                Timber.w(t, "Failed to add IME bridge overlay view")
+                imeBridgeOverlayAdded = false
+                return false
+            }
+        }
+
+        val editText = imeBridgeEditText ?: return false
+        editText.requestFocus()
+        val imm = appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        // Best effort: show IME for this temporary input target.
+        imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+        return true
+    }
+
+    private fun dismissImeBridgeOverlay() {
+        val wm = overlayWindowManager
+        val view = imeBridgeOverlayView
+        if (!imeBridgeOverlayAdded || wm == null || view == null) return
+        try {
+            wm.removeView(view)
+        } catch (t: Throwable) {
+            Timber.w(t, "Failed to remove IME bridge overlay view")
+        } finally {
+            imeBridgeOverlayAdded = false
+        }
+    }
+
+    private fun ensureImeBridgeOverlayView(): View {
+        imeBridgeOverlayView?.let { return it }
+
+        val dp12 = dp(12)
+        val dp10 = dp(10)
+        val dp16 = dp(16)
+
+        val root =
+            LinearLayout(appContext).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(dp16, dp10, dp16, dp10)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(999).toFloat()
+                    setColor(0xCC000000.toInt())
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    elevation = dp12.toFloat()
+                }
+            }
+
+        val label =
+            TextView(appContext).apply {
+                text = appContext.getString(R.string.function_kit_bindings_clipboard)
+                setTextColor(Color.WHITE)
+                textSize = 14f
+            }
+        root.addView(label)
+
+        val close =
+            TextView(appContext).apply {
+                text = " x"
+                setTextColor(Color.WHITE)
+                textSize = 14f
+                isClickable = true
+                setOnClickListener {
+                    val editText = imeBridgeEditText
+                    if (editText != null) {
+                        val imm =
+                            appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                        imm?.hideSoftInputFromWindow(editText.windowToken, 0)
+                    }
+                    dismissImeBridgeOverlay()
+                }
+            }
+        root.addView(close)
+
+        val editText =
+            EditText(appContext).apply {
+                setBackgroundColor(Color.TRANSPARENT)
+                setTextColor(Color.TRANSPARENT)
+                setHintTextColor(Color.TRANSPARENT)
+                isCursorVisible = false
+                // Keep it effectively hidden, only used to summon IME.
+                layoutParams = LinearLayout.LayoutParams(1, 1)
+                setOnFocusChangeListener { _, hasFocus ->
+                    if (!hasFocus) {
+                        dismissImeBridgeOverlay()
+                    }
+                }
+            }
+        imeBridgeEditText = editText
+        root.addView(editText)
+
+        root.isClickable = true
+        root.setOnClickListener {
+            editText.requestFocus()
+            val imm = appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+        }
+
+        imeBridgeOverlayView = root
+        return root
+    }
+
+    private fun ensureImeBridgeOverlayParams(): WindowManager.LayoutParams {
+        imeBridgeOverlayParams?.let { return it }
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+        // Focusable window to host the hidden EditText (needed to summon IME).
+        val flags =
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+
+        val params =
+            WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                type,
+                flags,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                y = dp(72)
+                title = "FcitxClipboardImeBridge"
+            }
+        imeBridgeOverlayParams = params
+        return params
     }
 
     private fun onOverlayClicked() {
