@@ -122,8 +122,12 @@ class FunctionKitWindow(
         val transport: String = if (remoteEnabled) "remote-http" else "local-webview"
         val modeMessage: String =
             if (remoteEnabled) {
-                renderEndpoint?.let { "Remote inference enabled via $it ($requestedExecutionMode)" }
-                    ?: "Remote inference is enabled, but the host service base URL is blank."
+                if (renderEndpoint.isNullOrBlank()) {
+                    "Remote inference is enabled, but the host service base URL is blank."
+                } else {
+                    // Avoid leaking local endpoint/baseUrl to kits through hostInfo.modeMessage.
+                    "Remote inference enabled ($requestedExecutionMode)"
+                }
             } else {
                 "Using local demo candidates because remote inference is disabled or the manifest route is not active."
             }
@@ -1498,6 +1502,7 @@ class FunctionKitWindow(
         replyTo: String,
         surface: String
     ) {
+        refreshGrantedPermissions(notifyUi = panelInitialized)
         val executionConfig = currentExecutionConfig()
         host.dispatchAiChatStatusSync(
             replyTo = replyTo,
@@ -1542,7 +1547,6 @@ class FunctionKitWindow(
             details =
                 buildHostDetails(executionConfig)
                     .put("reason", "ai.chat")
-                    .put("model", aiChatConfig.model)
         )
 
         remoteExecutor.execute {
@@ -1588,8 +1592,6 @@ class FunctionKitWindow(
                                     "usage",
                                     completion.usage?.let { JSONObject(it.toString()) } ?: JSONObject()
                                 )
-                                .put("routing", buildLocalAiRoutingSnapshot(executionConfig, aiChatConfig, "ai.chat"))
-                                .put("hostInfo", buildHostInfo(executionConfig))
                     )
                     host.dispatchHostStateUpdate(
                         kitId = functionKitId,
@@ -1598,7 +1600,6 @@ class FunctionKitWindow(
                         details =
                             buildHostDetails(executionConfig)
                                 .put("reason", "ai.chat")
-                                .put("model", aiChatConfig.model)
                     )
                 }
             } catch (error: RemoteInferenceException) {
@@ -1624,6 +1625,8 @@ class FunctionKitWindow(
         replyTo: String,
         surface: String
     ) {
+        ensurePermission(replyTo, "ai.agent.list") ?: return
+
         val executionConfig = currentExecutionConfig()
         host.dispatchAiAgentListResult(
             replyTo = replyTo,
@@ -1663,7 +1666,6 @@ class FunctionKitWindow(
             retryable = false,
             details =
                 JSONObject()
-                    .put("routing", buildRoutingSnapshot(executionConfig, "ai.agent.run"))
                     .put("request", JSONObject(payload.toString()))
         )
     }
@@ -2041,23 +2043,6 @@ class FunctionKitWindow(
         aiChatConfig.isConfigured &&
             "ai.chat" in grantedPermissions
 
-    private fun buildLocalAiRoutingSnapshot(
-        executionConfig: ExecutionConfig,
-        aiChatConfig: HostAiChatConfig,
-        reason: String
-    ): JSONObject =
-        JSONObject(buildRoutingSnapshot(executionConfig, reason).toString())
-            .put("effectiveExecutionMode", "direct-model")
-            .put("effectiveBackendClass", "direct-model")
-            .put("transport", "android-direct-http")
-            .put("providerType", aiChatConfig.providerType)
-            .put("model", aiChatConfig.model)
-            .put("baseUrl", aiChatConfig.configuredBaseUrl)
-            .put("timeoutSeconds", aiChatConfig.timeoutSeconds)
-            .put("configSource", aiChatConfig.configSource)
-            .put("bootstrapAvailable", aiChatConfig.bootstrapAvailable)
-            .put("usesBootstrapDefaults", aiChatConfig.usesBootstrapDefaults)
-
     private fun buildAiChatMessages(payload: JSONObject): JSONArray {
         val messages = JSONArray()
         var hasConversationMessages = false
@@ -2187,7 +2172,7 @@ class FunctionKitWindow(
                     code = "ai_chat_invalid_base_url",
                     message = "Android AI chat base URL is invalid.",
                     retryable = false,
-                    details = error.message ?: aiChatConfig.configuredBaseUrl
+                    details = error.message
                 )
             }
 
@@ -2322,14 +2307,12 @@ class FunctionKitWindow(
             )
             .put("uiHints", JSONObject().put("allowRegenerate", true))
             .put("manifest", buildManifestSnapshot())
-            .put("routing", buildLocalAiRoutingSnapshot(executionConfig, aiChatConfig, reason))
             .put("slash", buildSlashSnapshot())
             .put(
                 "meta",
                 JSONObject()
                     .put("backendClass", "direct-model")
                     .put("providerType", aiChatConfig.providerType)
-                    .put("model", aiChatConfig.model)
                     .put("usage", completion.usage ?: JSONObject())
             )
 
@@ -2349,7 +2332,6 @@ class FunctionKitWindow(
             details =
                 buildHostDetails(executionConfig)
                     .put("reason", reason)
-                    .put("model", aiChatConfig.model)
                     .put("error", JSONObject().put("code", error.code).put("message", error.message))
         )
         fallbackCandidatesPayload?.let { payload ->
@@ -2370,44 +2352,40 @@ class FunctionKitWindow(
             details =
                 JSONObject()
                     .put("reason", reason)
-                    .put("baseUrl", aiChatConfig.configuredBaseUrl)
-                    .put("model", aiChatConfig.model)
                     .put("statusCode", error.statusCode)
                     .put("details", JSONObject.wrap(error.details))
         )
     }
 
-    private fun buildAiChatStatusPayload(executionConfig: ExecutionConfig): JSONObject {
-        val aiChatConfig = currentAiChatConfig()
+    private fun buildAiChatStatusPayload(_executionConfig: ExecutionConfig): JSONObject {
         val permissionGranted = "ai.chat" in grantedPermissions
+        if (!permissionGranted) {
+            return JSONObject()
+                .put("available", false)
+                .put("status", "permission_denied")
+                .put("reason", "permission_denied")
+                .put("permissionGranted", false)
+        }
+
+        val aiChatConfig = currentAiChatConfig()
         val status =
             when {
                 !aiChatConfig.enabled -> "not_configured"
                 !aiChatConfig.isConfigured -> "not_configured"
-                !permissionGranted -> "disabled_by_user"
                 else -> "ready"
             }
         val reason =
             when {
                 !aiChatConfig.enabled -> "disabled_by_user"
                 !aiChatConfig.isConfigured -> "not_configured"
-                !permissionGranted -> "permission_denied"
                 else -> "ready"
             }
+
         return JSONObject()
             .put("available", status == "ready")
             .put("status", status)
             .put("reason", reason)
-            .put("permissionGranted", permissionGranted)
-            .put("providerType", aiChatConfig.providerType)
-            .put("baseUrl", aiChatConfig.configuredBaseUrl)
-            .put("model", aiChatConfig.model)
-            .put("timeoutSeconds", aiChatConfig.timeoutSeconds)
-            .put("configSource", aiChatConfig.configSource)
-            .put("bootstrapAvailable", aiChatConfig.bootstrapAvailable)
-            .put("usesBootstrapDefaults", aiChatConfig.usesBootstrapDefaults)
-            .put("routing", buildLocalAiRoutingSnapshot(executionConfig, aiChatConfig, "ai.chat.status"))
-            .put("hostInfo", buildHostInfo(executionConfig))
+            .put("permissionGranted", true)
     }
 
     private fun buildAgentListPayload(executionConfig: ExecutionConfig): JSONObject {
@@ -2429,8 +2407,6 @@ class FunctionKitWindow(
         }
         return JSONObject()
             .put("agents", agents)
-            .put("routing", buildRoutingSnapshot(executionConfig, "ai.agent.list"))
-            .put("hostInfo", buildHostInfo(executionConfig))
     }
 
     private fun executeNetworkFetch(
@@ -2615,7 +2591,6 @@ class FunctionKitWindow(
                     .put("modifiers", JSONArray(modifiers))
             )
             .put("manifest", buildManifestSnapshot())
-            .put("routing", buildRoutingSnapshot(currentExecutionConfig(), reason))
             .put("slash", buildSlashSnapshot())
     }
 
@@ -2634,7 +2609,6 @@ class FunctionKitWindow(
             )
             .put("uiHints", JSONObject().put("allowRegenerate", true))
             .put("manifest", buildManifestSnapshot())
-            .put("routing", buildRoutingSnapshot(currentExecutionConfig(), "render"))
             .put("slash", buildSlashSnapshot())
     }
 
@@ -2701,7 +2675,6 @@ class FunctionKitWindow(
                 details =
                     buildHostDetails(executionConfig)
                         .put("reason", reason)
-                        .put("model", aiChatConfig.model)
             )
 
             remoteExecutor.execute {
@@ -2739,7 +2712,6 @@ class FunctionKitWindow(
                             details =
                                 buildHostDetails(executionConfig)
                                     .put("reason", reason)
-                                    .put("model", aiChatConfig.model)
                                     .put(
                                         "candidateCount",
                                         renderPayload.optJSONObject("result")
@@ -2927,7 +2899,7 @@ class FunctionKitWindow(
                     code = "remote_base_url_invalid",
                     message = "Invalid remote host service base URL.",
                     retryable = false,
-                    details = error.message ?: executionConfig.configuredBaseUrl
+                    details = error.message
                 )
             }
 
@@ -3039,9 +3011,7 @@ class FunctionKitWindow(
         val errorDetails =
             JSONObject()
                 .put("reason", reason)
-                .put("baseUrl", executionConfig.configuredBaseUrl)
                 .apply {
-                    executionConfig.renderEndpoint?.let { put("endpoint", it) }
                     error.statusCode?.let { put("statusCode", it) }
                     error.details?.let { put("remoteDetails", JSONObject.wrap(it)) }
                 }
@@ -3249,23 +3219,6 @@ class FunctionKitWindow(
                 "modeMessage",
                 resolvedMode.modeMessage
             )
-            .put("baseUrl", executionConfig.configuredBaseUrl)
-            .put("remoteAuthConfigured", executionConfig.remoteAuthConfigured)
-            .put("preferredBackendClass", executionConfig.preferredBackendClass)
-            .put("preferredAdapter", executionConfig.preferredAdapter)
-            .put("latencyBudgetMs", executionConfig.latencyBudgetMs)
-            .put("latencyTier", executionConfig.latencyTier)
-            .put("requireStructuredJson", executionConfig.requireStructuredJson)
-            .put("requiredCapabilities", JSONArray(executionConfig.requiredCapabilities))
-            .put(
-                "ai",
-                JSONObject()
-                    .put("available", aiChatConfig.isConfigured)
-                    .put("permissionGranted", "ai.chat" in grantedPermissions)
-                    .put("providerType", aiChatConfig.providerType)
-                    .put("model", aiChatConfig.model)
-                    .put("baseUrl", aiChatConfig.configuredBaseUrl)
-            )
             .put("build", buildDebugInfo())
             .put(
                 "discovery",
@@ -3274,7 +3227,6 @@ class FunctionKitWindow(
             .put("manifest", buildManifestSnapshot())
             .put("slash", buildSlashSnapshot())
             .apply {
-                executionConfig.renderEndpoint?.let { put("endpoint", it) }
                 if (executionConfig.remoteEnabled) {
                     put("timeoutMs", executionConfig.timeoutMs)
                 }
@@ -3315,24 +3267,14 @@ class FunctionKitWindow(
             .put("requestedExecutionMode", executionConfig.requestedExecutionMode)
             .put("transport", resolvedMode.transport)
             .put("modeMessage", resolvedMode.modeMessage)
-            .put("baseUrl", executionConfig.configuredBaseUrl)
-            .put("remoteAuthConfigured", executionConfig.remoteAuthConfigured)
-            .put("preferredBackendClass", executionConfig.preferredBackendClass)
-            .put("preferredAdapter", executionConfig.preferredAdapter)
-            .put("latencyBudgetMs", executionConfig.latencyBudgetMs)
-            .put("latencyTier", executionConfig.latencyTier)
-            .put("requireStructuredJson", executionConfig.requireStructuredJson)
-            .put("requiredCapabilities", JSONArray(executionConfig.requiredCapabilities))
             .put("build", buildDebugInfo())
             .put("manifest", buildManifestSnapshot())
-            .put("routing", buildRoutingSnapshot(executionConfig, "host-state"))
             .put("slash", buildSlashSnapshot())
             .put(
                 "discovery",
                 functionKitManifest.discovery.toJson()
             )
             .apply {
-                executionConfig.renderEndpoint?.let { put("endpoint", it) }
                 if (executionConfig.remoteEnabled) {
                     put("timeoutMs", executionConfig.timeoutMs)
                 }
@@ -3341,23 +3283,6 @@ class FunctionKitWindow(
 
     private fun buildManifestSnapshot(): JSONObject =
         JSONObject(functionKitManifest.toJson().toString())
-
-    private fun buildRoutingSnapshot(
-        executionConfig: ExecutionConfig,
-        reason: String
-    ): JSONObject =
-        JSONObject()
-            .put("requestedExecutionMode", executionConfig.requestedExecutionMode)
-            .put("effectiveExecutionMode", executionConfig.executionMode)
-            .put("preferredBackendClass", executionConfig.preferredBackendClass)
-            .put("preferredAdapter", executionConfig.preferredAdapter)
-            .put("latencyTier", executionConfig.latencyTier)
-            .put("latencyBudgetMs", executionConfig.latencyBudgetMs)
-            .put("requireStructuredJson", executionConfig.requireStructuredJson)
-            .put("requiredCapabilities", JSONArray(executionConfig.requiredCapabilities))
-            .put("notes", JSONArray(executionConfig.notes))
-            .put("renderPath", functionKitManifest.remoteRenderPath)
-            .put("reason", reason)
 
     private fun buildSlashSnapshot(): JSONObject? =
         functionKitManifest.discovery.resolveSlashQuery(resolveSlashSourceText())?.toJson()

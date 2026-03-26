@@ -20,7 +20,7 @@ class FunctionKitEffectiveModeTest {
         assertTrue(resolved.localAiActive)
         assertEquals("direct-model", resolved.executionMode)
         assertEquals("android-direct-http", resolved.transport)
-        assertTrue(resolved.modeMessage.contains("api.example.com"))
+        assertEquals("Using Android shared AI chat", resolved.modeMessage)
     }
 
     @Test
@@ -59,4 +59,3 @@ class FunctionKitEffectiveModeTest {
         assertEquals("remote enabled", resolved.modeMessage)
     }
 }
-

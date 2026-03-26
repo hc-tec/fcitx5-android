@@ -29,13 +29,11 @@ internal fun resolveFunctionKitEffectiveMode(
         )
     }
 
-    val endpointHint = localAiEndpointForMessage?.trim().orEmpty()
-    val hint = if (endpointHint.isNotBlank()) endpointHint else "shared Android AI chat"
     return FunctionKitEffectiveMode(
         localAiActive = true,
         executionMode = "direct-model",
         transport = "android-direct-http",
-        modeMessage = "Using Android shared AI chat via $hint"
+        // Avoid leaking local endpoint/baseUrl to kits through hostInfo.modeMessage.
+        modeMessage = "Using Android shared AI chat"
     )
 }
-
