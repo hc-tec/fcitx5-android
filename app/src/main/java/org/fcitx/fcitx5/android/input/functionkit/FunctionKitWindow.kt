@@ -612,8 +612,7 @@ class FunctionKitWindow(
             "storage.set" -> handleStorageSet(replyTo, payload)
             "panel.state.update" -> handlePanelStateUpdate(replyTo, payload)
             "network.fetch" -> handleNetworkFetch(replyTo, surface, payload)
-            "ai.chat.status.request" -> handleAiChatStatusRequest(replyTo, surface)
-            "ai.chat" -> handleAiChat(replyTo, surface, payload)
+            "ai.request" -> handleAiRequest(replyTo, surface, payload)
             "ai.agent.list" -> handleAiAgentList(replyTo, surface)
             "ai.agent.run" -> handleAiAgentRun(replyTo, surface, payload)
             "tasks.sync.request" -> handleTasksSyncRequest(replyTo, surface, payload)
@@ -671,12 +670,6 @@ class FunctionKitWindow(
             kitId = functionKitId,
             surface = surface,
             grantedPermissions = grantedPermissions
-        )
-        host.dispatchAiChatStatusSync(
-            replyTo = null,
-            kitId = functionKitId,
-            surface = surface,
-            payload = buildAiChatStatusPayload(executionConfig)
         )
         dispatchComposerStateSync(replyTo = null, surface = surface, reason = "bridge.ready")
         pushHostState("宿主握手完成")
@@ -1616,26 +1609,35 @@ class FunctionKitWindow(
         taskTracker.attachFuture(taskId, future)
     }
 
-    private fun handleAiChatStatusRequest(
-        replyTo: String,
-        surface: String
-    ) {
-        refreshGrantedPermissions(notifyUi = panelInitialized)
-        val executionConfig = currentExecutionConfig()
-        host.dispatchAiChatStatusSync(
-            replyTo = replyTo,
-            kitId = functionKitId,
-            surface = surface,
-            payload = buildAiChatStatusPayload(executionConfig)
-        )
-    }
-
-    private fun handleAiChat(
+    private fun handleAiRequest(
         replyTo: String,
         surface: String,
         payload: JSONObject
     ) {
-        ensurePermission(replyTo, "ai.chat") ?: return
+        ensurePermission(replyTo, "ai.request") ?: return
+
+        val requestId = payload.optString("requestId").trim().ifBlank { "req-${UUID.randomUUID()}" }
+        val routeKind =
+            payload.optJSONObject("route")?.optString("kind")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: "host-shared"
+
+        if (routeKind != "host-shared") {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "ai_route_not_supported",
+                message = "AI route is not supported yet: $routeKind",
+                retryable = false,
+                details =
+                    JSONObject()
+                        .put("requestId", requestId)
+                        .put("routeKind", routeKind)
+            )
+            return
+        }
 
         val executionConfig = currentExecutionConfig()
         val aiChatConfig = currentAiChatConfig()
@@ -1645,10 +1647,13 @@ class FunctionKitWindow(
                 replyTo = replyTo,
                 kitId = functionKitId,
                 surface = surface,
-                code = "ai_chat_not_ready",
-                message = "Android chat backend is not ready yet.",
+                code = "ai_request_not_ready",
+                message = "Android shared AI backend is not ready yet.",
                 retryable = false,
-                details = statusPayload
+                details =
+                    JSONObject(statusPayload.toString())
+                        .put("requestId", requestId)
+                        .put("routeKind", routeKind)
             )
             return
         }
@@ -1659,140 +1664,148 @@ class FunctionKitWindow(
         val maxOutputTokens = payload.optInt("maxTokens").takeIf { payload.has("maxTokens") }
         val taskId =
             taskTracker.create(
-                kind = "ai.chat",
+                kind = "ai.request",
                 surface = surface,
                 status = "queued",
                 cancellable = true,
-                progress = JSONObject().put("stage", "queued").put("message", "ai.chat queued").put("model", aiChatConfig.model)
+                progress =
+                    JSONObject()
+                        .put("stage", "queued")
+                        .put("message", "ai.request queued")
+                        .put("requestId", requestId)
+                        .put("routeKind", routeKind)
+                        .put("model", aiChatConfig.model)
             )
 
         host.dispatchHostStateUpdate(
             kitId = functionKitId,
             surface = surface,
-            label = "Android AI chat 请求中",
+            label = "Android AI request 请求中",
             details =
                 buildHostDetails(executionConfig)
-                    .put("reason", "ai.chat")
+                    .put("reason", "ai.request")
                     .put("taskId", taskId)
+                    .put("requestId", requestId)
+                    .put("routeKind", routeKind)
                     .put("model", aiChatConfig.model)
         )
 
         val future =
             remoteExecutor.submit {
-            try {
-                taskTracker.update(
-                    taskId = taskId,
-                    status = "running",
-                    progress = JSONObject().put("stage", "request").put("message", "ai.chat running").put("model", aiChatConfig.model)
-                )
-                val completion =
-                    requestLocalAiChatCompletion(
-                        aiChatConfig = aiChatConfig,
-                        messages = messages,
-                        temperature = temperature,
-                        maxOutputTokens = maxOutputTokens
-                    )
-                ContextCompat.getMainExecutor(service).execute {
-                    val sessionMismatch = requestSessionId != sessionId
-                    val canceled =
-                        taskTracker.cancelRequested(taskId) ||
-                            taskTracker.status(taskId) in setOf("canceling", "canceled")
-
-                    if (canceled) {
-                        taskTracker.update(taskId = taskId, status = "canceled")
-                        if (!sessionMismatch) {
-                            host.dispatchBridgeError(
-                                replyTo = replyTo,
-                                kitId = functionKitId,
-                                surface = surface,
-                                code = "task_canceled",
-                                message = "ai.chat canceled.",
-                                retryable = false,
-                                details = JSONObject().put("taskId", taskId)
-                            )
-                        }
-                        return@execute
-                    }
-
+                try {
                     taskTracker.update(
                         taskId = taskId,
-                        status = "succeeded",
-                        result = JSONObject().put("summary", "AI chat completed")
-                    )
-                    if (sessionMismatch) {
-                        return@execute
-                    }
-
-                    host.dispatchAiChatResult(
-                        replyTo = replyTo,
-                        kitId = functionKitId,
-                        surface = surface,
-                        payload =
+                        status = "running",
+                        progress =
                             JSONObject()
-                                .put("taskId", taskId)
-                                .put("text", completion.text)
-                                .put(
-                                    "message",
-                                    JSONObject()
-                                        .put("role", "assistant")
-                                        .put("content", completion.text)
-                                )
-                                .put(
-                                    "structured",
-                                    completion.structured?.let { JSONObject(it.toString()) } ?: JSONObject.NULL
-                                )
-                                .put(
-                                    "candidates",
-                                    FunctionKitAiChatBackend.normalizeCandidates(
-                                        rawText = completion.text,
-                                        maxCandidates = RemoteCandidateCount,
-                                        maxCharsPerCandidate = RemoteMaxCharsPerCandidate
-                                    )
-                                )
-                                .put(
-                                    "usage",
-                                    completion.usage?.let { JSONObject(it.toString()) } ?: JSONObject()
-                                )
-                    )
-                    host.dispatchHostStateUpdate(
-                        kitId = functionKitId,
-                        surface = surface,
-                        label = "Android AI chat 已完成",
-                        details =
-                            buildHostDetails(executionConfig)
-                                .put("reason", "ai.chat")
-                                .put("taskId", taskId)
+                                .put("stage", "request")
+                                .put("message", "ai.request running")
+                                .put("requestId", requestId)
+                                .put("routeKind", routeKind)
                                 .put("model", aiChatConfig.model)
                     )
-                }
-            } catch (error: RemoteInferenceException) {
-                ContextCompat.getMainExecutor(service).execute {
-                    taskTracker.update(
-                        taskId = taskId,
-                        status = "failed",
-                        error =
-                            JSONObject()
-                                .put("code", error.code)
-                                .put("message", error.message)
-                                .put("retryable", error.retryable)
-                                .put("details", JSONObject.wrap(error.details))
-                    )
-                    if (requestSessionId != sessionId) {
-                        return@execute
-                    }
+                    val completion =
+                        requestLocalAiChatCompletion(
+                            aiChatConfig = aiChatConfig,
+                            messages = messages,
+                            temperature = temperature,
+                            maxOutputTokens = maxOutputTokens
+                        )
+                    ContextCompat.getMainExecutor(service).execute {
+                        val sessionMismatch = requestSessionId != sessionId
+                        val canceled =
+                            taskTracker.cancelRequested(taskId) ||
+                                taskTracker.status(taskId) in setOf("canceling", "canceled")
 
-                    dispatchLocalAiChatError(
-                        replyTo = replyTo,
-                        surface = surface,
-                        reason = "ai.chat",
-                        executionConfig = executionConfig,
-                        aiChatConfig = aiChatConfig,
-                        error = error,
-                        taskId = taskId
-                    )
+                        if (canceled) {
+                            taskTracker.update(taskId = taskId, status = "canceled")
+                            if (!sessionMismatch) {
+                                host.dispatchBridgeError(
+                                    replyTo = replyTo,
+                                    kitId = functionKitId,
+                                    surface = surface,
+                                    code = "task_canceled",
+                                    message = "ai.request canceled.",
+                                    retryable = false,
+                                    details =
+                                        JSONObject()
+                                            .put("taskId", taskId)
+                                            .put("requestId", requestId)
+                                )
+                            }
+                            return@execute
+                        }
+
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "succeeded",
+                            result = JSONObject().put("summary", "AI request completed")
+                        )
+                        if (sessionMismatch) {
+                            return@execute
+                        }
+
+                        val structured = completion.structured?.let { JSONObject(it.toString()) }
+                        val outputType = if (structured != null) "json" else "text"
+                        val output =
+                            JSONObject()
+                                .put("type", outputType)
+                                .put("text", completion.text)
+                                .put("json", structured ?: JSONObject.NULL)
+
+                        host.dispatchAiResponse(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            payload =
+                                JSONObject()
+                                    .put("requestId", requestId)
+                                    .put("taskId", taskId)
+                                    .put("status", "succeeded")
+                                    .put("output", output)
+                                    .put("usage", completion.usage?.let { JSONObject(it.toString()) } ?: JSONObject())
+                        )
+                        host.dispatchHostStateUpdate(
+                            kitId = functionKitId,
+                            surface = surface,
+                            label = "Android AI request 已完成",
+                            details =
+                                buildHostDetails(executionConfig)
+                                    .put("reason", "ai.request")
+                                    .put("taskId", taskId)
+                                    .put("requestId", requestId)
+                                    .put("routeKind", routeKind)
+                                    .put("model", aiChatConfig.model)
+                        )
+                    }
+                } catch (error: RemoteInferenceException) {
+                    ContextCompat.getMainExecutor(service).execute {
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "failed",
+                            error =
+                                JSONObject()
+                                    .put("code", error.code)
+                                    .put("message", error.message)
+                                    .put("retryable", error.retryable)
+                                    .put("details", JSONObject.wrap(error.details))
+                        )
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+
+                        dispatchLocalAiChatError(
+                            replyTo = replyTo,
+                            surface = surface,
+                            reason = "ai.request",
+                            executionConfig = executionConfig,
+                            aiChatConfig = aiChatConfig,
+                            error = error,
+                            taskId = taskId
+                        )
+                    }
                 }
             }
-        }
         taskTracker.attachFuture(taskId, future)
     }
 
@@ -2216,7 +2229,7 @@ class FunctionKitWindow(
 
     private fun canUseLocalAiForCandidates(aiChatConfig: HostAiChatConfig): Boolean =
         aiChatConfig.isConfigured &&
-            "ai.chat" in grantedPermissions
+            "ai.request" in grantedPermissions
 
     private fun buildAiChatMessages(payload: JSONObject): JSONArray {
         val messages = JSONArray()
@@ -2536,7 +2549,7 @@ class FunctionKitWindow(
     }
 
     private fun buildAiChatStatusPayload(_executionConfig: ExecutionConfig): JSONObject {
-        val permissionGranted = "ai.chat" in grantedPermissions
+        val permissionGranted = "ai.request" in grantedPermissions
         if (!permissionGranted) {
             return JSONObject()
                 .put("available", false)

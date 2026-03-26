@@ -52,8 +52,7 @@ private val AllowedInboundTypes =
         "input.observe.best_effort.stop",
         "candidates.regenerate",
         "network.fetch",
-        "ai.chat",
-        "ai.chat.status.request",
+        "ai.request",
         "ai.agent.list",
         "ai.agent.run",
         "tasks.sync.request",
@@ -86,8 +85,7 @@ private val AllowedOutboundTypes =
         "permission.denied",
         "bridge.error",
         "network.fetch.result",
-        "ai.chat.status.sync",
-        "ai.chat.result",
+        "ai.response",
         "ai.agent.list.result",
         "ai.agent.run.result",
         "task.update",
@@ -655,29 +653,14 @@ class FunctionKitWebViewHost(
         )
     }
 
-    fun dispatchAiChatStatusSync(
+    fun dispatchAiResponse(
         replyTo: String?,
         kitId: String,
         surface: String,
         payload: JSONObject
     ) {
         dispatchTypedPayload(
-            type = "ai.chat.status.sync",
-            replyTo = replyTo,
-            kitId = kitId,
-            surface = surface,
-            payload = payload
-        )
-    }
-
-    fun dispatchAiChatResult(
-        replyTo: String?,
-        kitId: String,
-        surface: String,
-        payload: JSONObject
-    ) {
-        dispatchTypedPayload(
-            type = "ai.chat.result",
+            type = "ai.response",
             replyTo = replyTo,
             kitId = kitId,
             surface = surface,

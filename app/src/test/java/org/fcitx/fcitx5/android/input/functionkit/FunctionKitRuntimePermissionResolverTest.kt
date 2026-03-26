@@ -20,21 +20,21 @@ class FunctionKitRuntimePermissionResolverTest {
         val requested =
             FunctionKitRuntimePermissionResolver.resolveRequested(
                 uiRequested = emptyList(),
-                supported = listOf("context.read", "ai.chat")
+                supported = listOf("context.read", "ai.request")
             )
 
-        assertEquals(listOf("context.read", "ai.chat"), requested)
+        assertEquals(listOf("context.read", "ai.request"), requested)
     }
 
     @Test
     fun resolveRequestedRespectsSubsetWhenUiRequestedProvided() {
         val requested =
             FunctionKitRuntimePermissionResolver.resolveRequested(
-                uiRequested = listOf("ai.chat"),
-                supported = listOf("context.read", "ai.chat")
+                uiRequested = listOf("ai.request"),
+                supported = listOf("context.read", "ai.request")
             )
 
-        assertEquals(listOf("ai.chat"), requested)
+        assertEquals(listOf("ai.request"), requested)
     }
 
     @Test
@@ -42,10 +42,9 @@ class FunctionKitRuntimePermissionResolverTest {
         val requested =
             FunctionKitRuntimePermissionResolver.resolveRequested(
                 uiRequested = listOf("evil.permission"),
-                supported = listOf("context.read", "ai.chat")
+                supported = listOf("context.read", "ai.request")
             )
 
         assertEquals(emptyList<String>(), requested)
     }
 }
-

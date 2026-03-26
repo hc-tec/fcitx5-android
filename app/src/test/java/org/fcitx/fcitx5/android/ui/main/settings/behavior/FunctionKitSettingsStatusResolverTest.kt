@@ -42,7 +42,7 @@ class FunctionKitSettingsStatusResolverTest {
                 "storage.read",
                 "storage.write",
                 "network.fetch",
-                "ai.chat"
+                "ai.request"
             )
 
         val status =

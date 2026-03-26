@@ -13,21 +13,20 @@ import org.junit.Test
 
 class FunctionKitPermissionPolicyTest {
     @Test
-    fun `ai chat status permission follows ai chat toggle`() {
+    fun `ai request permission follows ai toggle`() {
         val disabledPermissions =
             FunctionKitPermissionPolicy.grantedPermissions(
-                requestedPermissions = listOf("ai.chat", "ai.chat.status.request"),
+                requestedPermissions = listOf("ai.request"),
                 prefs = fakeFunctionKitPrefs(allowAiChat = false)
             )
-        assertFalse("ai.chat" in disabledPermissions)
-        assertFalse("ai.chat.status.request" in disabledPermissions)
+        assertFalse("ai.request" in disabledPermissions)
 
         val enabledPermissions =
             FunctionKitPermissionPolicy.grantedPermissions(
-                requestedPermissions = listOf("ai.chat", "ai.chat.status.request"),
+                requestedPermissions = listOf("ai.request"),
                 prefs = fakeFunctionKitPrefs(allowAiChat = true)
             )
-        assertEquals(listOf("ai.chat", "ai.chat.status.request"), enabledPermissions)
+        assertEquals(listOf("ai.request"), enabledPermissions)
     }
 
     @Test

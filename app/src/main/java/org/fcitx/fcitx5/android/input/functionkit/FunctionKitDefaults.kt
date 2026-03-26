@@ -23,7 +23,7 @@ internal object FunctionKitDefaults {
             "storage.write",
             "panel.state.write",
             "network.fetch",
-            "ai.chat",
+            "ai.request",
             "send.intercept.ime_action",
             "ai.agent.list",
             "ai.agent.run"
@@ -47,7 +47,7 @@ internal object FunctionKitDefaults {
     val remotePermissions =
         listOf(
             "network.fetch",
-            "ai.chat",
+            "ai.request",
             "ai.agent.list",
             "ai.agent.run"
         )

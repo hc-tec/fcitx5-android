@@ -256,7 +256,7 @@ class FunctionKitSettingsFragment :
             "storage.write" -> R.string.function_kit_permission_storage_write
             "panel.state.write" -> R.string.function_kit_permission_panel_state_write
             "network.fetch" -> R.string.function_kit_status_permission_network_fetch
-            "ai.chat" -> R.string.function_kit_status_permission_ai_chat
+            "ai.request" -> R.string.function_kit_status_permission_ai_chat
             "ai.agent.list" -> R.string.function_kit_status_permission_ai_agent_list
             "ai.agent.run" -> R.string.function_kit_status_permission_ai_agent_run
             else -> android.R.string.untitled
