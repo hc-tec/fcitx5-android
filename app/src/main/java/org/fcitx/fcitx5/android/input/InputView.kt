@@ -38,10 +38,10 @@ import org.fcitx.fcitx5.android.input.picker.emoticonPicker
 import org.fcitx.fcitx5.android.input.picker.symbolPicker
 import org.fcitx.fcitx5.android.input.popup.PopupComponent
 import org.fcitx.fcitx5.android.input.preedit.PreeditComponent
-import org.fcitx.fcitx5.android.input.functionkit.ClipboardOverlayPromptManager
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
+import org.fcitx.fcitx5.android.input.wm.ImeWindowResumeManager
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.unset
 import org.mechdancer.dependency.DynamicScope
@@ -204,17 +204,8 @@ class InputView(
         windowManager.addEssentialWindow(symbolPicker)
         windowManager.addEssentialWindow(emojiPicker)
         windowManager.addEssentialWindow(emoticonPicker)
-        // show KeyboardWindow by default
-        windowManager.attachWindow(KeyboardWindow)
-
-        ClipboardOverlayPromptManager.consumePendingOpenClipboardText()?.let { clipboardText ->
-            windowManager.attachWindow(
-                FunctionKitBindingsWindow(
-                    trigger = FunctionKitBindingTrigger.Clipboard,
-                    clipboardText = clipboardText
-                )
-            )
-        }
+         // show KeyboardWindow by default
+         windowManager.attachWindow(KeyboardWindow)
 
         broadcaster.onImeUpdate(fcitx.runImmediately { inputMethodEntryCached })
 
@@ -326,6 +317,24 @@ class InputView(
     fun startInput(info: EditorInfo, capFlags: CapabilityFlags, restarting: Boolean = false) {
         broadcaster.onStartInput(info, capFlags)
         returnKeyDrawable.updateDrawableOnEditorInfo(info)
+
+        ImeWindowResumeManager.consume(info.packageName)?.let { request ->
+            when (request) {
+                is ImeWindowResumeManager.Request.FunctionKit -> {
+                    windowManager.attachWindow(functionKitWindowPool.require(request.kitId))
+                }
+                is ImeWindowResumeManager.Request.FunctionKitBindings -> {
+                    windowManager.attachWindow(
+                        FunctionKitBindingsWindow(
+                            trigger = FunctionKitBindingTrigger.Clipboard,
+                            clipboardText = request.clipboardText
+                        )
+                    )
+                }
+            }
+            return
+        }
+
         if (focusChangeResetKeyboard || !restarting) {
             windowManager.attachWindow(KeyboardWindow)
         }

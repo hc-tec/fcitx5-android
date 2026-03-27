@@ -28,6 +28,7 @@ import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editorinfo.EditorInfoWindow
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitTaskCenterWindow
@@ -72,14 +73,13 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
         functionKitWindowPool.require(kitId)
 
     private fun staticEntries(): Array<StatusAreaEntry.Android> {
-        val kitEntries =
+        val installed =
             FunctionKitRegistry.listInstalled(context)
-                .ifEmpty {
-                    listOf(
-                        FunctionKitRegistry.resolve(context)
-                    )
-                }
-                .map { kit ->
+                .ifEmpty { listOf(FunctionKitRegistry.resolve(context)) }
+        val enabled =
+            installed.filter { kit -> FunctionKitKitSettings.isKitEnabled(kit.id) }
+        val kitEntries =
+            enabled.map { kit ->
                     StatusAreaEntry.Android(
                         label = FunctionKitRegistry.displayName(context, kit),
                         icon = R.drawable.ic_baseline_extension_24,

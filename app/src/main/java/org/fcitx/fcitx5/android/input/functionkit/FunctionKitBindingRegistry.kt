@@ -37,10 +37,12 @@ internal data class FunctionKitBindingEntry(
 
 internal object FunctionKitBindingRegistry {
     fun listAll(context: Context): List<FunctionKitBindingEntry> {
-        val kits =
+        val installed =
             FunctionKitRegistry.listInstalled(context).ifEmpty {
                 listOf(FunctionKitRegistry.resolve(context))
             }
+        val kits =
+            installed.filter { kit -> FunctionKitKitSettings.isKitEnabled(kit.id) }
 
         return kits
             .flatMap { kit ->
@@ -82,4 +84,3 @@ internal object FunctionKitBindingRegistry {
     ): List<FunctionKitBindingEntry> =
         listAll(context).filter { trigger in it.triggers }
 }
-

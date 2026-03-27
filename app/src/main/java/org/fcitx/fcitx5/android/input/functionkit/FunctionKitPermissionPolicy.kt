@@ -27,8 +27,30 @@ internal object FunctionKitPermissionPolicy {
             else -> false
         }
 
+    fun isEnabled(
+        permission: String,
+        prefs: AppPrefs.FunctionKit,
+        kitId: String?
+    ): Boolean {
+        if (kitId.isNullOrBlank()) {
+            return isEnabled(permission, prefs)
+        }
+        if (!FunctionKitKitSettings.isKitEnabled(kitId)) {
+            return false
+        }
+        val override = FunctionKitKitSettings.getPermissionOverride(kitId, permission)
+        val baseEnabled = override ?: isEnabled(permission, prefs)
+        // Some capabilities still depend on host-level routing/config, so per-kit overrides should
+        // not bypass those constraints.
+        return when (permission) {
+            "ai.agent.list", "ai.agent.run" -> baseEnabled && prefs.remoteInferenceEnabled.getValue()
+            else -> baseEnabled
+        }
+    }
+
     fun grantedPermissions(
         requestedPermissions: Collection<String>,
-        prefs: AppPrefs.FunctionKit
-    ): List<String> = requestedPermissions.filter { isEnabled(it, prefs) }
+        prefs: AppPrefs.FunctionKit,
+        kitId: String? = null
+    ): List<String> = requestedPermissions.filter { isEnabled(it, prefs, kitId) }
 }

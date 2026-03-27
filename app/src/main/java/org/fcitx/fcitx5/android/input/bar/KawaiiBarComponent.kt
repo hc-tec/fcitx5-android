@@ -60,6 +60,7 @@ import org.fcitx.fcitx5.android.input.editing.TextEditingWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
@@ -133,9 +134,13 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private var numberRowState = NumberRowState.Auto
 
     private val toolbarFunctionKitEntries by lazy {
-        FunctionKitRegistry.listInstalled(context)
-            .ifEmpty { listOf(FunctionKitRegistry.resolve(context)) }
-            .map { kit ->
+        val installed =
+            FunctionKitRegistry.listInstalled(context)
+                .ifEmpty { listOf(FunctionKitRegistry.resolve(context)) }
+        val enabled =
+            installed.filter { kit -> FunctionKitKitSettings.isKitEnabled(kit.id) }
+
+        enabled.map { kit ->
                 org.fcitx.fcitx5.android.input.bar.ui.idle.ButtonsBarUi.FunctionKitToolbarButtonEntry(
                     kitId = kit.id,
                     label = FunctionKitRegistry.displayName(context, kit),

@@ -8,6 +8,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import org.fcitx.fcitx5.android.input.wm.ImeWindowResumeManager
 
 /**
  * Lightweight trampoline Activity for the IME process to show the system picker and
@@ -16,6 +17,8 @@ import android.os.Bundle
 class FunctionKitFilePickerActivity : Activity() {
 
     private var requestId: String = ""
+    private var resumeKitId: String? = null
+    private var resumePackageName: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -23,6 +26,12 @@ class FunctionKitFilePickerActivity : Activity() {
             savedInstanceState?.getString(ExtraRequestId)
                 ?: intent?.getStringExtra(ExtraRequestId)
                 ?: ""
+        resumeKitId =
+            savedInstanceState?.getString(ExtraResumeKitId)
+                ?: intent?.getStringExtra(ExtraResumeKitId)
+        resumePackageName =
+            savedInstanceState?.getString(ExtraResumePackageName)
+                ?: intent?.getStringExtra(ExtraResumePackageName)
 
         if (requestId.isBlank()) {
             finish()
@@ -37,6 +46,8 @@ class FunctionKitFilePickerActivity : Activity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString(ExtraRequestId, requestId)
+        outState.putString(ExtraResumeKitId, resumeKitId)
+        outState.putString(ExtraResumePackageName, resumePackageName)
     }
 
     private fun launchPicker() {
@@ -112,11 +123,20 @@ class FunctionKitFilePickerActivity : Activity() {
                 }.distinct()
             }
 
+        val kitId = resumeKitId?.trim().orEmpty()
+        if (kitId.isNotBlank()) {
+            ImeWindowResumeManager.schedule(
+                ImeWindowResumeManager.Request.FunctionKit(
+                    kitId = kitId,
+                    source = "files.pick",
+                    expectedPackageName = resumePackageName?.trim()?.takeIf { it.isNotBlank() }
+                )
+            )
+        }
         if (resultCode == RESULT_OK && data != null && uris.isNotEmpty()) {
             persistUriPermissions(data, uris)
         }
         FunctionKitFilePickerRegistry.deliver(requestId, uris)
-        runCatching { moveTaskToBack(true) }
         finish()
     }
 
@@ -124,6 +144,8 @@ class FunctionKitFilePickerActivity : Activity() {
         const val ExtraRequestId = "function_kit_file_picker_request_id"
         const val ExtraAllowMultiple = "function_kit_file_picker_allow_multiple"
         const val ExtraAcceptMimeTypes = "function_kit_file_picker_accept_mime_types"
+        const val ExtraResumeKitId = "function_kit_file_picker_resume_kit_id"
+        const val ExtraResumePackageName = "function_kit_file_picker_resume_package_name"
 
         private const val RequestCodePickDocument = 41001
     }

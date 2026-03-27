@@ -204,16 +204,18 @@ internal object ClipboardOverlayPromptManager {
 
         pendingClipboardText = clipboardText
 
-        if (!overlayAdded) {
-            try {
+        try {
+            if (!overlayAdded) {
                 wm.addView(view, params)
                 overlayAdded = true
-            } catch (t: Throwable) {
-                Timber.w(t, "Failed to add clipboard overlay view")
-                overlayAdded = false
-                // Degrade: keep silent (no crash).
-                return false
+            } else {
+                wm.updateViewLayout(view, params)
             }
+        } catch (t: Throwable) {
+            Timber.w(t, "Failed to show clipboard overlay view")
+            overlayAdded = false
+            // Degrade: keep silent (no crash).
+            return false
         }
 
         // Reset auto-dismiss timer.
@@ -328,7 +330,10 @@ internal object ClipboardOverlayPromptManager {
     }
 
     private fun ensureOverlayParams(): WindowManager.LayoutParams {
-        overlayParams?.let { return it }
+        overlayParams?.let {
+            it.y = computeOverlayBottomOffsetPx()
+            return it
+        }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
@@ -348,12 +353,37 @@ internal object ClipboardOverlayPromptManager {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            // Avoid navigation bar / gesture inset area.
-            y = dp(72) + resolveNavigationBarHeightPx()
+            y = computeOverlayBottomOffsetPx()
             title = "FcitxClipboardOverlayPrompt"
         }
         overlayParams = params
         return params
+    }
+
+    private fun computeOverlayBottomOffsetPx(): Int {
+        val navigationBarHeightPx = resolveNavigationBarHeightPx()
+        val imeHeightPx = resolveImeWindowHeightPx()
+
+        val desired =
+            if (imeHeightPx > 0) {
+                // When IME is visible, place the prompt just above the IME so it isn't covered.
+                navigationBarHeightPx + imeHeightPx + dp(16)
+            } else {
+                // Otherwise, keep it near the bottom (like a snackbar).
+                navigationBarHeightPx + dp(72)
+            }
+
+        val screenHeightPx = appContext.resources.displayMetrics.heightPixels
+        // Clamp to keep it within screen.
+        val maxOffset = (screenHeightPx - dp(32)).coerceAtLeast(0)
+        return desired.coerceAtMost(maxOffset)
+    }
+
+    private fun resolveImeWindowHeightPx(): Int {
+        val activeWm = InputWindowManager.activeOrNull() ?: return 0
+        val view = activeWm.view
+        if (!view.isAttachedToWindow || !view.isShown) return 0
+        return view.height.coerceAtLeast(0)
     }
 
     private fun resolveNavigationBarHeightPx(): Int {

@@ -674,7 +674,8 @@ class FunctionKitWindow(
             grantedPermissions =
                 FunctionKitPermissionPolicy.grantedPermissions(
                     requestedPermissions = requestedPermissions,
-                    prefs = functionKitPrefs
+                    prefs = functionKitPrefs,
+                    kitId = functionKitId
                 )
         }
     }
@@ -1610,6 +1611,8 @@ class FunctionKitWindow(
             Intent(service, FunctionKitFilePickerActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 putExtra(FunctionKitFilePickerActivity.ExtraRequestId, requestId)
+                putExtra(FunctionKitFilePickerActivity.ExtraResumeKitId, functionKitId)
+                putExtra(FunctionKitFilePickerActivity.ExtraResumePackageName, currentPackageName)
                 putExtra(FunctionKitFilePickerActivity.ExtraAllowMultiple, allowMultiple)
                 if (acceptMimeTypes.isNotEmpty()) {
                     putExtra(
@@ -3899,7 +3902,8 @@ class FunctionKitWindow(
         grantedPermissions =
             FunctionKitPermissionPolicy.grantedPermissions(
                 requestedPermissions = requestedPermissions,
-                prefs = functionKitPrefs
+                prefs = functionKitPrefs,
+                kitId = functionKitId
             )
         if (notifyUi) {
             host.dispatchPermissionsSync(

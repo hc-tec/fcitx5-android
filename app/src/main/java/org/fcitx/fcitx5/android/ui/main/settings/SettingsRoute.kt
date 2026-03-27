@@ -29,13 +29,14 @@ import org.fcitx.fcitx5.android.ui.main.settings.behavior.AdvancedSettingsFragme
 import org.fcitx.fcitx5.android.ui.main.settings.behavior.AiSettingsFragment
 import org.fcitx.fcitx5.android.ui.main.settings.behavior.CandidatesSettingsFragment
 import org.fcitx.fcitx5.android.ui.main.settings.behavior.ClipboardSettingsFragment
-import org.fcitx.fcitx5.android.ui.main.settings.behavior.FunctionKitSettingsFragment
 import org.fcitx.fcitx5.android.ui.main.settings.behavior.KeyboardSettingsFragment
 import org.fcitx.fcitx5.android.ui.main.settings.behavior.SymbolSettingsFragment
 import org.fcitx.fcitx5.android.ui.main.settings.global.GlobalConfigFragment
 import org.fcitx.fcitx5.android.ui.main.settings.im.InputMethodConfigFragment
 import org.fcitx.fcitx5.android.ui.main.settings.im.InputMethodListFragment
 import org.fcitx.fcitx5.android.ui.main.settings.theme.ThemeFragment
+import org.fcitx.fcitx5.android.ui.main.settings.functionkit.FunctionKitManagerFragment
+import org.fcitx.fcitx5.android.ui.main.settings.functionkit.FunctionKitDetailFragment
 import org.fcitx.fcitx5.android.utils.config.ConfigDescriptor
 import org.fcitx.fcitx5.android.utils.parcelable
 import kotlin.reflect.typeOf
@@ -84,6 +85,12 @@ sealed class SettingsRoute : Parcelable {
 
     @Serializable
     data object FunctionKit : SettingsRoute()
+
+    @Serializable
+    data object FunctionKitManager : SettingsRoute()
+
+    @Serializable
+    data class FunctionKitDetail(val kitId: String) : SettingsRoute()
 
     @Serializable
     data object Symbol : SettingsRoute()
@@ -227,7 +234,13 @@ sealed class SettingsRoute : Parcelable {
             fragment<ClipboardSettingsFragment, Clipboard> {
                 label = ctx.getString(R.string.clipboard)
             }
-            fragment<FunctionKitSettingsFragment, FunctionKit> {
+            fragment<FunctionKitManagerFragment, FunctionKit> {
+                label = ctx.getString(R.string.function_kit)
+            }
+            fragment<FunctionKitManagerFragment, FunctionKitManager> {
+                label = ctx.getString(R.string.function_kit)
+            }
+            fragment<FunctionKitDetailFragment, FunctionKitDetail> {
                 label = ctx.getString(R.string.function_kit)
             }
             fragment<SymbolSettingsFragment, Symbol> {

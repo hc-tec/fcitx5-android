@@ -39,13 +39,16 @@ internal object FunctionKitRegistry {
         requestedKitId: String? = null
     ): FunctionKitManifest {
         val installed = listInstalled(context)
+        val available =
+            installed.filter { kit -> FunctionKitKitSettings.isKitEnabled(kit.id) }
+                .ifEmpty { installed }
         val preferredKitId =
             selectPreferredKitId(
-                installed.map(FunctionKitManifest::id),
+                available.map(FunctionKitManifest::id),
                 requestedKitId = requestedKitId
             )
-        return installed.firstOrNull { it.id == preferredKitId }
-            ?: installed.firstOrNull()
+        return available.firstOrNull { it.id == preferredKitId }
+            ?: available.firstOrNull()
             ?: FunctionKitManifest.loadFromAssets(
                 context = context,
                 assetPath = FunctionKitDefaults.manifestAssetPath,
