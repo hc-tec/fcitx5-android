@@ -35,6 +35,7 @@ import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.data.clipboard.db.ClipboardEntry
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
+import org.fcitx.fcitx5.android.input.wm.ImeWindowResumeManager
 import org.fcitx.fcitx5.android.utils.AppUtil
 import org.fcitx.fcitx5.android.utils.notificationManager
 import timber.log.Timber
@@ -50,6 +51,7 @@ internal object ClipboardOverlayPromptManager {
     private const val AUTO_DISMISS_MS = 5_000L
     private const val NOTIFICATION_CHANNEL_ID = "function-kit-clipboard-actions"
     private const val NOTIFICATION_ID = 0xfcb1
+    private const val RESUME_SOURCE = "clipboard.prompt"
     private const val DUPLICATE_TEXT_SUPPRESS_MS = 10_000L
     private const val BINDINGS_CACHE_MS = 3_000L
     // The IME bridge overlay is a focusable TYPE_APPLICATION_OVERLAY hosting a hidden EditText.
@@ -105,9 +107,6 @@ internal object ClipboardOverlayPromptManager {
 
     private val dismissRunnable = Runnable { dismissOverlay() }
     private val dismissNotificationRunnable = Runnable { dismissNotification() }
-
-    @Volatile
-    private var pendingOpenClipboardText: String? = null
 
     fun init(context: Context) {
         if (initialized) return
@@ -348,13 +347,22 @@ internal object ClipboardOverlayPromptManager {
             flags,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            // Avoid status bar / notch area.
-            y = dp(72)
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            // Avoid navigation bar / gesture inset area.
+            y = dp(72) + resolveNavigationBarHeightPx()
             title = "FcitxClipboardOverlayPrompt"
         }
         overlayParams = params
         return params
+    }
+
+    private fun resolveNavigationBarHeightPx(): Int {
+        val resources = appContext.resources
+        val resourceId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        if (resourceId <= 0) {
+            return 0
+        }
+        return runCatching { resources.getDimensionPixelSize(resourceId) }.getOrDefault(0)
     }
 
     internal fun handlePromptClicked(clipboardText: String) {
@@ -375,7 +383,12 @@ internal object ClipboardOverlayPromptManager {
             return
         }
 
-        pendingOpenClipboardText = clipboardText
+        ImeWindowResumeManager.schedule(
+            ImeWindowResumeManager.Request.FunctionKitBindings(
+                clipboardText = clipboardText,
+                source = RESUME_SOURCE
+            )
+        )
 
         // No input focus: if overlay is available, focus a hidden EditText to bring up IME in-place.
         if (canDrawOverlays(appContext) && showImeBridgeOverlay()) {
@@ -389,12 +402,6 @@ internal object ClipboardOverlayPromptManager {
             appContext.getString(R.string.function_kit_clipboard_prompt_focus_input_hint),
             Toast.LENGTH_SHORT
         ).show()
-    }
-
-    internal fun consumePendingOpenClipboardText(): String? {
-        val text = pendingOpenClipboardText
-        pendingOpenClipboardText = null
-        return text
     }
 
     internal fun dismissImeBridgeOverlayIfPresent() {
@@ -489,7 +496,7 @@ internal object ClipboardOverlayPromptManager {
                     }
 
                     // Treat as cancel: hide IME and dismiss focus bridge.
-                    pendingOpenClipboardText = null
+                    ImeWindowResumeManager.clearIfSource(RESUME_SOURCE)
                     val editText = imeBridgeEditText
                     val imm =
                         appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
@@ -505,6 +512,7 @@ internal object ClipboardOverlayPromptManager {
             object : EditText(appContext) {
                 override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
                     if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                        ImeWindowResumeManager.clearIfSource(RESUME_SOURCE)
                         val imm =
                             appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                         imm?.hideSoftInputFromWindow(windowToken, 0)
