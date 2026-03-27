@@ -1762,105 +1762,167 @@ class FunctionKitWindow(
             )
 
         val future =
-            remoteExecutor.submit {
             try {
-                taskTracker.update(
-                    taskId = taskId,
-                    status = "running",
-                    progress = JSONObject().put("stage", "request").put("message", "network.fetch running").put("url", rawUrl)
-                )
-                val responsePayload = executeNetworkFetch(rawUrl, init, executionConfig)
-                ContextCompat.getMainExecutor(service).execute {
-                    val sessionMismatch = requestSessionId != sessionId
-                    val canceled =
-                        taskTracker.cancelRequested(taskId) ||
-                            taskTracker.status(taskId) in setOf("canceling", "canceled")
+                remoteExecutor.submit {
+                    try {
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "running",
+                            progress = JSONObject().put("stage", "request").put("message", "network.fetch running").put("url", rawUrl)
+                        )
+                        val responsePayload = executeNetworkFetch(rawUrl, init, executionConfig)
+                        ContextCompat.getMainExecutor(service).execute {
+                            val sessionMismatch = requestSessionId != sessionId
+                            val canceled =
+                                taskTracker.cancelRequested(taskId) ||
+                                    taskTracker.status(taskId) in setOf("canceling", "canceled")
 
-                    if (canceled) {
-                        taskTracker.update(taskId = taskId, status = "canceled")
-                        if (!sessionMismatch) {
+                            if (canceled) {
+                                taskTracker.update(taskId = taskId, status = "canceled")
+                                if (!sessionMismatch) {
+                                    host.dispatchBridgeError(
+                                        replyTo = replyTo,
+                                        kitId = functionKitId,
+                                        surface = surface,
+                                        code = "task_canceled",
+                                        message = "network.fetch canceled.",
+                                        retryable = false,
+                                        details = JSONObject().put("taskId", taskId).put("url", rawUrl)
+                                    )
+                                }
+                                return@execute
+                            }
+
+                            taskTracker.update(
+                                taskId = taskId,
+                                status = "succeeded",
+                                result =
+                                    JSONObject()
+                                        .put(
+                                            "summary",
+                                            "HTTP ${responsePayload.optJSONObject("response")?.optInt("status")}"
+                                        )
+                            )
+                            if (sessionMismatch) {
+                                return@execute
+                            }
+
+                            host.dispatchNetworkFetchResult(
+                                replyTo = replyTo,
+                                kitId = functionKitId,
+                                surface = surface,
+                                payload = responsePayload.put("taskId", taskId)
+                            )
+                            host.dispatchHostStateUpdate(
+                                kitId = functionKitId,
+                                surface = surface,
+                                label = "network.fetch 已完成",
+                                details =
+                                    buildHostDetails(executionConfig)
+                                        .put("taskId", taskId)
+                                        .put("url", rawUrl)
+                                        .put("status", responsePayload.optJSONObject("response")?.optInt("status"))
+                            )
+                        }
+                    } catch (error: RemoteInferenceException) {
+                        ContextCompat.getMainExecutor(service).execute {
+                            Log.e(
+                                "FunctionKitWindow",
+                                "network.fetch failed code=${error.code} url=$rawUrl message=${error.message} details=${error.details}",
+                                error
+                            )
+                            taskTracker.update(
+                                taskId = taskId,
+                                status = "failed",
+                                error =
+                                    JSONObject()
+                                        .put("code", error.code)
+                                        .put("message", error.message)
+                                        .put("retryable", error.retryable)
+                                        .put("details", JSONObject.wrap(error.details))
+                            )
+                            if (requestSessionId != sessionId) {
+                                return@execute
+                            }
+
                             host.dispatchBridgeError(
                                 replyTo = replyTo,
                                 kitId = functionKitId,
                                 surface = surface,
-                                code = "task_canceled",
-                                message = "network.fetch canceled.",
-                                retryable = false,
-                                details = JSONObject().put("taskId", taskId).put("url", rawUrl)
+                                code = error.code,
+                                message = error.message,
+                                retryable = error.retryable,
+                                details =
+                                    JSONObject()
+                                        .put("taskId", taskId)
+                                        .put("url", rawUrl)
+                                        .put("statusCode", error.statusCode)
+                                        .put("details", JSONObject.wrap(error.details))
                             )
                         }
-                        return@execute
+                    } catch (error: Throwable) {
+                        ContextCompat.getMainExecutor(service).execute {
+                            Log.e(
+                                "FunctionKitWindow",
+                                "network.fetch crashed url=$rawUrl: ${error.message ?: "unknown error"}",
+                                error
+                            )
+                            taskTracker.update(
+                                taskId = taskId,
+                                status = "failed",
+                                error =
+                                    JSONObject()
+                                        .put("code", "network_fetch_unexpected_error")
+                                        .put("message", error.message ?: "Unexpected error")
+                                        .put("retryable", false)
+                                        .put("details", JSONObject().put("kind", error.javaClass.name))
+                            )
+                            if (requestSessionId != sessionId) {
+                                return@execute
+                            }
+                            host.dispatchBridgeError(
+                                replyTo = replyTo,
+                                kitId = functionKitId,
+                                surface = surface,
+                                code = "network_fetch_unexpected_error",
+                                message = "network.fetch failed: ${error.message ?: "Unexpected error"}",
+                                retryable = false,
+                                details =
+                                    JSONObject()
+                                        .put("taskId", taskId)
+                                        .put("url", rawUrl)
+                                        .put("kind", error.javaClass.name)
+                            )
+                        }
                     }
-
-                    taskTracker.update(
-                        taskId = taskId,
-                        status = "succeeded",
-                        result =
-                            JSONObject()
-                                .put(
-                                    "summary",
-                                    "HTTP ${responsePayload.optJSONObject("response")?.optInt("status")}"
-                                )
-                    )
-                    if (sessionMismatch) {
-                        return@execute
-                    }
-
-                    host.dispatchNetworkFetchResult(
-                        replyTo = replyTo,
-                        kitId = functionKitId,
-                        surface = surface,
-                        payload = responsePayload.put("taskId", taskId)
-                    )
-                    host.dispatchHostStateUpdate(
-                        kitId = functionKitId,
-                        surface = surface,
-                        label = "network.fetch 已完成",
-                        details =
-                            buildHostDetails(executionConfig)
-                                .put("taskId", taskId)
-                                .put("url", rawUrl)
-                                .put("status", responsePayload.optJSONObject("response")?.optInt("status"))
-                    )
                 }
-            } catch (error: RemoteInferenceException) {
-                ContextCompat.getMainExecutor(service).execute {
-                    Log.e(
-                        "FunctionKitWindow",
-                        "network.fetch failed code=${error.code} url=$rawUrl message=${error.message} details=${error.details}",
-                        error
-                    )
-                    taskTracker.update(
-                        taskId = taskId,
-                        status = "failed",
-                        error =
-                            JSONObject()
-                                .put("code", error.code)
-                                .put("message", error.message)
-                                .put("retryable", error.retryable)
-                                .put("details", JSONObject.wrap(error.details))
-                    )
-                    if (requestSessionId != sessionId) {
-                        return@execute
-                    }
-
-                    host.dispatchBridgeError(
-                        replyTo = replyTo,
-                        kitId = functionKitId,
-                        surface = surface,
-                        code = error.code,
-                        message = error.message,
-                        retryable = error.retryable,
-                        details =
-                            JSONObject()
-                                .put("taskId", taskId)
-                                .put("url", rawUrl)
-                                .put("statusCode", error.statusCode)
-                                .put("details", JSONObject.wrap(error.details))
-                    )
-                }
+            } catch (error: Throwable) {
+                Log.e("FunctionKitWindow", "network.fetch scheduling failed url=$rawUrl", error)
+                taskTracker.update(
+                    taskId = taskId,
+                    status = "failed",
+                    error =
+                        JSONObject()
+                            .put("code", "network_fetch_schedule_failed")
+                            .put("message", error.message ?: "Failed to schedule network.fetch")
+                            .put("retryable", true)
+                            .put("details", JSONObject().put("kind", error.javaClass.name))
+                )
+                host.dispatchBridgeError(
+                    replyTo = replyTo,
+                    kitId = functionKitId,
+                    surface = surface,
+                    code = "network_fetch_schedule_failed",
+                    message = "network.fetch failed to schedule.",
+                    retryable = true,
+                    details =
+                        JSONObject()
+                            .put("taskId", taskId)
+                            .put("url", rawUrl)
+                            .put("kind", error.javaClass.name)
+                )
+                return
             }
-        }
         taskTracker.attachFuture(taskId, future)
     }
 
@@ -2652,18 +2714,18 @@ class FunctionKitWindow(
             val statusCode = connection.responseCode
             val responseBody = readResponseBody(connection, successful = statusCode in 200..299)
             if (statusCode !in 200..299) {
-                throw buildLocalAiHttpException(statusCode, responseBody)
+                throw buildLocalAiHttpException(statusCode, responseBody.body)
             }
 
             val response =
                 try {
-                    JSONObject(responseBody)
+                    JSONObject(responseBody.body)
                 } catch (error: Exception) {
                     throw RemoteInferenceException(
                         code = "ai_chat_invalid_json",
                         message = "Android AI chat returned invalid JSON: ${error.message}",
                         retryable = false,
-                        details = responseBody
+                        details = responseBody.body
                     )
                 }
             val text = FunctionKitAiChatBackend.extractAssistantText(response)
@@ -3005,7 +3067,9 @@ class FunctionKitWindow(
                         .put("url", connection.url?.toString())
                         .put("redirected", false)
                         .put("headers", buildResponseHeaders(connection))
-                        .put("body", responseBody)
+                        .put("body", responseBody.body)
+                        .put("bodyBytes", responseBody.bytes)
+                        .put("bodyTruncated", responseBody.truncated)
                 )
         } catch (error: SocketTimeoutException) {
             throw RemoteInferenceException(
@@ -3492,19 +3556,19 @@ class FunctionKitWindow(
             val statusCode = connection.responseCode
             val body = readResponseBody(connection, successful = statusCode in 200..299)
             if (statusCode !in 200..299) {
-                throw buildRemoteHttpException(statusCode, body)
+                throw buildRemoteHttpException(statusCode, body.body)
             }
 
             val response =
                 try {
-                    JSONObject(body)
+                    JSONObject(body.body)
                 } catch (error: Exception) {
                     throw RemoteInferenceException(
                         code = "remote_invalid_json",
                         message = "Remote service returned invalid JSON: ${error.message}",
                         retryable = false,
                         statusCode = statusCode,
-                        details = body
+                        details = body.body
                     )
                 }
 
@@ -3642,10 +3706,16 @@ class FunctionKitWindow(
         )
     }
 
+    private data class ReadResponseBodyResult(
+        val body: String,
+        val bytes: Int,
+        val truncated: Boolean
+    )
+
     private fun readResponseBody(
         connection: HttpURLConnection,
         successful: Boolean
-    ): String {
+    ): ReadResponseBodyResult {
         val stream =
             if (successful) {
                 connection.inputStream
@@ -3653,7 +3723,42 @@ class FunctionKitWindow(
                 connection.errorStream ?: connection.inputStream
             }
 
-        return stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (stream == null) {
+            return ReadResponseBodyResult(body = "", bytes = 0, truncated = false)
+        }
+
+        // Keep bridge payloads bounded. Some upload endpoints echo the uploaded body in the response,
+        // which can easily exceed what WebView bridge/evaluateJavascript can reliably handle.
+        val maxBytes = 512 * 1024
+        val probeLimit = maxBytes + 1
+        val buffer = ByteArray(8 * 1024)
+        val output = java.io.ByteArrayOutputStream()
+        var total = 0
+
+        stream.use { input ->
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) {
+                    break
+                }
+                val remaining = probeLimit - total
+                if (remaining <= 0) {
+                    break
+                }
+                val toWrite = minOf(read, remaining)
+                output.write(buffer, 0, toWrite)
+                total += toWrite
+                if (total >= probeLimit) {
+                    break
+                }
+            }
+        }
+
+        val bytes = output.toByteArray()
+        val truncated = bytes.size > maxBytes
+        val bodyBytes = if (truncated) bytes.copyOf(maxBytes) else bytes
+        val text = String(bodyBytes, StandardCharsets.UTF_8)
+        return ReadResponseBodyResult(body = text, bytes = bodyBytes.size, truncated = truncated)
     }
 
     private fun countRenderedCandidates(renderPayload: JSONObject): Int =
