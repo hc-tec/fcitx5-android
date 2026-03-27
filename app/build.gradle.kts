@@ -228,10 +228,11 @@ val syncFunctionKitAssets by tasks.registering(Sync::class) {
         into("function-kit-runtime-sdk/dist")
     }
     // Shared UI assets (no manifest.json, so it is not included in [functionKitDirectories]).
-    val sharedDir = functionKitCatalogDir.resolve("_shared")
+    // Note: avoid leading underscore in directory name because Android packaging may ignore it for assets.
+    val sharedDir = functionKitCatalogDir.resolve("shared")
     if (sharedDir.isDirectory) {
         from(sharedDir) {
-            into("function-kits/_shared")
+            into("function-kits/shared")
             exclude("README.md")
             exclude("skills/**")
             exclude("tools/**")
