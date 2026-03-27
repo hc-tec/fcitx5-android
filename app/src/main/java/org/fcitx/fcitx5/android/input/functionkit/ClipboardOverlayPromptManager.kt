@@ -35,6 +35,7 @@ import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.data.clipboard.db.ClipboardEntry
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
+import org.fcitx.fcitx5.android.input.wm.ImeBridgeState
 import org.fcitx.fcitx5.android.input.wm.ImeWindowResumeManager
 import org.fcitx.fcitx5.android.utils.AppUtil
 import org.fcitx.fcitx5.android.utils.notificationManager
@@ -456,6 +457,7 @@ internal object ClipboardOverlayPromptManager {
         }
 
         val editText = imeBridgeEditText ?: return false
+        ImeBridgeState.markActive(RESUME_SOURCE)
         requestImeFor(editText)
         // Only clean up automatically when IME didn't show. If IME is shown, keep the bridge
         // so the user has time to pick actions in the IME UI.
@@ -486,6 +488,7 @@ internal object ClipboardOverlayPromptManager {
         val wm = overlayWindowManager
         val view = imeBridgeOverlayView
         if (!imeBridgeOverlayAdded || wm == null || view == null) return
+        ImeBridgeState.clearIfSource(RESUME_SOURCE)
         mainHandler.removeCallbacks(dismissImeBridgeIfNoImeRunnable)
         try {
             wm.removeView(view)

@@ -4,18 +4,22 @@
  */
 package org.fcitx.fcitx5.android.input.functionkit
 
+import android.content.ClipData
 import android.view.View
+import android.widget.Toast
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.input.broadcast.InputBroadcastReceiver
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.keyboard.KeyboardWindow
+import org.fcitx.fcitx5.android.input.wm.ImeBridgeState
 import org.fcitx.fcitx5.android.input.status.StatusAreaAdapter
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry
 import org.fcitx.fcitx5.android.input.wm.InputWindow
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.input.FcitxInputMethodService
+import org.fcitx.fcitx5.android.utils.clipboardManager
 import org.mechdancer.dependency.manager.must
 import splitties.views.backgroundColor
 import splitties.views.dsl.recyclerview.recyclerView
@@ -54,7 +58,18 @@ internal class FunctionKitBindingsWindow(
                                 val text = this@FunctionKitBindingsWindow.clipboardText
                                     ?: ClipboardManager.lastEntry?.text
                                 if (!text.isNullOrBlank()) {
-                                    service.commitText(text)
+                                    if (ImeBridgeState.isActive()) {
+                                        context.clipboardManager.setPrimaryClip(
+                                            ClipData.newPlainText("clipboard", text)
+                                        )
+                                        Toast.makeText(
+                                            context,
+                                            R.string.ime_bridge_copied_to_clipboard,
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        service.commitText(text)
+                                    }
                                 }
                                 windowManager.attachWindow(KeyboardWindow)
                             }

@@ -341,6 +341,7 @@
     <string name="function_kit_manager_permission_source_global_deny">Global: deny</string>
     <string name="function_kit_manager_permission_source_kit_allow">Override: allow</string>
     <string name="function_kit_manager_permission_source_kit_deny">Override: deny</string>
+    <string name="ime_bridge_copied_to_clipboard">Copied to clipboard</string>
     <string name="function_kit_status_category">Current status</string>
     <string name="function_kit_status_runtime">Current runtime</string>
     <string name="function_kit_status_runtime_local_summary">Android-only mode. Chat Auto Reply stays local until you enable a remote host.</string>
