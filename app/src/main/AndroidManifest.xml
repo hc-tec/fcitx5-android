@@ -70,6 +70,12 @@
             android:name=".ui.main.CropImageActivity"
             android:exported="false" />
         <activity
+            android:name=".input.functionkit.FunctionKitFilePickerActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity="org.fcitx.fcitx5.android.functionkit.picker"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
             android:name=".ui.main.MainActivity"
             android:exported="true"
             android:launchMode="singleTask">

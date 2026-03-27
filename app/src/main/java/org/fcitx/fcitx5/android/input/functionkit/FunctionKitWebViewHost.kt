@@ -52,6 +52,7 @@ private val AllowedInboundTypes =
         "input.observe.best_effort.stop",
         "candidates.regenerate",
         "network.fetch",
+        "files.pick",
         "ai.request",
         "ai.agent.list",
         "ai.agent.run",
@@ -85,6 +86,7 @@ private val AllowedOutboundTypes =
         "permission.denied",
         "bridge.error",
         "network.fetch.result",
+        "files.pick.result",
         "ai.response",
         "ai.agent.list.result",
         "ai.agent.run.result",
@@ -646,6 +648,21 @@ class FunctionKitWebViewHost(
     ) {
         dispatchTypedPayload(
             type = "network.fetch.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchFilesPickResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "files.pick.result",
             replyTo = replyTo,
             kitId = kitId,
             surface = surface,

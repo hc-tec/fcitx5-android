@@ -183,6 +183,8 @@ class InputWindowManager : UniqueViewComponent<InputWindowManager, FrameLayout>(
 
     fun isAttached(window: InputWindow) = currentWindow === window
 
+    fun currentWindowOrNull(): InputWindow? = currentWindow
+
     companion object {
         @Volatile
         private var activeRef: WeakReference<InputWindowManager>? = null

@@ -6,6 +6,7 @@ package org.fcitx.fcitx5.android.input.functionkit
 
 import android.content.Context
 import android.content.ClipDescription
+import android.content.Intent
 import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.net.Uri
@@ -37,6 +38,7 @@ import org.fcitx.fcitx5.android.input.broadcast.InputBroadcastReceiver
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.keyboard.KeyboardWindow
+import org.fcitx.fcitx5.android.input.wm.ImeWindowHiddenListener
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.AppUtil
 import org.fcitx.fcitx5.android.utils.Const
@@ -78,7 +80,8 @@ class FunctionKitWindow(
 ) : org.fcitx.fcitx5.android.input.wm.InputWindow.ExtendedInputWindow<FunctionKitWindow>(),
     InputBroadcastReceiver,
     FcitxInputMethodService.LocalInputTarget,
-    FunctionKitImeActionSendInterceptor {
+    FunctionKitImeActionSendInterceptor,
+    ImeWindowHiddenListener {
 
     private data class CandidateDraft(
         val id: String,
@@ -228,6 +231,28 @@ class FunctionKitWindow(
         return preferred.coerceIn(minHeight, maxHeight)
     }
 
+    private fun resolvePanelExpandedHeightPx(baseHeightPx: Int): Int {
+        val preferred = context.dp(460)
+        val minHeight = context.dp(260)
+        if (baseHeightPx <= 0) {
+            return preferred
+        }
+        val maxHeight = (baseHeightPx * 0.92f).toInt().coerceAtLeast(minHeight)
+        val scaled = (baseHeightPx * 0.75f).toInt()
+        return maxOf(preferred, scaled).coerceIn(minHeight, maxHeight)
+    }
+
+    private fun resolveExpandedWindowHeightPx(baseHeightPx: Int): Int {
+        val minHeight = baseHeightPx.coerceAtLeast(context.dp(360))
+        val screenHeight = context.resources.displayMetrics.heightPixels
+        if (screenHeight <= 0) {
+            return minHeight
+        }
+        val maxHeight = (screenHeight * 0.92f).toInt().coerceAtLeast(minHeight)
+        val preferred = (baseHeightPx * 1.35f).toInt().coerceAtLeast(minHeight)
+        return preferred.coerceIn(minHeight, maxHeight)
+    }
+
     private fun resolveKeyboardHeightFromPrefsPx(): Int {
         val keyboardPrefs = AppPrefs.getInstance().keyboard
         val percentPref =
@@ -250,6 +275,104 @@ class FunctionKitWindow(
             button.setIcon(R.drawable.ic_baseline_keyboard_24)
             button.contentDescription = context.getString(R.string.back_to_keyboard)
         }
+    }
+
+    private fun applyPanelExpandButtonState(button: ToolButton, expanded: Boolean) {
+        if (expanded) {
+            button.setIcon(R.drawable.ic_baseline_expand_less_24)
+            button.contentDescription = context.getString(R.string.function_kit_panel_collapse)
+        } else {
+            button.setIcon(R.drawable.ic_baseline_expand_more_24)
+            button.contentDescription = context.getString(R.string.function_kit_panel_expand)
+        }
+    }
+
+    private fun applyPanelPeekHeightPx(heightPx: Int) {
+        if (heightPx <= 0) {
+            return
+        }
+        if (panelPeekHeightPx != heightPx) {
+            panelPeekHeightPx = heightPx
+        }
+        (panelContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+            if (params.height != heightPx) {
+                params.height = heightPx
+                panelContainer.layoutParams = params
+            }
+        }
+    }
+
+    private fun setWindowManagerHeightPx(heightPx: Int) {
+        if (heightPx <= 0) {
+            return
+        }
+        windowManager.view.layoutParams?.let { params ->
+            if (params.height != heightPx) {
+                params.height = heightPx
+                windowManager.view.layoutParams = params
+            }
+        }
+    }
+
+    private var panelExpanded = false
+    private var panelPeekHeightBeforeExpandPx: Int? = null
+    private var windowManagerHeightBeforeExpandPx: Int? = null
+
+    private fun togglePanelExpanded() {
+        if (panelExpanded) {
+            collapsePanelExpanded(reason = "toggle")
+        } else {
+            expandPanel(reason = "toggle")
+        }
+    }
+
+    private fun expandPanel(reason: String) {
+        val currentWindowHeightPx = windowManager.view.layoutParams?.height ?: 0
+        val baseHeightPx =
+            currentWindowHeightPx.takeIf { it > 0 }
+                ?: windowManagerHeightBeforeAttach
+                ?: resolveKeyboardHeightFromPrefsPx()
+        if (windowManagerHeightBeforeExpandPx == null && baseHeightPx > 0) {
+            windowManagerHeightBeforeExpandPx = baseHeightPx
+        }
+        if (panelPeekHeightBeforeExpandPx == null && panelPeekHeightPx > 0) {
+            panelPeekHeightBeforeExpandPx = panelPeekHeightPx
+        }
+
+        val expandedWindowHeightPx = resolveExpandedWindowHeightPx(baseHeightPx)
+        val expandedPanelHeightPx = resolvePanelExpandedHeightPx(expandedWindowHeightPx)
+        setWindowManagerHeightPx(expandedWindowHeightPx)
+        applyPanelPeekHeightPx(expandedPanelHeightPx)
+
+        panelExpanded = true
+        applyPanelExpandButtonState(panelExpandButton, expanded = true)
+        pushHostState("面板已放大 ($reason)")
+    }
+
+    private fun collapsePanelExpanded(reason: String) {
+        val restoredWindowHeightPx =
+            windowManagerHeightBeforeExpandPx
+                ?: windowManagerHeightBeforeAttach
+                ?: resolveKeyboardHeightFromPrefsPx()
+        setWindowManagerHeightPx(restoredWindowHeightPx)
+
+        val restoredPanelHeightPx =
+            panelPeekHeightBeforeExpandPx
+                ?: resolvePanelPeekHeightPx(restoredWindowHeightPx)
+        applyPanelPeekHeightPx(restoredPanelHeightPx)
+
+        panelExpanded = false
+        windowManagerHeightBeforeExpandPx = null
+        panelPeekHeightBeforeExpandPx = null
+        applyPanelExpandButtonState(panelExpandButton, expanded = false)
+        pushHostState("面板已收起 ($reason)")
+    }
+
+    private fun collapsePanelExpandedIfNeeded(reason: String) {
+        if (!panelExpanded) {
+            return
+        }
+        collapsePanelExpanded(reason)
     }
 
     private fun syncEmbeddedKeyboardLayout() {
@@ -326,6 +449,12 @@ class FunctionKitWindow(
             setOnClickListener { AppUtil.launchMainToFunctionKitSettings(context) }
         }
     }
+    private val panelExpandButton by lazy {
+        ToolButton(context, R.drawable.ic_baseline_expand_more_24, theme).apply {
+            applyPanelExpandButtonState(this, panelExpanded)
+            setOnClickListener { togglePanelExpanded() }
+        }
+    }
     private val pinnedKeyboardButton by lazy {
         ToolButton(context, R.drawable.ic_baseline_keyboard_24, theme).apply {
             applyEmbeddedKeyboardPinnedButtonState(this, embeddedKeyboardPinned)
@@ -341,12 +470,23 @@ class FunctionKitWindow(
         context.horizontalLayout {
             add(pinnedKeyboardButton, lParams(dp(40), dp(40)))
             add(settingsButton, lParams(dp(40), dp(40)))
+            add(panelExpandButton, lParams(dp(40), dp(40)))
             add(refreshButton, lParams(dp(40), dp(40)))
         }
     }
     private val storage by lazy {
         context.getSharedPreferences("function_kit_storage", Context.MODE_PRIVATE)
     }
+    private val fileStoreLazy =
+        lazy(LazyThreadSafetyMode.NONE) {
+            FunctionKitFileStore(
+                context = context,
+                kitId = functionKitId
+            )
+        }
+    private val fileStore: FunctionKitFileStore
+        get() = fileStoreLazy.value
+    private var pendingFilePickRequestId: String? = null
     private val remoteExecutor by lazy {
         Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "FunctionKitRemoteInference").apply {
@@ -464,6 +604,7 @@ class FunctionKitWindow(
 
     override fun onDetached() {
         windowAttached = false
+        collapsePanelExpandedIfNeeded(reason = "host-detach")
         if (service.localInputTarget === this) {
             service.localInputTarget = null
         }
@@ -516,6 +657,10 @@ class FunctionKitWindow(
 
         webView.onPause()
         FunctionKitTestRegistry.onWindowDetached(functionKitId)
+    }
+
+    override fun onImeWindowHidden() {
+        collapsePanelExpandedIfNeeded(reason = "ime-hidden")
     }
 
     private fun ensureManifestStateInitialized() {
@@ -611,6 +756,7 @@ class FunctionKitWindow(
             "storage.get" -> handleStorageGet(replyTo, payload)
             "storage.set" -> handleStorageSet(replyTo, payload)
             "panel.state.update" -> handlePanelStateUpdate(replyTo, payload)
+            "files.pick" -> handleFilesPick(replyTo, surface, payload)
             "network.fetch" -> handleNetworkFetch(replyTo, surface, payload)
             "ai.request" -> handleAiRequest(replyTo, surface, payload)
             "ai.agent.list" -> handleAiAgentList(replyTo, surface)
@@ -1408,6 +1554,87 @@ class FunctionKitWindow(
         )
     }
 
+    private fun handleFilesPick(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "storage.read") ?: return
+
+        if (pendingFilePickRequestId != null) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "files_pick_in_progress",
+                message = "files.pick already has an in-flight request.",
+                retryable = true
+            )
+            return
+        }
+
+        val requestId = "files-pick-${UUID.randomUUID()}"
+        pendingFilePickRequestId = requestId
+
+        val allowMultiple = payload.optBoolean("multiple", false)
+        val acceptMimeTypes = payload.optJSONArray("acceptMimeTypes").toStringList()
+
+        FunctionKitFilePickerRegistry.register(requestId) { result ->
+            pendingFilePickRequestId = null
+
+            val files = JSONArray()
+            result.uris.forEach { uri ->
+                val entry = fileStore.put(uri)
+                files.put(
+                    JSONObject()
+                        .put("fileId", entry.fileId)
+                        .put("name", entry.name)
+                        .put("mimeType", entry.mimeType)
+                        .put("sizeBytes", entry.sizeBytes)
+                )
+            }
+
+            host.dispatchFilesPickResult(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                payload =
+                    JSONObject()
+                        .put("ok", true)
+                        .put("canceled", result.uris.isEmpty())
+                        .put("files", files)
+            )
+        }
+
+        val pickerIntent =
+            Intent(service, FunctionKitFilePickerActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                putExtra(FunctionKitFilePickerActivity.ExtraRequestId, requestId)
+                putExtra(FunctionKitFilePickerActivity.ExtraAllowMultiple, allowMultiple)
+                if (acceptMimeTypes.isNotEmpty()) {
+                    putExtra(
+                        FunctionKitFilePickerActivity.ExtraAcceptMimeTypes,
+                        acceptMimeTypes.toTypedArray()
+                    )
+                }
+            }
+
+        runCatching {
+            service.startActivity(pickerIntent)
+        }.onFailure { error ->
+            pendingFilePickRequestId = null
+            FunctionKitFilePickerRegistry.cancel(requestId)
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "files_pick_failed_to_launch",
+                message = "files.pick failed to launch Android picker: ${error.message ?: "unknown error"}",
+                retryable = true
+            )
+        }
+    }
+
     private fun handleSettingsOpen(
         replyTo: String,
         payload: JSONObject
@@ -1575,6 +1802,11 @@ class FunctionKitWindow(
                 }
             } catch (error: RemoteInferenceException) {
                 ContextCompat.getMainExecutor(service).execute {
+                    Log.e(
+                        "FunctionKitWindow",
+                        "network.fetch failed code=${error.code} url=$rawUrl message=${error.message} details=${error.details}",
+                        error
+                    )
                     taskTracker.update(
                         taskId = taskId,
                         status = "failed",
@@ -2629,6 +2861,15 @@ class FunctionKitWindow(
         val requestMethod = init.optString("method").ifBlank { "GET" }.uppercase()
         val timeoutMs = init.optInt("timeoutMs").takeIf { it > 0 } ?: executionConfig.timeoutMs
         val body = init.opt("body")?.takeIf { it != JSONObject.NULL }?.toString()
+        val bodyRef = init.optJSONObject("bodyRef")
+        if (!body.isNullOrEmpty() && bodyRef != null) {
+            throw RemoteInferenceException(
+                code = "network_fetch_invalid_body",
+                message = "network.fetch accepts either init.body or init.bodyRef, not both.",
+                retryable = false,
+                details = rawUrl
+            )
+        }
 
         try {
             connection.requestMethod = requestMethod
@@ -2640,10 +2881,88 @@ class FunctionKitWindow(
             parseHeaderPairs(init.opt("headers")).forEach { (name, value) ->
                 connection.setRequestProperty(name, value)
             }
+            val requestPayload =
+                JSONObject()
+                    .put("url", rawUrl)
+                    .put("method", requestMethod)
             if (!body.isNullOrEmpty()) {
                 connection.doOutput = true
                 connection.outputStream.use { output ->
                     output.write(body.toByteArray(StandardCharsets.UTF_8))
+                }
+            } else if (bodyRef != null) {
+                val refType = bodyRef.optString("type").trim().lowercase()
+                if (refType != "file") {
+                    throw RemoteInferenceException(
+                        code = "network_fetch_invalid_body_ref",
+                        message = "network.fetch only supports init.bodyRef.type=file.",
+                        retryable = false,
+                        details = JSONObject().put("type", refType)
+                    )
+                }
+
+                val fileId = bodyRef.optString("fileId").trim()
+                if (fileId.isBlank()) {
+                    throw RemoteInferenceException(
+                        code = "network_fetch_invalid_body_ref",
+                        message = "network.fetch init.bodyRef.fileId must be a non-empty string.",
+                        retryable = false
+                    )
+                }
+
+                val entry =
+                    fileStore.get(fileId)
+                        ?: throw RemoteInferenceException(
+                            code = "network_fetch_file_not_found",
+                            message = "network.fetch init.bodyRef.fileId not found.",
+                            retryable = false,
+                            details = JSONObject().put("fileId", fileId)
+                        )
+                requestPayload.put(
+                    "bodyRef",
+                    JSONObject()
+                        .put("type", "file")
+                        .put("fileId", entry.fileId)
+                        .put("name", entry.name)
+                        .put("mimeType", entry.mimeType)
+                        .put("sizeBytes", entry.sizeBytes)
+                )
+
+                if (connection.getRequestProperty("Content-Type").isNullOrBlank()) {
+                    connection.setRequestProperty("Content-Type", entry.mimeType)
+                }
+
+                val maxUploadBytes = 25 * 1024 * 1024L
+                entry.sizeBytes?.let { sizeBytes ->
+                    if (sizeBytes > maxUploadBytes) {
+                        throw RemoteInferenceException(
+                            code = "network_fetch_body_too_large",
+                            message = "network.fetch bodyRef is too large (${sizeBytes} bytes).",
+                            retryable = false,
+                            details =
+                                JSONObject()
+                                    .put("fileId", fileId)
+                                    .put("sizeBytes", sizeBytes)
+                                    .put("maxBytes", maxUploadBytes)
+                        )
+                    }
+                    connection.setFixedLengthStreamingMode(sizeBytes)
+                } ?: connection.setChunkedStreamingMode(0)
+
+                val input =
+                    fileStore.openInputStream(fileId)
+                        ?: throw RemoteInferenceException(
+                            code = "network_fetch_file_io_error",
+                            message = "network.fetch failed to open bodyRef stream.",
+                            retryable = true,
+                            details = JSONObject().put("fileId", fileId)
+                        )
+
+                connection.doOutput = true
+                input.use { inputStream ->
+                    connection.outputStream.use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
                 }
             }
 
@@ -2652,9 +2971,7 @@ class FunctionKitWindow(
             return JSONObject()
                 .put(
                     "request",
-                    JSONObject()
-                        .put("url", rawUrl)
-                        .put("method", requestMethod)
+                    requestPayload
                 )
                 .put(
                     "response",

@@ -288,6 +288,9 @@
     <string name="haptic_on_repeat">重複按鍵時的觸覺回饋</string>
     <string name="redo">重做</string>
     <string name="status_area">狀態區</string>
+    <string name="reload_function_kit">重新載入功能件</string>
+    <string name="function_kit_panel_expand">展開面板</string>
+    <string name="function_kit_panel_collapse">收起面板</string>
     <string name="expand_candidates_list">展開選字列表</string>
     <string name="hide_candidates_list">隱藏選字列表</string>
     <string name="switch_to_voice_input">切換到語音輸入</string>

@@ -1127,6 +1127,11 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         Timber.d("onFinishInputView: finishingInput=$finishingInput")
+        org.fcitx.fcitx5.android.input.wm.InputWindowManager.activeOrNull()
+            ?.currentWindowOrNull()
+            ?.let { window ->
+                (window as? org.fcitx.fcitx5.android.input.wm.ImeWindowHiddenListener)?.onImeWindowHidden()
+            }
         decorLocationUpdated = false
         inputDeviceMgr.onFinishInputView()
         currentInputConnection?.apply {
