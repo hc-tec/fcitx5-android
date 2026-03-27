@@ -5,7 +5,6 @@
 package org.fcitx.fcitx5.android.input.functionkit
 
 import android.content.Context
-import android.content.ClipData
 import android.content.ClipDescription
 import android.content.Intent
 import android.content.SharedPreferences
@@ -45,7 +44,6 @@ import org.fcitx.fcitx5.android.input.wm.ImeWindowHiddenListener
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.AppUtil
 import org.fcitx.fcitx5.android.utils.Const
-import org.fcitx.fcitx5.android.utils.clipboardManager
 import org.fcitx.fcitx5.android.utils.withBatchEdit
 import org.mechdancer.dependency.manager.must
 import org.json.JSONArray
@@ -966,12 +964,18 @@ class FunctionKitWindow(
 
         ContextCompat.getMainExecutor(service).execute {
             if (ImeBridgeState.isActive()) {
-                context.clipboardManager.setPrimaryClip(ClipData.newPlainText("function-kit", text))
-                Toast.makeText(context, R.string.ime_bridge_copied_to_clipboard, Toast.LENGTH_SHORT).show()
+                val mode =
+                    if (replace) {
+                        FcitxInputMethodService.PendingImeBridgeCommitMode.ReplaceAllIfNoSelection
+                    } else {
+                        FcitxInputMethodService.PendingImeBridgeCommitMode.Insert
+                    }
+                service.queueImeBridgeCommit(text, mode)
+                Toast.makeText(context, R.string.ime_bridge_pending_insert, Toast.LENGTH_SHORT).show()
                 host.dispatchHostStateUpdate(
                     kitId = functionKitId,
                     surface = Surface,
-                    label = "候选已复制到剪贴板",
+                    label = "候选已准备写回输入框（请点击目标输入框）",
                     details = buildHostDetails().put("candidateId", payload.optString("candidateId"))
                 )
                 return@execute

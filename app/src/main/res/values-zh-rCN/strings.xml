@@ -342,6 +342,7 @@
     <string name="function_kit_manager_permission_source_kit_allow">覆盖：允许</string>
     <string name="function_kit_manager_permission_source_kit_deny">覆盖：拒绝</string>
     <string name="ime_bridge_copied_to_clipboard">已复制到剪贴板</string>
+    <string name="ime_bridge_pending_insert">已准备插入，请点击目标输入框</string>
     <string name="function_kit_status_category">当前状态</string>
     <string name="function_kit_status_runtime">当前运行方式</string>
     <string name="function_kit_status_runtime_local_summary">当前为仅 Android 模式。聊天自动回复会留在本机，直到你启用远程宿主。</string>

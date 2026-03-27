@@ -4,7 +4,6 @@
  */
 package org.fcitx.fcitx5.android.input.functionkit
 
-import android.content.ClipData
 import android.view.View
 import android.widget.Toast
 import org.fcitx.fcitx5.android.R
@@ -19,7 +18,6 @@ import org.fcitx.fcitx5.android.input.status.StatusAreaEntry
 import org.fcitx.fcitx5.android.input.wm.InputWindow
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.input.FcitxInputMethodService
-import org.fcitx.fcitx5.android.utils.clipboardManager
 import org.mechdancer.dependency.manager.must
 import splitties.views.backgroundColor
 import splitties.views.dsl.recyclerview.recyclerView
@@ -59,14 +57,8 @@ internal class FunctionKitBindingsWindow(
                                     ?: ClipboardManager.lastEntry?.text
                                 if (!text.isNullOrBlank()) {
                                     if (ImeBridgeState.isActive()) {
-                                        context.clipboardManager.setPrimaryClip(
-                                            ClipData.newPlainText("clipboard", text)
-                                        )
-                                        Toast.makeText(
-                                            context,
-                                            R.string.ime_bridge_copied_to_clipboard,
-                                            Toast.LENGTH_SHORT
-                                        ).show()
+                                        service.queueImeBridgeCommit(text, FcitxInputMethodService.PendingImeBridgeCommitMode.Insert)
+                                        Toast.makeText(context, R.string.ime_bridge_pending_insert, Toast.LENGTH_SHORT).show()
                                     } else {
                                         service.commitText(text)
                                     }

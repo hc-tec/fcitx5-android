@@ -5,7 +5,6 @@
 package org.fcitx.fcitx5.android.input.clipboard
 
 import android.annotation.SuppressLint
-import android.content.ClipData
 import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
@@ -50,7 +49,6 @@ import org.fcitx.fcitx5.android.input.wm.InputWindow
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.AppUtil
 import org.fcitx.fcitx5.android.utils.EventStateMachine
-import org.fcitx.fcitx5.android.utils.clipboardManager
 import org.fcitx.fcitx5.android.utils.item
 import org.mechdancer.dependency.manager.must
 import splitties.dimensions.dp
@@ -128,8 +126,8 @@ class ClipboardWindow : InputWindow.ExtendedInputWindow<ClipboardWindow>() {
 
             override fun onPaste(entry: ClipboardEntry) {
                 if (ImeBridgeState.isActive()) {
-                    context.clipboardManager.setPrimaryClip(ClipData.newPlainText("clipboard", entry.text))
-                    Toast.makeText(context, R.string.ime_bridge_copied_to_clipboard, Toast.LENGTH_SHORT).show()
+                    service.queueImeBridgeCommit(entry.text, FcitxInputMethodService.PendingImeBridgeCommitMode.Insert)
+                    Toast.makeText(context, R.string.ime_bridge_pending_insert, Toast.LENGTH_SHORT).show()
                     if (clipboardReturnAfterPaste) windowManager.attachWindow(KeyboardWindow)
                     return
                 }

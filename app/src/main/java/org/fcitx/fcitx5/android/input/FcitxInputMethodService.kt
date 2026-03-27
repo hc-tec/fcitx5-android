@@ -65,8 +65,10 @@ import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.data.theme.ThemeManager
 import org.fcitx.fcitx5.android.input.cursor.CursorRange
 import org.fcitx.fcitx5.android.input.cursor.CursorTracker
+import org.fcitx.fcitx5.android.input.functionkit.ClipboardOverlayPromptManager
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitImeActionSendInterceptor
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitImeSendIntent
+import org.fcitx.fcitx5.android.input.wm.ImeBridgeState
 import org.fcitx.fcitx5.android.utils.InputMethodUtil
 import org.fcitx.fcitx5.android.utils.alpha
 import org.fcitx.fcitx5.android.utils.forceShowSelf
@@ -151,6 +153,69 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
 
     private val composing = CursorRange()
     private var composingText = FormattedText.Empty
+
+    internal enum class PendingImeBridgeCommitMode {
+        Insert,
+        ReplaceAllIfNoSelection
+    }
+
+    private data class PendingImeBridgeCommit(
+        val text: String,
+        val mode: PendingImeBridgeCommitMode,
+        val queuedAtUptimeMs: Long
+    )
+
+    @Volatile
+    private var pendingImeBridgeCommit: PendingImeBridgeCommit? = null
+
+    internal fun queueImeBridgeCommit(text: String, mode: PendingImeBridgeCommitMode) {
+        pendingImeBridgeCommit =
+            PendingImeBridgeCommit(
+                text = text,
+                mode = mode,
+                queuedAtUptimeMs = SystemClock.uptimeMillis()
+            )
+    }
+
+    private fun flushPendingImeBridgeCommitIfPossible(attribute: EditorInfo) {
+        val pending = pendingImeBridgeCommit ?: return
+
+        val ageMs = SystemClock.uptimeMillis() - pending.queuedAtUptimeMs
+        if (ageMs > 20_000) {
+            pendingImeBridgeCommit = null
+            return
+        }
+
+        // Still serving our own invisible focus bridge view: nothing to flush.
+        if (attribute.packageName == packageName) return
+        if (attribute.isTypeNull()) return
+        if (currentInputConnection == null) return
+
+        pendingImeBridgeCommit = null
+        when (pending.mode) {
+            PendingImeBridgeCommitMode.Insert -> commitText(pending.text, bypassLocalInputTarget = true)
+            PendingImeBridgeCommitMode.ReplaceAllIfNoSelection -> commitTextReplaceAllIfNoSelection(pending.text)
+        }
+    }
+
+    private fun commitTextReplaceAllIfNoSelection(text: String) {
+        val ic = currentInputConnection ?: return
+        ic.withBatchEdit {
+            ic.finishComposingText()
+            val hasSelection = !ic.getSelectedText(0).isNullOrEmpty()
+            if (!hasSelection) {
+                val selectedAll = ic.performContextMenuAction(android.R.id.selectAll)
+                if (!selectedAll) {
+                    val beforeCursor = ic.getTextBeforeCursor(10_000, 0)?.toString().orEmpty()
+                    val afterCursor = ic.getTextAfterCursor(10_000, 0)?.toString().orEmpty()
+                    if (beforeCursor.isNotEmpty() || afterCursor.isNotEmpty()) {
+                        ic.deleteSurroundingText(beforeCursor.length, afterCursor.length)
+                    }
+                }
+            }
+            ic.commitText(text, 1)
+        }
+    }
 
     private fun resetComposingState() {
         composing.clear()
@@ -825,6 +890,13 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
         inputDeviceMgr.notifyOnStartInput(attribute)
         Timber.d("onStartInput: initialSel=${selection.current}, restarting=$restarting")
         val isNullType = attribute.isTypeNull()
+        // If we were previously summoned via an invisible focus bridge overlay, dismiss it once we
+        // have a real client editor again. Otherwise, commits may appear to "do nothing" because
+        // they were targeting the bridge InputConnection.
+        if (ImeBridgeState.isActive() && attribute.packageName != packageName) {
+            ClipboardOverlayPromptManager.dismissImeBridgeOverlayIfPresent()
+        }
+        flushPendingImeBridgeCommitIfPossible(attribute)
         // wait until InputContext created/activated
         postFcitxJob {
             if (restarting) {
