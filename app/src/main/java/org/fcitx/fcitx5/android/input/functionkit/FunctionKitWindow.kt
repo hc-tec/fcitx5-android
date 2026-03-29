@@ -507,6 +507,7 @@ class FunctionKitWindow(
     private var panelInitialized = false
     private var windowAttached = false
     private var bridgeReady = false
+    private var pendingOpenOptionsIntent = false
     private val pendingBindingInvocations = ArrayDeque<BindingInvocation>()
     private var renderSeed = 0
     private var sessionId = newSessionId()
@@ -542,6 +543,29 @@ class FunctionKitWindow(
                 manifestDeclared = functionKitManifest.runtimePermissions,
                 hostSupported = FunctionKitDefaults.supportedPermissions
             )
+
+    fun requestOpenOptions() {
+        pendingOpenOptionsIntent = true
+        flushPendingUiIntents()
+    }
+
+    private fun flushPendingUiIntents() {
+        if (!pendingOpenOptionsIntent) {
+            return
+        }
+        if (!windowAttached || !panelInitialized || !bridgeReady) {
+            return
+        }
+        pendingOpenOptionsIntent = false
+        host.dispatchHostStateUpdate(
+            kitId = functionKitId,
+            surface = Surface,
+            label = "已打开功能件设置",
+            details =
+                JSONObject()
+                    .put("intent", JSONObject().put("kind", "open_options"))
+        )
+    }
 
     override fun onCreateView(): View {
         ensureManifestStateInitialized()
@@ -602,6 +626,7 @@ class FunctionKitWindow(
             details = buildHostDetails()
         )
         flushPendingBindingInvocations()
+        flushPendingUiIntents()
     }
 
     override fun onDetached() {
@@ -823,6 +848,7 @@ class FunctionKitWindow(
         dispatchComposerStateSync(replyTo = null, surface = surface, reason = "bridge.ready")
         pushHostState("宿主握手完成")
         flushPendingBindingInvocations()
+        flushPendingUiIntents()
     }
 
     private fun flushPendingBindingInvocations() {

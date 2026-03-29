@@ -19,6 +19,7 @@ import android.widget.ViewAnimator
 import android.widget.inline.InlineContentView
 import androidx.annotation.Keep
 import androidx.annotation.RequiresApi
+import androidx.appcompat.widget.PopupMenu
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -29,6 +30,7 @@ import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.core.CapabilityFlag
 import org.fcitx.fcitx5.android.core.CapabilityFlags
 import org.fcitx.fcitx5.android.core.FcitxEvent.CandidateListEvent
+import org.fcitx.fcitx5.android.data.InputFeedbacks
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.data.clipboard.db.ClipboardEntry
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
@@ -77,6 +79,7 @@ import org.fcitx.fcitx5.android.input.wm.InputWindow
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.AppUtil
 import org.fcitx.fcitx5.android.utils.InputMethodUtil
+import org.fcitx.fcitx5.android.utils.item
 import org.mechdancer.dependency.DynamicScope
 import org.mechdancer.dependency.manager.must
 import splitties.bitflags.hasFlag
@@ -131,6 +134,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private var removeTaskCenterListener: (() -> Unit)? = null
     private var removeFunctionKitKitSettingsListener: (() -> Unit)? = null
     private var functionKitToolbarRefreshPending: Boolean = false
+    private var functionKitQuickAccessMenu: PopupMenu? = null
 
     private val functionKitWindowPool: FunctionKitWindowPool by manager.must()
 
@@ -179,8 +183,39 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 val window = requireFunctionKitWindow(kitButton.entry.kitId)
                 windowManager.view.post { windowManager.attachWindow(window) }
             }
-            kitButton.button.setOnLongClickListener {
-                AppUtil.launchMainToFunctionKitDetail(context, kitButton.entry.kitId)
+            kitButton.button.setOnLongClickListener { view ->
+                val kitId = kitButton.entry.kitId
+                val kitLabel = kitButton.entry.label
+
+                InputFeedbacks.hapticFeedback(view, longPress = true)
+                functionKitQuickAccessMenu?.dismiss()
+                functionKitQuickAccessMenu =
+                    PopupMenu(context, view).apply {
+                        menu.add(kitLabel).apply { isEnabled = false }
+                        menu.item(R.string.function_kit_quick_access_menu_open_options) {
+                            val window = requireFunctionKitWindow(kitId)
+                            window.requestOpenOptions()
+                            windowManager.view.post { windowManager.attachWindow(window) }
+                        }
+
+                        val pinned = FunctionKitKitSettings.isKitPinned(kitId)
+                        menu.item(
+                            if (pinned) {
+                                R.string.function_kit_quick_access_menu_unpin_from_toolbar
+                            } else {
+                                R.string.function_kit_manager_pin_to_toolbar
+                            }
+                        ) {
+                            FunctionKitKitSettings.setKitPinned(kitId, !pinned)
+                        }
+
+                        menu.item(R.string.function_kit_quick_access_menu_manage_permissions) {
+                            AppUtil.launchMainToFunctionKitDetail(context, kitId)
+                        }
+
+                        setOnDismissListener { functionKitQuickAccessMenu = null }
+                        show()
+                    }
                 true
             }
         }

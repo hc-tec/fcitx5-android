@@ -344,6 +344,9 @@
     <string name="function_kit_manager_permission_source_global_deny">全局：拒绝</string>
     <string name="function_kit_manager_permission_source_kit_allow">覆盖：允许</string>
     <string name="function_kit_manager_permission_source_kit_deny">覆盖：拒绝</string>
+    <string name="function_kit_quick_access_menu_open_options">打开设置</string>
+    <string name="function_kit_quick_access_menu_manage_permissions">管理权限</string>
+    <string name="function_kit_quick_access_menu_unpin_from_toolbar">取消固定</string>
     <string name="ime_bridge_copied_to_clipboard">已复制到剪贴板</string>
     <string name="ime_bridge_pending_insert">已准备插入，请点击目标输入框</string>
     <string name="function_kit_status_category">当前状态</string>

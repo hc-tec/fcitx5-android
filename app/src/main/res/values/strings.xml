@@ -344,6 +344,9 @@
     <string name="function_kit_manager_permission_source_global_deny">Global: deny</string>
     <string name="function_kit_manager_permission_source_kit_allow">Override: allow</string>
     <string name="function_kit_manager_permission_source_kit_deny">Override: deny</string>
+    <string name="function_kit_quick_access_menu_open_options">Open options</string>
+    <string name="function_kit_quick_access_menu_manage_permissions">Manage permissions</string>
+    <string name="function_kit_quick_access_menu_unpin_from_toolbar">Unpin from toolbar</string>
     <string name="ime_bridge_copied_to_clipboard">Copied to clipboard</string>
     <string name="ime_bridge_pending_insert">Ready to insert. Tap the target input field.</string>
     <string name="function_kit_status_category">Current status</string>
