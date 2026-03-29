@@ -17,9 +17,9 @@ import android.view.inputmethod.InputMethodSubtype
 import android.widget.FrameLayout
 import android.widget.ViewAnimator
 import android.widget.inline.InlineContentView
+import android.widget.PopupMenu
 import androidx.annotation.Keep
 import androidx.annotation.RequiresApi
-import androidx.appcompat.widget.PopupMenu
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -79,7 +79,6 @@ import org.fcitx.fcitx5.android.input.wm.InputWindow
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.AppUtil
 import org.fcitx.fcitx5.android.utils.InputMethodUtil
-import org.fcitx.fcitx5.android.utils.item
 import org.mechdancer.dependency.DynamicScope
 import org.mechdancer.dependency.manager.must
 import splitties.bitflags.hasFlag
@@ -189,28 +188,52 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
 
                 InputFeedbacks.hapticFeedback(view, longPress = true)
                 functionKitQuickAccessMenu?.dismiss()
+
+                val itemHeader = 1
+                val itemOpenOptions = 2
+                val itemTogglePinned = 3
+                val itemManagePermissions = 4
                 functionKitQuickAccessMenu =
                     PopupMenu(context, view).apply {
-                        menu.add(kitLabel).apply { isEnabled = false }
-                        menu.item(R.string.function_kit_quick_access_menu_open_options) {
-                            val window = requireFunctionKitWindow(kitId)
-                            window.requestOpenOptions()
-                            windowManager.view.post { windowManager.attachWindow(window) }
-                        }
-
                         val pinned = FunctionKitKitSettings.isKitPinned(kitId)
-                        menu.item(
+
+                        menu.add(0, itemHeader, 0, kitLabel).apply { isEnabled = false }
+                        menu.add(0, itemOpenOptions, 10, R.string.function_kit_quick_access_menu_open_options)
+                        menu.add(
+                            0,
+                            itemTogglePinned,
+                            20,
                             if (pinned) {
                                 R.string.function_kit_quick_access_menu_unpin_from_toolbar
                             } else {
                                 R.string.function_kit_manager_pin_to_toolbar
                             }
-                        ) {
-                            FunctionKitKitSettings.setKitPinned(kitId, !pinned)
-                        }
+                        )
+                        menu.add(
+                            0,
+                            itemManagePermissions,
+                            30,
+                            R.string.function_kit_quick_access_menu_manage_permissions
+                        )
 
-                        menu.item(R.string.function_kit_quick_access_menu_manage_permissions) {
-                            AppUtil.launchMainToFunctionKitDetail(context, kitId)
+                        setOnMenuItemClickListener { item ->
+                            when (item.itemId) {
+                                itemOpenOptions -> {
+                                    val window = requireFunctionKitWindow(kitId)
+                                    window.requestOpenOptions()
+                                    windowManager.view.post { windowManager.attachWindow(window) }
+                                    true
+                                }
+                                itemTogglePinned -> {
+                                    FunctionKitKitSettings.setKitPinned(kitId, !pinned)
+                                    true
+                                }
+                                itemManagePermissions -> {
+                                    AppUtil.launchMainToFunctionKitDetail(context, kitId)
+                                    true
+                                }
+                                else -> false
+                            }
                         }
 
                         setOnDismissListener { functionKitQuickAccessMenu = null }
