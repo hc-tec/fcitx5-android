@@ -22,6 +22,26 @@ internal class FunctionKitKitSettingsStore(
         sharedPreferences.edit().putBoolean(enabledKey(kitId), enabled).apply()
     }
 
+    fun isKitPinned(kitId: String): Boolean =
+        sharedPreferences.getBoolean(pinnedKey(kitId), false)
+
+    fun setKitPinned(
+        kitId: String,
+        pinned: Boolean
+    ) {
+        sharedPreferences.edit().putBoolean(pinnedKey(kitId), pinned).apply()
+    }
+
+    fun lastUsedAtEpochMs(kitId: String): Long =
+        sharedPreferences.getLong(lastUsedAtKey(kitId), 0L)
+
+    fun recordUsedAtEpochMs(
+        kitId: String,
+        epochMs: Long
+    ) {
+        sharedPreferences.edit().putLong(lastUsedAtKey(kitId), epochMs).apply()
+    }
+
     fun getPermissionOverride(
         kitId: String,
         permission: String
@@ -62,12 +82,18 @@ internal class FunctionKitKitSettingsStore(
     fun clearAll(kitId: String) {
         sharedPreferences.edit().apply {
             remove(enabledKey(kitId))
+            remove(pinnedKey(kitId))
+            remove(lastUsedAtKey(kitId))
             val prefix = "${kitKeyPrefix(kitId)}.perm."
             sharedPreferences.all.keys.filter { it.startsWith(prefix) }.forEach { remove(it) }
         }.apply()
     }
 
     private fun enabledKey(kitId: String): String = "${kitKeyPrefix(kitId)}.enabled"
+
+    private fun pinnedKey(kitId: String): String = "${kitKeyPrefix(kitId)}.pinned"
+
+    private fun lastUsedAtKey(kitId: String): String = "${kitKeyPrefix(kitId)}.last_used_at_epoch_ms"
 
     private fun permissionKey(
         kitId: String,
@@ -91,6 +117,14 @@ internal object FunctionKitKitSettings {
 
     fun setKitEnabled(kitId: String, enabled: Boolean) = store.setKitEnabled(kitId, enabled)
 
+    fun isKitPinned(kitId: String): Boolean = store.isKitPinned(kitId)
+
+    fun setKitPinned(kitId: String, pinned: Boolean) = store.setKitPinned(kitId, pinned)
+
+    fun lastUsedAtEpochMs(kitId: String): Long = store.lastUsedAtEpochMs(kitId)
+
+    fun recordUsedNow(kitId: String) = store.recordUsedAtEpochMs(kitId, System.currentTimeMillis())
+
     fun getPermissionOverride(kitId: String, permission: String): Boolean? =
         store.getPermissionOverride(kitId, permission)
 
@@ -104,4 +138,3 @@ internal object FunctionKitKitSettings {
     internal fun createForTesting(sharedPreferences: SharedPreferences): FunctionKitKitSettingsStore =
         FunctionKitKitSettingsStore(sharedPreferences)
 }
-

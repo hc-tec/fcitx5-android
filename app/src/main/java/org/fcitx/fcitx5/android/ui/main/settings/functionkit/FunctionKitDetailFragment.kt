@@ -33,6 +33,7 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
     private lateinit var kit: FunctionKitManifest
 
     private lateinit var enabledPreference: MySwitchPreference
+    private lateinit var pinnedPreference: MySwitchPreference
 
     private val preferenceChangeListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -92,6 +93,24 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
                 }
             }
         kitCategory.addPreference(enabledPreference)
+
+        pinnedPreference =
+            MySwitchPreference(context).apply {
+                key = "function_kit_kit_pinned:${kit.id}"
+                isPersistent = false
+                setup(
+                    title = getString(R.string.function_kit_manager_pin_to_toolbar),
+                    summary = getString(R.string.function_kit_manager_pin_to_toolbar_summary)
+                )
+                isIconSpaceReserved = false
+                isChecked = FunctionKitKitSettings.isKitPinned(kit.id)
+                setOnPreferenceChangeListener { _, newValue ->
+                    FunctionKitKitSettings.setKitPinned(kit.id, newValue as Boolean)
+                    refresh()
+                    true
+                }
+            }
+        kitCategory.addPreference(pinnedPreference)
 
         kit.description?.takeIf { it.isNotBlank() }?.let { description ->
             kitCategory.addPreference(
@@ -169,6 +188,7 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
             return
         }
         enabledPreference.isChecked = FunctionKitKitSettings.isKitEnabled(kit.id)
+        pinnedPreference.isChecked = FunctionKitKitSettings.isKitPinned(kit.id)
         preferenceScreen?.let { renderUi(it) }
     }
 

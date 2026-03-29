@@ -61,7 +61,10 @@ import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessOrderer
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitTaskCenterWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitTaskHub
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.keyboard.CommonKeyActionListener
@@ -124,6 +127,8 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private var isKeyboardLayoutNumber: Boolean = false
     private var isToolbarManuallyToggled: Boolean = false
 
+    private var removeTaskCenterListener: (() -> Unit)? = null
+
     private val functionKitWindowPool: FunctionKitWindowPool by manager.must()
 
     private fun requireFunctionKitWindow(kitId: String): FunctionKitWindow =
@@ -140,7 +145,23 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         val enabled =
             installed.filter { kit -> FunctionKitKitSettings.isKitEnabled(kit.id) }
 
-        enabled.map { kit ->
+        val pinnedKitIds =
+            enabled.mapNotNull { kit ->
+                kit.id.takeIf { FunctionKitKitSettings.isKitPinned(it) }
+            }.toSet()
+        val lastUsedAtEpochMsByKitId =
+            enabled.associate { kit ->
+                kit.id to FunctionKitKitSettings.lastUsedAtEpochMs(kit.id)
+            }
+        val kitById = enabled.associateBy { it.id }
+        val orderedKitIds =
+            FunctionKitQuickAccessOrderer.orderKitIds(
+                kitIds = enabled.map { it.id },
+                pinnedKitIds = pinnedKitIds,
+                lastUsedAtEpochMsByKitId = lastUsedAtEpochMsByKitId
+            )
+
+        orderedKitIds.mapNotNull { kitById[it] }.map { kit ->
                 org.fcitx.fcitx5.android.input.bar.ui.idle.ButtonsBarUi.FunctionKitToolbarButtonEntry(
                     kitId = kit.id,
                     label = FunctionKitRegistry.displayName(context, kit),
@@ -367,13 +388,16 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 clipboardButton.setOnClickListener {
                     windowManager.attachWindow(ClipboardWindow())
                 }
+                taskCenterButton.setOnClickListener {
+                    windowManager.attachWindow(FunctionKitTaskCenterWindow())
+                }
                 functionKitButtons.forEach { kitButton ->
                     kitButton.button.setOnClickListener {
                         val window = requireFunctionKitWindow(kitButton.entry.kitId)
                         windowManager.view.post { windowManager.attachWindow(window) }
                     }
                     kitButton.button.setOnLongClickListener {
-                        AppUtil.launchMainToFunctionKitSettings(context)
+                        AppUtil.launchMainToFunctionKitDetail(context, kitButton.entry.kitId)
                         true
                     }
                 }
@@ -570,6 +594,22 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         clipboardItemTimeout.registerOnChangeListener(onClipboardTimeoutUpdateListener)
         functionKitToolbarButton.registerOnChangeListener(onFunctionKitToolbarButtonChangeListener)
         updateFunctionKitToolbarButtonVisibility()
+
+        if (removeTaskCenterListener == null) {
+            removeTaskCenterListener =
+                FunctionKitTaskHub.addListener {
+                    windowManager.view.post {
+                        updateTaskCenterBadge()
+                    }
+                }
+        }
+        updateTaskCenterBadge()
+    }
+
+    private fun updateTaskCenterBadge() {
+        idleUi.buttonsUi.taskCenterButton.setBadgeVisible(
+            FunctionKitTaskHub.snapshot().running.isNotEmpty()
+        )
     }
 
     override fun onStartInput(info: EditorInfo, capFlags: CapabilityFlags) {

@@ -4,7 +4,17 @@
     <string name="function_kit_task_center_running">进行中</string>
     <string name="function_kit_task_center_history">历史</string>
     <string name="function_kit_task_center_empty">暂无任务</string>
+    <string name="function_kit_task_center_task_not_found">任务不存在</string>
     <string name="function_kit_task_center_copy_json">复制 JSON</string>
     <string name="function_kit_task_center_cancel">取消</string>
+    <string name="function_kit_task_center_show_developer_info">显示开发者信息</string>
+    <string name="function_kit_task_center_hide_developer_info">隐藏开发者信息</string>
+    <string name="function_kit_task_kind_network_fetch">网络请求</string>
+    <string name="function_kit_task_kind_ai_request">AI 请求</string>
+    <string name="function_kit_task_status_queued">排队中</string>
+    <string name="function_kit_task_status_running">进行中</string>
+    <string name="function_kit_task_status_canceling">取消中</string>
+    <string name="function_kit_task_status_succeeded">已完成</string>
+    <string name="function_kit_task_status_failed">失败</string>
+    <string name="function_kit_task_status_canceled">已取消</string>
 </resources>
-

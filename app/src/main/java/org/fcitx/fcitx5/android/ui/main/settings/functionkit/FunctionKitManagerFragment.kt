@@ -13,6 +13,7 @@ import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitDefaults
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitPermissionPolicy
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessOrderer
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRuntimePermissionResolver
 import org.fcitx.fcitx5.android.ui.common.PaddingPreferenceFragment
@@ -64,7 +65,23 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
         val installed =
             FunctionKitRegistry.listInstalled(context)
                 .ifEmpty { listOf(FunctionKitRegistry.resolve(context)) }
-        installed.forEach { kit ->
+        val pinnedKitIds =
+            installed.mapNotNull { kit ->
+                kit.id.takeIf { FunctionKitKitSettings.isKitPinned(it) }
+            }.toSet()
+        val lastUsedAtEpochMsByKitId =
+            installed.associate { kit ->
+                kit.id to FunctionKitKitSettings.lastUsedAtEpochMs(kit.id)
+            }
+        val kitById = installed.associateBy { it.id }
+        val orderedKitIds =
+            FunctionKitQuickAccessOrderer.orderKitIds(
+                kitIds = installed.map { it.id },
+                pinnedKitIds = pinnedKitIds,
+                lastUsedAtEpochMsByKitId = lastUsedAtEpochMsByKitId
+            )
+
+        orderedKitIds.mapNotNull { kitById[it] }.forEach { kit ->
             val supportedPermissions =
                 FunctionKitRuntimePermissionResolver.resolveSupported(
                     manifestDeclared = kit.runtimePermissions,
@@ -91,6 +108,10 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
                             }
                         )
                     )
+                    if (FunctionKitKitSettings.isKitPinned(kit.id)) {
+                        append(" · ")
+                        append(getString(R.string.function_kit_manager_pinned_badge))
+                    }
                     if (supportedPermissions.isNotEmpty()) {
                         append(" · ")
                         append(
@@ -123,4 +144,3 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
         }
     }
 }
-

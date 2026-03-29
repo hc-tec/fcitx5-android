@@ -53,9 +53,9 @@ class FunctionKitSettingsFragment :
     }
 
     override fun onPreferenceUiCreated(screen: PreferenceScreen) {
-        // AI runtime config lives in the dedicated AI settings page.
-        // Keep the underlying permission toggles functional, but don't render them here to avoid duplication.
-        hideAiPreferences(screen)
+        // Remote host + AI config lives in the dedicated AI settings page.
+        // Keep the underlying toggles functional, but don't render them here to avoid duplication.
+        hideDuplicatedPreferences(screen)
 
         val context = requireContext()
         val statusCategory =
@@ -137,8 +137,12 @@ class FunctionKitSettingsFragment :
         refreshStatus()
     }
 
-    private fun hideAiPreferences(screen: PreferenceScreen) {
+    private fun hideDuplicatedPreferences(screen: PreferenceScreen) {
         listOf(
+            "function_kit_remote_inference_enabled",
+            "function_kit_remote_base_url",
+            "function_kit_remote_auth_token",
+            "function_kit_remote_timeout_seconds",
             "function_kit_permission_ai_chat",
             "function_kit_permission_ai_agent_access"
         ).forEach { key ->

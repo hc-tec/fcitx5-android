@@ -8,8 +8,10 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.ImageView
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.annotation.ColorInt
@@ -56,9 +58,28 @@ class ToolButton(context: Context) : CustomGestureView(context) {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
         }
 
+    private val badgeDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+        }
+
+    private val badgeView =
+        View(context).apply {
+            isClickable = false
+            isFocusable = false
+            background = badgeDrawable
+            visibility = GONE
+        }
+
     init {
         add(image, lParams(wrapContent, wrapContent, gravityCenter))
         add(monogramView, lParams(wrapContent, wrapContent, gravityCenter))
+        add(
+            badgeView,
+            lParams(dp(8), dp(8), Gravity.TOP or Gravity.END) {
+                setMargins(0, dp(6), dp(6), 0)
+            }
+        )
     }
 
     constructor(context: Context, @DrawableRes icon: Int, theme: Theme) : this(context) {
@@ -67,6 +88,7 @@ class ToolButton(context: Context) : CustomGestureView(context) {
         setMonogramTextColor(theme.altKeyTextColor)
         setIcon(icon)
         setPressHighlightColor(theme.keyPressHighlightColor)
+        setBadgeColor(theme.accentKeyBackgroundColor)
     }
 
     fun setIcon(@DrawableRes icon: Int) {
@@ -106,5 +128,13 @@ class ToolButton(context: Context) : CustomGestureView(context) {
         } else {
             borderlessRippleDrawable(color, dp(20))
         }
+    }
+
+    fun setBadgeVisible(visible: Boolean) {
+        badgeView.visibility = if (visible) VISIBLE else GONE
+    }
+
+    fun setBadgeColor(@ColorInt color: Int) {
+        badgeDrawable.setColor(color)
     }
 }

@@ -86,6 +86,8 @@ class ButtonsBarUi(
 
     val clipboardButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard)
 
+    val taskCenterButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter)
+
     val functionKitButtons =
         functionKitEntries.map { entry ->
             FunctionKitToolbarButtonUi(entry, functionKitToolButton(entry))
@@ -107,6 +109,7 @@ class ButtonsBarUi(
                             FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove -> cursorMoveButton
                             FunctionKitQuickAccessSpec.ToolbarShortcut.Undo -> undoButton
                             FunctionKitQuickAccessSpec.ToolbarShortcut.Redo -> redoButton
+                            FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter -> taskCenterButton
                             FunctionKitQuickAccessSpec.ToolbarShortcut.More -> moreButton
                         }
                     addToolButton(button)

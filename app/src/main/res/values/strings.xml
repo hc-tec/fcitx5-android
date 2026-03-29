@@ -324,6 +324,9 @@
     <string name="function_kit_manager_kits_category">Installed Function Kits</string>
     <string name="function_kit_manager_kit_category">Function Kit</string>
     <string name="function_kit_manager_enabled_toggle">Enable</string>
+    <string name="function_kit_manager_pin_to_toolbar">Pin to toolbar</string>
+    <string name="function_kit_manager_pin_to_toolbar_summary">Keep this Function Kit visible as a fixed toolbar shortcut.</string>
+    <string name="function_kit_manager_pinned_badge">Pinned</string>
     <string name="function_kit_manager_enabled">Enabled</string>
     <string name="function_kit_manager_disabled">Disabled</string>
     <string name="function_kit_manager_permissions_summary">%1$d/%2$d granted</string>

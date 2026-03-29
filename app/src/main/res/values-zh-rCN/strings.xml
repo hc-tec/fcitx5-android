@@ -324,6 +324,9 @@
     <string name="function_kit_manager_kits_category">已安装功能件</string>
     <string name="function_kit_manager_kit_category">功能件</string>
     <string name="function_kit_manager_enabled_toggle">启用</string>
+    <string name="function_kit_manager_pin_to_toolbar">固定到工具栏</string>
+    <string name="function_kit_manager_pin_to_toolbar_summary">将该功能件作为工具栏固定入口，优先展示。</string>
+    <string name="function_kit_manager_pinned_badge">已固定</string>
     <string name="function_kit_manager_enabled">已启用</string>
     <string name="function_kit_manager_disabled">已禁用</string>
     <string name="function_kit_manager_permissions_summary">%1$d/%2$d 已授予</string>

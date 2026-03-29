@@ -4,6 +4,7 @@
  */
 package org.fcitx.fcitx5.android.input.functionkit
 
+import android.content.Context
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
@@ -227,16 +228,41 @@ internal class FunctionKitTaskCenterWindow :
             }
 
             fun bind(preview: FunctionKitTaskHub.TaskPreview) {
-                title.text = "${preview.kind} (${preview.status})"
+                val kind = kindLabel(title.context, preview.kind)
+                val status = statusLabel(title.context, preview.status)
                 val kit = kitLabel(preview.kitId)
-                val meta = if (preview.surface.isBlank()) kit else "$kit / ${preview.surface}"
-                subtitle.text =
-                    if (preview.summary.isBlank()) {
-                        meta
+                val summary = preview.summary.trim()
+                title.text =
+                    if (summary.isBlank()) {
+                        "$kind · $status"
                     } else {
-                        "$meta - ${preview.summary}"
+                        summary
+                    }
+                subtitle.text =
+                    if (summary.isBlank()) {
+                        kit
+                    } else {
+                        "$kit · $kind · $status"
                     }
             }
+
+            private fun kindLabel(context: Context, kind: String): String =
+                when (kind.trim()) {
+                    "network.fetch" -> context.getString(R.string.function_kit_task_kind_network_fetch)
+                    "ai.request" -> context.getString(R.string.function_kit_task_kind_ai_request)
+                    else -> kind
+                }
+
+            private fun statusLabel(context: Context, status: String): String =
+                when (status.trim()) {
+                    "queued" -> context.getString(R.string.function_kit_task_status_queued)
+                    "running" -> context.getString(R.string.function_kit_task_status_running)
+                    "canceling" -> context.getString(R.string.function_kit_task_status_canceling)
+                    "succeeded" -> context.getString(R.string.function_kit_task_status_succeeded)
+                    "failed" -> context.getString(R.string.function_kit_task_status_failed)
+                    "canceled" -> context.getString(R.string.function_kit_task_status_canceled)
+                    else -> status
+                }
         }
 
         private companion object {

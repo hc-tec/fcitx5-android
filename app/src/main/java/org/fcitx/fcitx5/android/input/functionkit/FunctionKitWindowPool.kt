@@ -42,6 +42,7 @@ class FunctionKitWindowPool :
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
                 ?: FunctionKitRegistry.resolve(context).id
+        FunctionKitKitSettings.recordUsedNow(resolvedKitId)
         val now = System.currentTimeMillis()
         val entry =
             entries.getOrPut(resolvedKitId) {

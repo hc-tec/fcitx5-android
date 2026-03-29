@@ -29,6 +29,7 @@ import org.fcitx.fcitx5.android.input.editorinfo.EditorInfoWindow
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessOrderer
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitTaskCenterWindow
@@ -78,8 +79,27 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                 .ifEmpty { listOf(FunctionKitRegistry.resolve(context)) }
         val enabled =
             installed.filter { kit -> FunctionKitKitSettings.isKitEnabled(kit.id) }
+
+        val pinnedKitIds =
+            enabled.mapNotNull { kit ->
+                kit.id.takeIf { FunctionKitKitSettings.isKitPinned(it) }
+            }.toSet()
+        val lastUsedAtEpochMsByKitId =
+            enabled.associate { kit ->
+                kit.id to FunctionKitKitSettings.lastUsedAtEpochMs(kit.id)
+            }
+        val kitById = enabled.associateBy { it.id }
+        val orderedKitIds =
+            FunctionKitQuickAccessOrderer.orderKitIds(
+                kitIds = enabled.map { it.id },
+                pinnedKitIds = pinnedKitIds,
+                lastUsedAtEpochMsByKitId = lastUsedAtEpochMsByKitId
+            )
+
         val kitEntries =
-            enabled.map { kit ->
+            orderedKitIds
+                .mapNotNull { kitById[it] }
+                .map { kit ->
                     StatusAreaEntry.Android(
                         label = FunctionKitRegistry.displayName(context, kit),
                         icon = R.drawable.ic_baseline_extension_24,

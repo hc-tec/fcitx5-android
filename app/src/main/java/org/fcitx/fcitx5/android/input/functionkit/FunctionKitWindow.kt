@@ -448,7 +448,7 @@ class FunctionKitWindow(
     private val settingsButton by lazy {
         ToolButton(context, R.drawable.ic_baseline_settings_24, theme).apply {
             contentDescription = context.getString(R.string.function_kit_settings)
-            setOnClickListener { AppUtil.launchMainToFunctionKitSettings(context) }
+            setOnClickListener { AppUtil.launchMainToFunctionKitDetail(context, functionKitId) }
         }
     }
     private val panelExpandButton by lazy {
@@ -1668,7 +1668,7 @@ class FunctionKitWindow(
         if (section == "ai") {
             AppUtil.launchMainToAiSettings(context)
         } else {
-            AppUtil.launchMainToFunctionKitSettings(context)
+            AppUtil.launchMainToFunctionKitDetail(context, functionKitId)
         }
         host.dispatchHostStateUpdate(
             kitId = functionKitId,

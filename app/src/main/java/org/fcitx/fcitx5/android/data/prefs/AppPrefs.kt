@@ -385,6 +385,33 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             "s"
         ) { chatEnabled.getValue() }
 
+        val functionKitRemoteInferenceEnabled = switch(
+            R.string.function_kit_remote_inference_enabled,
+            "function_kit_remote_inference_enabled",
+            false,
+            R.string.function_kit_remote_inference_enabled_summary
+        )
+        val functionKitRemoteBaseUrl = string(
+            R.string.function_kit_remote_base_url,
+            "function_kit_remote_base_url",
+            "http://127.0.0.1:18789",
+            R.string.function_kit_remote_base_url_summary
+        ) { functionKitRemoteInferenceEnabled.getValue() }
+        val functionKitRemoteAuthToken = string(
+            R.string.function_kit_remote_auth_token,
+            "function_kit_remote_auth_token",
+            "",
+            R.string.function_kit_remote_auth_token_summary
+        ) { functionKitRemoteInferenceEnabled.getValue() }
+        val functionKitRemoteTimeoutSeconds = int(
+            R.string.function_kit_remote_timeout_seconds,
+            "function_kit_remote_timeout_seconds",
+            20,
+            1,
+            300,
+            "s"
+        ) { functionKitRemoteInferenceEnabled.getValue() }
+
         // Function Kit integrations related to AI are configured in the AI page (not Function Kit settings).
         // Keep using the existing preference keys so the runtime permission policy stays consistent.
         val allowFunctionKitAiChat = switch(

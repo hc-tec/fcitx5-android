@@ -4,7 +4,17 @@
     <string name="function_kit_task_center_running">Running</string>
     <string name="function_kit_task_center_history">History</string>
     <string name="function_kit_task_center_empty">No tasks</string>
+    <string name="function_kit_task_center_task_not_found">Task not found</string>
     <string name="function_kit_task_center_copy_json">Copy JSON</string>
     <string name="function_kit_task_center_cancel">Cancel</string>
+    <string name="function_kit_task_center_show_developer_info">Show developer info</string>
+    <string name="function_kit_task_center_hide_developer_info">Hide developer info</string>
+    <string name="function_kit_task_kind_network_fetch">Network request</string>
+    <string name="function_kit_task_kind_ai_request">AI request</string>
+    <string name="function_kit_task_status_queued">Queued</string>
+    <string name="function_kit_task_status_running">Running</string>
+    <string name="function_kit_task_status_canceling">Canceling</string>
+    <string name="function_kit_task_status_succeeded">Succeeded</string>
+    <string name="function_kit_task_status_failed">Failed</string>
+    <string name="function_kit_task_status_canceled">Canceled</string>
 </resources>
-

@@ -16,6 +16,7 @@ internal object FunctionKitQuickAccessSpec {
         CursorMove,
         Undo,
         Redo,
+        TaskCenter,
         More
     }
 
@@ -39,6 +40,7 @@ internal object FunctionKitQuickAccessSpec {
             ToolbarShortcut.CursorMove,
             ToolbarShortcut.Undo,
             ToolbarShortcut.Redo,
+            ToolbarShortcut.TaskCenter,
             ToolbarShortcut.More
         )
 
@@ -91,6 +93,11 @@ internal object FunctionKitQuickAccessSpec {
                 FixedToolbarButtonSpec(
                     icon = R.drawable.ic_baseline_redo_24,
                     label = R.string.redo
+                )
+            ToolbarShortcut.TaskCenter ->
+                FixedToolbarButtonSpec(
+                    icon = R.drawable.ic_baseline_access_time_24,
+                    label = R.string.function_kit_task_center
                 )
             ToolbarShortcut.More ->
                 FixedToolbarButtonSpec(

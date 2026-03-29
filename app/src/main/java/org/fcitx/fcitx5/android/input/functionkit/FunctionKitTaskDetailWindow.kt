@@ -5,6 +5,7 @@
 package org.fcitx.fcitx5.android.input.functionkit
 
 import android.content.ClipData
+import android.content.Context
 import android.graphics.Typeface
 import android.view.View
 import android.view.ViewGroup
@@ -39,30 +40,86 @@ internal class FunctionKitTaskDetailWindow(
 
     private var removeListener: (() -> Unit)? = null
 
-    private val headerView: TextView by lazy {
+    private val kitLabels = LinkedHashMap<String, String>()
+
+    private fun refreshKitLabels() {
+        kitLabels.clear()
+        FunctionKitRegistry
+            .listInstalled(context)
+            .forEach { manifest ->
+                kitLabels[manifest.id] = FunctionKitRegistry.displayName(context, manifest)
+            }
+    }
+
+    private fun kitLabel(kitId: String): String = kitLabels[kitId] ?: kitId
+
+    private val userTitleView: TextView by lazy {
+        TextView(context).apply {
+            setTextColor(theme.keyTextColor)
+            textSize = 14f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+    }
+
+    private val userMetaView: TextView by lazy {
+        TextView(context).apply {
+            setTextColor(theme.altKeyTextColor)
+            textSize = 12f
+        }
+    }
+
+    private val userMessageView: TextView by lazy {
+        TextView(context).apply {
+            setTextColor(theme.keyTextColor)
+            textSize = 13f
+        }
+    }
+
+    private val developerHeaderView: TextView by lazy {
         TextView(context).apply {
             setTextColor(theme.keyTextColor)
             textSize = 13f
             setTypeface(Typeface.MONOSPACE, Typeface.NORMAL)
-            padding = dp(12)
+            visibility = View.GONE
         }
     }
 
-    private val jsonView: TextView by lazy {
+    private val developerJsonView: TextView by lazy {
         TextView(context).apply {
             setTextColor(theme.altKeyTextColor)
             textSize = 12f
             setTypeface(Typeface.MONOSPACE, Typeface.NORMAL)
             setTextIsSelectable(true)
-            padding = dp(12)
+            visibility = View.GONE
         }
     }
+
+    private var developerVisible: Boolean = false
 
     private val contentView: View by lazy {
         val content =
             context.verticalLayout {
-                add(headerView, lParams(matchParent, wrapContent))
-                add(jsonView, lParams(matchParent, wrapContent))
+                padding = dp(12)
+                add(userTitleView, lParams(matchParent, wrapContent))
+                add(
+                    userMetaView,
+                    lParams(matchParent, wrapContent) {
+                        topMargin = dp(4)
+                    }
+                )
+                add(
+                    userMessageView,
+                    lParams(matchParent, wrapContent) {
+                        topMargin = dp(8)
+                    }
+                )
+                add(
+                    developerHeaderView,
+                    lParams(matchParent, wrapContent) {
+                        topMargin = dp(12)
+                    }
+                )
+                add(developerJsonView, lParams(matchParent, wrapContent))
             }
 
         ScrollView(context).apply {
@@ -117,6 +174,16 @@ internal class FunctionKitTaskDetailWindow(
         }
     }
 
+    private val developerButton by lazy {
+        ToolButton(context, R.drawable.ic_baseline_developer_mode_24, theme).apply {
+            contentDescription = developerButtonContentDescription()
+            setOnClickListener {
+                developerVisible = !developerVisible
+                applyDeveloperVisibility()
+            }
+        }
+    }
+
     private val copyJsonButton by lazy {
         ToolButton(context, R.drawable.ic_baseline_code_24, theme).apply {
             contentDescription = context.getString(R.string.function_kit_task_center_copy_json)
@@ -125,6 +192,7 @@ internal class FunctionKitTaskDetailWindow(
                 context.clipboardManager.setPrimaryClip(ClipData.newPlainText("task.json", json))
                 Toast.makeText(context, R.string.done, Toast.LENGTH_SHORT).show()
             }
+            visibility = View.GONE
         }
     }
 
@@ -133,6 +201,7 @@ internal class FunctionKitTaskDetailWindow(
             add(backButton, lParams(dp(40), dp(40)))
             add(openKitButton, lParams(dp(40), dp(40)))
             add(cancelButton, lParams(dp(40), dp(40)))
+            add(developerButton, lParams(dp(40), dp(40)))
             add(copyJsonButton, lParams(dp(40), dp(40)))
         }
     }
@@ -140,6 +209,7 @@ internal class FunctionKitTaskDetailWindow(
     override fun onCreateView(): View = contentView
 
     override fun onAttached() {
+        refreshKitLabels()
         removeListener =
             FunctionKitTaskHub.addListener {
                 windowManager.view.post {
@@ -163,22 +233,43 @@ internal class FunctionKitTaskDetailWindow(
     private fun refresh() {
         val task = FunctionKitTaskHub.getTaskJson(taskId)
         if (task == null) {
-            headerView.text = "taskId=$taskId\nstatus=not_found"
-            jsonView.text = ""
+            userTitleView.text = context.getString(R.string.function_kit_task_center_task_not_found)
+            userMetaView.text = ""
+            userMessageView.text = ""
+            userMessageView.visibility = View.GONE
+            developerHeaderView.text = "taskId=$taskId\nstatus=not_found"
+            developerJsonView.text = ""
             cancelButton.isEnabled = false
             openKitButton.isEnabled = false
+            copyJsonButton.isEnabled = false
+            applyDeveloperVisibility()
             return
         }
 
-        headerView.text = buildHeader(task)
-        jsonView.text = task.toPrettyString()
-
+        userTitleView.text = kindLabel(context, task.optString("kind").trim())
         val kitId = task.optString("kitId").trim()
+        val status = statusLabel(context, task.optString("status").trim())
+        val kit =
+            kitLabel(kitId).trim().ifBlank { kitId }
+        userMetaView.text =
+            listOf(kit, status)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+
+        val summary = summarize(task).trim()
+        userMessageView.text = summary
+        userMessageView.visibility = if (summary.isBlank()) View.GONE else View.VISIBLE
+
+        developerHeaderView.text = buildDeveloperHeader(task)
+        developerJsonView.text = task.toPrettyString()
+
         openKitButton.isEnabled = kitId.isNotBlank()
         cancelButton.isEnabled = shouldEnableCancel(task)
+        copyJsonButton.isEnabled = true
+        applyDeveloperVisibility()
     }
 
-    private fun buildHeader(task: JSONObject): String {
+    private fun buildDeveloperHeader(task: JSONObject): String {
         val kind = task.optString("kind").trim()
         val status = task.optString("status").trim()
         val kitId = task.optString("kitId").trim()
@@ -224,6 +315,40 @@ internal class FunctionKitTaskDetailWindow(
         val status = task.optString("status").trim()
         return status !in setOf("succeeded", "failed", "canceled")
     }
+
+    private fun applyDeveloperVisibility() {
+        developerHeaderView.visibility = if (developerVisible) View.VISIBLE else View.GONE
+        developerJsonView.visibility = if (developerVisible) View.VISIBLE else View.GONE
+        copyJsonButton.visibility = if (developerVisible) View.VISIBLE else View.GONE
+        developerButton.contentDescription = developerButtonContentDescription()
+    }
+
+    private fun developerButtonContentDescription(): String =
+        context.getString(
+            if (developerVisible) {
+                R.string.function_kit_task_center_hide_developer_info
+            } else {
+                R.string.function_kit_task_center_show_developer_info
+            }
+        )
+
+    private fun kindLabel(context: Context, kind: String): String =
+        when (kind.trim()) {
+            "network.fetch" -> context.getString(R.string.function_kit_task_kind_network_fetch)
+            "ai.request" -> context.getString(R.string.function_kit_task_kind_ai_request)
+            else -> kind
+        }
+
+    private fun statusLabel(context: Context, status: String): String =
+        when (status.trim()) {
+            "queued" -> context.getString(R.string.function_kit_task_status_queued)
+            "running" -> context.getString(R.string.function_kit_task_status_running)
+            "canceling" -> context.getString(R.string.function_kit_task_status_canceling)
+            "succeeded" -> context.getString(R.string.function_kit_task_status_succeeded)
+            "failed" -> context.getString(R.string.function_kit_task_status_failed)
+            "canceled" -> context.getString(R.string.function_kit_task_status_canceled)
+            else -> status
+        }
 
     private fun JSONObject.toPrettyString(): String =
         try {

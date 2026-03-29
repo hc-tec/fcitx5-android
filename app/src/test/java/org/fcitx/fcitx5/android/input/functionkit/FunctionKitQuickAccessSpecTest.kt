@@ -19,6 +19,7 @@ class FunctionKitQuickAccessSpecTest {
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Undo),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Redo),
+                FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.More)
             ),
             FunctionKitQuickAccessSpec.buildToolbarSlots(listOf("chat-auto-reply", "quick-phrases"))
@@ -43,17 +44,26 @@ class FunctionKitQuickAccessSpecTest {
     }
 
     @Test
-    fun `fixed toolbar order keeps clipboard editing undo redo and more`() {
+    fun `fixed toolbar order keeps clipboard editing undo redo task center and more`() {
         assertEquals(
             listOf(
                 FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard,
                 FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove,
                 FunctionKitQuickAccessSpec.ToolbarShortcut.Undo,
                 FunctionKitQuickAccessSpec.ToolbarShortcut.Redo,
+                FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter,
                 FunctionKitQuickAccessSpec.ToolbarShortcut.More
             ),
             FunctionKitQuickAccessSpec.fixedToolbarOrder
         )
+    }
+
+    @Test
+    fun `task center button uses access time icon and task center label`() {
+        val spec = FunctionKitQuickAccessSpec.toolbarButton(FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter)
+
+        assertEquals(R.drawable.ic_baseline_access_time_24, spec.icon)
+        assertEquals(R.string.function_kit_task_center, spec.label)
     }
 
     @Test
