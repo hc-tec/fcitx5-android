@@ -108,9 +108,22 @@ internal class FunctionKitKitSettingsStore(
 internal object FunctionKitKitSettings {
     private const val PrefName = "function_kit_kit_settings"
 
-    private val store: FunctionKitKitSettingsStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    private val sharedPreferences: SharedPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         val ctx = appContext.createDeviceProtectedStorageContext()
-        FunctionKitKitSettingsStore(ctx.getSharedPreferences(PrefName, Context.MODE_PRIVATE))
+        ctx.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
+    }
+
+    private val store: FunctionKitKitSettingsStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        FunctionKitKitSettingsStore(sharedPreferences)
+    }
+
+    fun addOnChangeListener(listener: (String?) -> Unit): () -> Unit {
+        val prefsListener =
+            SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                listener(key)
+            }
+        sharedPreferences.registerOnSharedPreferenceChangeListener(prefsListener)
+        return { sharedPreferences.unregisterOnSharedPreferenceChangeListener(prefsListener) }
     }
 
     fun isKitEnabled(kitId: String): Boolean = store.isKitEnabled(kitId)

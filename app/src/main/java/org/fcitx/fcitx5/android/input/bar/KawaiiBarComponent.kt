@@ -46,6 +46,7 @@ import org.fcitx.fcitx5.android.input.bar.KawaiiBarStateMachine.TransitionEvent.
 import org.fcitx.fcitx5.android.input.bar.ui.CandidateUi
 import org.fcitx.fcitx5.android.input.bar.ui.IdleUi
 import org.fcitx.fcitx5.android.input.bar.ui.TitleUi
+import org.fcitx.fcitx5.android.input.bar.ui.idle.ButtonsBarUi
 import org.fcitx.fcitx5.android.input.broadcast.InputBroadcastReceiver
 import org.fcitx.fcitx5.android.input.candidates.expanded.ExpandedCandidateStyle
 import org.fcitx.fcitx5.android.input.candidates.expanded.window.FlexboxExpandedCandidateWindow
@@ -128,6 +129,8 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private var isToolbarManuallyToggled: Boolean = false
 
     private var removeTaskCenterListener: (() -> Unit)? = null
+    private var removeFunctionKitKitSettingsListener: (() -> Unit)? = null
+    private var functionKitToolbarRefreshPending: Boolean = false
 
     private val functionKitWindowPool: FunctionKitWindowPool by manager.must()
 
@@ -138,7 +141,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
 
     private var numberRowState = NumberRowState.Auto
 
-    private val toolbarFunctionKitEntries by lazy {
+    private fun buildToolbarFunctionKitEntries(): List<ButtonsBarUi.FunctionKitToolbarButtonEntry> {
         val installed =
             FunctionKitRegistry.listInstalled(context)
                 .ifEmpty { listOf(FunctionKitRegistry.resolve(context)) }
@@ -161,13 +164,41 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 lastUsedAtEpochMsByKitId = lastUsedAtEpochMsByKitId
             )
 
-        orderedKitIds.mapNotNull { kitById[it] }.map { kit ->
+        return orderedKitIds.mapNotNull { kitById[it] }.map { kit ->
                 org.fcitx.fcitx5.android.input.bar.ui.idle.ButtonsBarUi.FunctionKitToolbarButtonEntry(
                     kitId = kit.id,
                     label = FunctionKitRegistry.displayName(context, kit),
                     iconAssetPath = kit.preferredIconAssetPath(48)
                 )
             }
+    }
+
+    private fun bindFunctionKitButtons(buttonsUi: ButtonsBarUi) {
+        buttonsUi.functionKitButtons.forEach { kitButton ->
+            kitButton.button.setOnClickListener {
+                val window = requireFunctionKitWindow(kitButton.entry.kitId)
+                windowManager.view.post { windowManager.attachWindow(window) }
+            }
+            kitButton.button.setOnLongClickListener {
+                AppUtil.launchMainToFunctionKitDetail(context, kitButton.entry.kitId)
+                true
+            }
+        }
+    }
+
+    private fun refreshFunctionKitToolbarButtons() {
+        idleUi.buttonsUi.setFunctionKitEntries(buildToolbarFunctionKitEntries())
+        bindFunctionKitButtons(idleUi.buttonsUi)
+        updateFunctionKitToolbarButtonVisibility()
+    }
+
+    private fun requestRefreshFunctionKitToolbarButtons() {
+        if (functionKitToolbarRefreshPending) return
+        functionKitToolbarRefreshPending = true
+        windowManager.view.post {
+            functionKitToolbarRefreshPending = false
+            refreshFunctionKitToolbarButtons()
+        }
     }
 
     private val clipboardFunctionKitBindings by lazy {
@@ -347,7 +378,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     }
 
     private val idleUi: IdleUi by lazy {
-        IdleUi(context, theme, popup, commonKeyActionListener, toolbarFunctionKitEntries).apply {
+        IdleUi(context, theme, popup, commonKeyActionListener, buildToolbarFunctionKitEntries()).apply {
             menuButton.setOnClickListener {
                 when (idleUi.currentState) {
                     IdleUi.State.Empty -> {
@@ -391,16 +422,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 taskCenterButton.setOnClickListener {
                     windowManager.attachWindow(FunctionKitTaskCenterWindow())
                 }
-                functionKitButtons.forEach { kitButton ->
-                    kitButton.button.setOnClickListener {
-                        val window = requireFunctionKitWindow(kitButton.entry.kitId)
-                        windowManager.view.post { windowManager.attachWindow(window) }
-                    }
-                    kitButton.button.setOnLongClickListener {
-                        AppUtil.launchMainToFunctionKitDetail(context, kitButton.entry.kitId)
-                        true
-                    }
-                }
+                bindFunctionKitButtons(this)
                 moreButton.setOnClickListener {
                     windowManager.attachWindow(StatusAreaWindow())
                 }
@@ -593,7 +615,18 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         clipboardSuggestion.registerOnChangeListener(onClipboardSuggestionUpdateListener)
         clipboardItemTimeout.registerOnChangeListener(onClipboardTimeoutUpdateListener)
         functionKitToolbarButton.registerOnChangeListener(onFunctionKitToolbarButtonChangeListener)
-        updateFunctionKitToolbarButtonVisibility()
+
+        if (removeFunctionKitKitSettingsListener == null) {
+            removeFunctionKitKitSettingsListener =
+                FunctionKitKitSettings.addOnChangeListener { key ->
+                    val trimmed = key?.trim().orEmpty()
+                    if (trimmed.endsWith(".enabled") || trimmed.endsWith(".pinned")) {
+                        requestRefreshFunctionKitToolbarButtons()
+                    }
+                }
+        }
+
+        refreshFunctionKitToolbarButtons()
 
         if (removeTaskCenterListener == null) {
             removeTaskCenterListener =

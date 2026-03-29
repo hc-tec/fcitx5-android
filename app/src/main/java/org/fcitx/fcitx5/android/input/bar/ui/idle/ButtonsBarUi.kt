@@ -22,7 +22,7 @@ import splitties.views.dsl.core.view
 class ButtonsBarUi(
     override val ctx: Context,
     private val theme: Theme,
-    functionKitEntries: List<FunctionKitToolbarButtonEntry>
+    initialFunctionKitEntries: List<FunctionKitToolbarButtonEntry>
 ) : Ui {
     data class FunctionKitToolbarButtonEntry(
         val kitId: String,
@@ -88,19 +88,35 @@ class ButtonsBarUi(
 
     val taskCenterButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter)
 
-    val functionKitButtons =
-        functionKitEntries.map { entry ->
-            FunctionKitToolbarButtonUi(entry, functionKitToolButton(entry))
-        }
+    var functionKitButtons: List<FunctionKitToolbarButtonUi> = emptyList()
+        private set
 
     val moreButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.More)
 
     init {
-        val functionKitButtonsById = functionKitButtons.associateBy { it.entry.kitId }
+        setFunctionKitEntries(initialFunctionKitEntries)
+    }
+
+    fun setFunctionKitEntries(functionKitEntries: List<FunctionKitToolbarButtonEntry>) {
+        buttonsRow.removeAllViews()
+
+        val functionKitButtonsById =
+            functionKitEntries
+                .filter { it.kitId.isNotBlank() }
+                .distinctBy { it.kitId }
+                .associate { entry ->
+                    entry.kitId to FunctionKitToolbarButtonUi(entry, functionKitToolButton(entry))
+                }
+
+        val orderedFunctionKitButtons = mutableListOf<FunctionKitToolbarButtonUi>()
+
         FunctionKitQuickAccessSpec.buildToolbarSlots(functionKitEntries.map { it.kitId }).forEach { slot ->
             when (slot) {
                 is FunctionKitQuickAccessSpec.ToolbarSlot.FunctionKit -> {
-                    functionKitButtonsById[slot.kitId]?.button?.let(::addToolButton)
+                    functionKitButtonsById[slot.kitId]?.let { kitButton ->
+                        orderedFunctionKitButtons.add(kitButton)
+                        addToolButton(kitButton.button)
+                    }
                 }
                 is FunctionKitQuickAccessSpec.ToolbarSlot.Fixed -> {
                     val button =
@@ -116,5 +132,7 @@ class ButtonsBarUi(
                 }
             }
         }
+
+        functionKitButtons = orderedFunctionKitButtons
     }
 }
