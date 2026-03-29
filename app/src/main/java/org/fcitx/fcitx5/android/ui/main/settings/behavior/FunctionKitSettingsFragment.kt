@@ -8,6 +8,7 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
+import androidx.preference.PreferenceGroup
 import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import org.fcitx.fcitx5.android.R
@@ -146,8 +147,21 @@ class FunctionKitSettingsFragment :
             "function_kit_permission_ai_chat",
             "function_kit_permission_ai_agent_access"
         ).forEach { key ->
-            findPreference<Preference>(key)?.let { screen.removePreference(it) }
+            findPreference<Preference>(key)?.let { removePreferenceFromHierarchy(screen, it) }
         }
+    }
+
+    private fun removePreferenceFromHierarchy(root: PreferenceGroup, preference: Preference): Boolean {
+        for (index in root.preferenceCount - 1 downTo 0) {
+            val child = root.getPreference(index)
+            if (child === preference) {
+                return root.removePreference(child)
+            }
+            if (child is PreferenceGroup && removePreferenceFromHierarchy(child, preference)) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun refreshStatus() {
