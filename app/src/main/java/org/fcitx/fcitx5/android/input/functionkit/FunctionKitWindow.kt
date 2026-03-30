@@ -625,6 +625,12 @@ class FunctionKitWindow(
         syncCurrentInputState()
         refreshGrantedPermissions(notifyUi = panelInitialized)
         service.localInputTarget = this
+
+        // Default to the expanded panel mode when users open a Function Kit, so the kit UI is
+        // immediately usable without extra taps.
+        if (!panelExpanded) {
+            expandPanel(reason = "auto-open")
+        }
         syncEmbeddedKeyboardLayout()
 
         if (!panelInitialized) {
