@@ -38,6 +38,97 @@ internal class FunctionKitBindingsWindow(
     private fun requireFunctionKitWindow(kitId: String): FunctionKitWindow =
         functionKitWindowPool.require(kitId)
 
+    private var selectedCategoryId: String? = null
+    private var hasUncategorizedBindings: Boolean = false
+    private var orderedCategories: List<String> = emptyList()
+    private var bindings: List<FunctionKitBindingEntry> = emptyList()
+
+    private fun normalizePresentation(value: String?): String =
+        value?.trim()?.lowercase().orEmpty()
+
+    private fun shouldOpenPanel(binding: FunctionKitBindingEntry): Boolean =
+        normalizePresentation(binding.preferredPresentation).startsWith("panel")
+
+    private fun updateCategoryMetadata() {
+        val counts = mutableMapOf<String, Int>()
+        val hasAnyCategory = bindings.any { entry -> !entry.categories.isNullOrEmpty() }
+        hasUncategorizedBindings = false
+
+        for (binding in bindings) {
+            val categories = binding.categories?.filter { it.isNotBlank() }.orEmpty()
+            if (categories.isEmpty()) {
+                if (hasAnyCategory) {
+                    hasUncategorizedBindings = true
+                }
+                continue
+            }
+            for (category in categories) {
+                counts[category] = (counts[category] ?: 0) + 1
+            }
+        }
+
+        orderedCategories =
+            counts.entries
+                .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key.lowercase() })
+                .map { it.key }
+    }
+
+    private fun filterBindings(): List<FunctionKitBindingEntry> {
+        val selected = selectedCategoryId
+        if (selected.isNullOrBlank()) {
+            return bindings
+        }
+        if (selected == CATEGORY_OTHER) {
+            return bindings.filter { it.categories.isNullOrEmpty() }
+        }
+        return bindings.filter { it.categories?.contains(selected) == true }
+    }
+
+    private fun rebuildEntries() {
+        val entries = mutableListOf<StatusAreaEntry>()
+
+        val showCategoryFilters = orderedCategories.isNotEmpty()
+        if (showCategoryFilters) {
+            entries +=
+                StatusAreaEntry.FunctionKitBindingCategoryFilter(
+                    categoryId = null,
+                    label = context.getString(R.string.function_kit_bindings_filter_all),
+                    active = selectedCategoryId.isNullOrBlank()
+                )
+            orderedCategories.forEach { category ->
+                entries +=
+                    StatusAreaEntry.FunctionKitBindingCategoryFilter(
+                        categoryId = category,
+                        label = category,
+                        active = selectedCategoryId == category
+                    )
+            }
+            if (hasUncategorizedBindings) {
+                entries +=
+                    StatusAreaEntry.FunctionKitBindingCategoryFilter(
+                        categoryId = CATEGORY_OTHER,
+                        label = context.getString(R.string.function_kit_bindings_filter_other),
+                        active = selectedCategoryId == CATEGORY_OTHER
+                    )
+            }
+        }
+
+        if (trigger == FunctionKitBindingTrigger.Clipboard) {
+            val text = clipboardText ?: ClipboardManager.lastEntry?.text
+            if (!text.isNullOrBlank()) {
+                entries +=
+                    StatusAreaEntry.LocalAction(
+                        actionId = "clipboard.paste",
+                        label = context.getString(android.R.string.paste),
+                        icon = R.drawable.ic_baseline_content_paste_24
+                    )
+            }
+        }
+
+        entries += filterBindings().map { binding -> StatusAreaEntry.FunctionKitBindingAction(binding) }
+        adapter.entries = entries.toTypedArray()
+    }
+
     override val title: String by lazy {
         when (trigger) {
             FunctionKitBindingTrigger.Clipboard -> context.getString(R.string.function_kit_bindings_clipboard)
@@ -50,6 +141,10 @@ internal class FunctionKitBindingsWindow(
         object : StatusAreaAdapter() {
             override fun onItemClick(view: View, entry: StatusAreaEntry) {
                 when (entry) {
+                    is StatusAreaEntry.FunctionKitBindingCategoryFilter -> {
+                        selectedCategoryId = entry.categoryId
+                        rebuildEntries()
+                    }
                     is StatusAreaEntry.LocalAction -> {
                         when (entry.actionId) {
                             "clipboard.paste" -> {
@@ -71,7 +166,9 @@ internal class FunctionKitBindingsWindow(
                     is StatusAreaEntry.FunctionKitBindingAction -> {
                         val bindingEntry = entry.binding
                         val window = requireFunctionKitWindow(bindingEntry.kitId)
-                        window.enqueueBindingInvocation(
+                        val openPanel = shouldOpenPanel(bindingEntry)
+                        val invocationId =
+                            window.enqueueBindingInvocation(
                             binding = bindingEntry,
                             trigger = trigger,
                             clipboardText =
@@ -81,10 +178,25 @@ internal class FunctionKitBindingsWindow(
                                 } else {
                                     null
                                 },
-                            startHeadless = true
-                        )
-                        Toast.makeText(context, bindingEntry.title, Toast.LENGTH_SHORT).show()
+                            startHeadless = !openPanel
+                            )
+                        if (openPanel) {
+                            windowManager.view.post { windowManager.attachWindow(window) }
+                            return
+                        }
+
                         windowManager.attachWindow(KeyboardWindow)
+                        windowManager.view.post {
+                            FunctionKitSnackbars.showBindingTriggered(
+                                context = context,
+                                windowManager = windowManager,
+                                theme = theme,
+                                bindingTitle = bindingEntry.title
+                            ) {
+                                window.requestOpenInvocation(invocationId, bindingEntry.bindingId)
+                                windowManager.view.post { windowManager.attachWindow(window) }
+                            }
+                        }
                     }
                     else -> {}
                 }
@@ -105,28 +217,16 @@ internal class FunctionKitBindingsWindow(
     override fun onCreateView() = view
 
     override fun onAttached() {
-        val bindings =
-            FunctionKitBindingRegistry.listForTrigger(context, trigger)
-                .map { binding -> StatusAreaEntry.FunctionKitBindingAction(binding) }
-
-        val entries = mutableListOf<StatusAreaEntry>()
-        if (trigger == FunctionKitBindingTrigger.Clipboard) {
-            val text = clipboardText ?: ClipboardManager.lastEntry?.text
-            if (!text.isNullOrBlank()) {
-                entries.add(
-                    StatusAreaEntry.LocalAction(
-                        actionId = "clipboard.paste",
-                        label = context.getString(android.R.string.paste),
-                        icon = R.drawable.ic_baseline_content_paste_24
-                    )
-                )
-            }
-        }
-        entries.addAll(bindings)
-        adapter.entries = entries.toTypedArray()
+        bindings = FunctionKitBindingRegistry.listForTrigger(context, trigger)
+        updateCategoryMetadata()
+        rebuildEntries()
     }
 
     override fun onDetached() {
         // Keep cached Function Kit windows alive so their WebViews preserve runtime state.
+    }
+
+    companion object {
+        private const val CATEGORY_OTHER = "__other__"
     }
 }

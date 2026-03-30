@@ -49,6 +49,18 @@ sealed class StatusAreaEntry(
             binding.kitIconAssetPath
         )
 
+    internal class FunctionKitBindingCategoryFilter(
+        val categoryId: String?,
+        label: String,
+        active: Boolean
+    ) :
+        StatusAreaEntry(
+            label,
+            R.drawable.ic_baseline_list_alt_24,
+            active,
+            null
+        )
+
     internal class LocalAction(
         val actionId: String,
         label: String,

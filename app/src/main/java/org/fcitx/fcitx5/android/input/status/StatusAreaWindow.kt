@@ -34,6 +34,7 @@ import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessOrderer
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitTaskCenterWindow
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitSnackbars
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
 import org.fcitx.fcitx5.android.input.keyboard.KeyboardWindow
@@ -206,16 +207,36 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                         popupMenu = popup
                         popup.show()
                     }
+                    is StatusAreaEntry.FunctionKitBindingCategoryFilter -> {
+                        // Category filters are only used in FunctionKitBindingsWindow.
+                    }
                     is StatusAreaEntry.FunctionKitBindingAction -> {
                         val bindingEntry = entry.binding
                         val window = requireFunctionKitWindow(bindingEntry.kitId)
-                        window.enqueueBindingInvocation(
+                        val openPanel = bindingEntry.preferredPresentation?.trim()?.lowercase()?.startsWith("panel") == true
+                        val invocationId =
+                            window.enqueueBindingInvocation(
                             binding = bindingEntry,
                             trigger = FunctionKitBindingTrigger.Manual,
-                            startHeadless = true
-                        )
-                        Toast.makeText(context, bindingEntry.title, Toast.LENGTH_SHORT).show()
+                            startHeadless = !openPanel
+                            )
+                        if (openPanel) {
+                            windowManager.view.post { windowManager.attachWindow(window) }
+                            return
+                        }
+
                         windowManager.attachWindow(KeyboardWindow)
+                        windowManager.view.post {
+                            FunctionKitSnackbars.showBindingTriggered(
+                                context = context,
+                                windowManager = windowManager,
+                                theme = theme,
+                                bindingTitle = bindingEntry.title
+                            ) {
+                                window.requestOpenInvocation(invocationId, bindingEntry.bindingId)
+                                windowManager.view.post { windowManager.attachWindow(window) }
+                            }
+                        }
                     }
                     is StatusAreaEntry.Android -> when (entry.type) {
                         FunctionKit -> {

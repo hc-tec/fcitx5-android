@@ -5,6 +5,7 @@
 package org.fcitx.fcitx5.android.input.functionkit
 
 import android.content.Context
+import org.json.JSONObject
 
 internal enum class FunctionKitBindingTrigger {
     Manual,
@@ -30,6 +31,8 @@ internal data class FunctionKitBindingEntry(
     val title: String,
     val triggers: Set<FunctionKitBindingTrigger>,
     val requestedPayloads: Set<String>?,
+    val categories: Set<String>?,
+    val entry: JSONObject?,
     val preferredPresentation: String?
 ) {
     val stableId: String = "$kitId:$bindingId"
@@ -65,6 +68,8 @@ internal object FunctionKitBindingRegistry {
                         title = binding.title,
                         triggers = triggers,
                         requestedPayloads = binding.requestedPayloads?.toSet(),
+                        categories = binding.categories?.toSet(),
+                        entry = binding.entry,
                         preferredPresentation = binding.preferredPresentation
                     )
                 }

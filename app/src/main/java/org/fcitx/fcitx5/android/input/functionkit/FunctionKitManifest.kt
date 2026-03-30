@@ -93,6 +93,8 @@ internal data class FunctionKitManifest(
         val title: String,
         val triggers: List<String>,
         val requestedPayloads: List<String>? = null,
+        val categories: List<String>? = null,
+        val entry: JSONObject? = null,
         val preferredPresentation: String? = null
     ) {
         fun toJson(): JSONObject =
@@ -103,6 +105,12 @@ internal data class FunctionKitManifest(
                 .apply {
                     requestedPayloads?.let { payloads ->
                         put("requestedPayloads", JSONArray(payloads))
+                    }
+                    categories?.let { values ->
+                        put("categories", JSONArray(values))
+                    }
+                    entry?.let { value ->
+                        put("entry", value)
                     }
                     preferredPresentation?.trim()?.takeIf { it.isNotBlank() }?.let { put("preferredPresentation", it) }
                 }
@@ -383,12 +391,26 @@ internal data class FunctionKitManifest(
                         null
                     }
 
+                val categories =
+                    if (item.has("categories")) {
+                        item.optJSONArray("categories")
+                            .toStringList()
+                            .map(String::trim)
+                            .filter(String::isNotBlank)
+                            .distinct()
+                            .ifEmpty { null }
+                    } else {
+                        null
+                    }
+
                 bindings +=
                     Binding(
                         id = id,
                         title = title,
                         triggers = triggers,
                         requestedPayloads = requestedPayloads,
+                        categories = categories,
+                        entry = item.optJSONObject("entry"),
                         preferredPresentation = item.optString("preferredPresentation").nullIfBlank()
                     )
             }

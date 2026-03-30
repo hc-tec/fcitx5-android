@@ -99,6 +99,9 @@ class FunctionKitWindow(
         val trigger: FunctionKitBindingTrigger,
         val bindingId: String,
         val bindingTitle: String,
+        val bindingPreferredPresentation: String?,
+        val bindingCategories: Set<String>,
+        val bindingEntry: JSONObject?,
         val requestedPayloads: Set<String>,
         val providedPayloads: Set<String>,
         val missingPermissions: Set<String>,
@@ -522,6 +525,7 @@ class FunctionKitWindow(
     private var windowAttached = false
     private var bridgeReady = false
     private var pendingOpenOptionsIntent = false
+    private var pendingOpenInvocationIntent: JSONObject? = null
     private val pendingBindingInvocations = ArrayDeque<BindingInvocation>()
     private val pendingRuntimeMessages = ArrayDeque<RuntimeMessageDelivery>()
     private var renderSeed = 0
@@ -564,21 +568,52 @@ class FunctionKitWindow(
         flushPendingUiIntents()
     }
 
-    private fun flushPendingUiIntents() {
-        if (!pendingOpenOptionsIntent) {
+    fun requestOpenInvocation(
+        invocationId: String?,
+        bindingId: String? = null
+    ) {
+        val normalizedInvocationId = invocationId?.trim().orEmpty()
+        if (normalizedInvocationId.isBlank()) {
             return
         }
+        val intentPayload =
+            JSONObject()
+                .put("kind", "open_invocation")
+                .put("invocationId", normalizedInvocationId)
+                .apply {
+                    bindingId?.trim()?.takeIf { it.isNotBlank() }?.let { id ->
+                        put("bindingId", id)
+                    }
+                }
+        pendingOpenInvocationIntent = intentPayload
+        flushPendingUiIntents()
+    }
+
+    private fun flushPendingUiIntents() {
+        val intentPayload =
+            pendingOpenInvocationIntent
+                ?: if (pendingOpenOptionsIntent) JSONObject().put("kind", "open_options") else null
+                ?: return
         if (!windowAttached || !panelInitialized || !bridgeReady) {
             return
         }
-        pendingOpenOptionsIntent = false
+        val kind = intentPayload.optString("kind")
+        if (pendingOpenInvocationIntent != null) {
+            pendingOpenInvocationIntent = null
+        } else {
+            pendingOpenOptionsIntent = false
+        }
         host.dispatchHostStateUpdate(
             kitId = functionKitId,
             surface = Surface,
-            label = "已打开功能件设置",
+            label =
+                when (kind) {
+                    "open_invocation" -> "已打开执行详情"
+                    else -> "已打开功能件设置"
+                },
             details =
                 JSONObject()
-                    .put("intent", JSONObject().put("kind", "open_options"))
+                    .put("intent", intentPayload)
         )
     }
 
@@ -761,7 +796,7 @@ class FunctionKitWindow(
         trigger: FunctionKitBindingTrigger,
         clipboardText: String? = null,
         startHeadless: Boolean = false
-    ) {
+    ): String? {
         val resolvedKitId =
             requestedKitId?.takeIf { it.isNotBlank() }
                 ?: runCatching { functionKitId }.getOrNull()
@@ -770,7 +805,7 @@ class FunctionKitWindow(
                 "FunctionKitWindow",
                 "Dropped binding invocation for mismatched kitId=${binding.kitId} resolved=$resolvedKitId"
             )
-            return
+            return null
         }
 
         ensureManifestStateInitialized()
@@ -812,12 +847,16 @@ class FunctionKitWindow(
                 null
             }
 
+        val invocationId = "invk-${UUID.randomUUID()}"
         pendingBindingInvocations.addLast(
             BindingInvocation(
-                invocationId = "invk-${UUID.randomUUID()}",
+                invocationId = invocationId,
                 trigger = trigger,
                 bindingId = binding.bindingId,
                 bindingTitle = binding.title,
+                bindingPreferredPresentation = binding.preferredPresentation,
+                bindingCategories = binding.categories ?: emptySet(),
+                bindingEntry = binding.entry,
                 requestedPayloads = requestedPayloads,
                 providedPayloads = providedPayloads,
                 missingPermissions = missingPermissions,
@@ -830,6 +869,7 @@ class FunctionKitWindow(
             ensureHeadlessPanelInitialized(reason = "binding.invoke")
         }
         flushPendingBindingInvocations()
+        return invocationId
     }
 
     private fun resolveBindingRequestedPayloads(
@@ -1003,15 +1043,29 @@ class FunctionKitWindow(
             .put("sentAtEpochMs", message.sentAtEpochMs)
 
     private fun buildBindingInvokePayload(invocation: BindingInvocation): JSONObject {
+        val binding =
+            JSONObject()
+                .put("id", invocation.bindingId)
+                .put("title", invocation.bindingTitle)
+                .apply {
+                    invocation.bindingPreferredPresentation?.let { value ->
+                        put("preferredPresentation", value)
+                    }
+                    if (invocation.bindingCategories.isNotEmpty()) {
+                        put("categories", JSONArray(invocation.bindingCategories))
+                    }
+                    invocation.bindingEntry?.let { value ->
+                        put("entry", value)
+                    }
+                }
+
         val payload =
             JSONObject()
                 .put("invocationId", invocation.invocationId)
                 .put("trigger", invocation.trigger.name.lowercase())
                 .put(
                     "binding",
-                    JSONObject()
-                        .put("id", invocation.bindingId)
-                        .put("title", invocation.bindingTitle)
+                    binding
                 )
                 .put("context", invocation.capturedContext)
                 .put("createdAtEpochMs", invocation.createdAtEpochMs)

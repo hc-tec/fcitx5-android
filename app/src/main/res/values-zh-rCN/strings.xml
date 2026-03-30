@@ -314,6 +314,10 @@
     <string name="function_kit_bindings">功能件动作</string>
     <string name="function_kit_bindings_clipboard">剪贴板动作</string>
     <string name="function_kit_bindings_selection">选区动作</string>
+    <string name="function_kit_bindings_filter_all">全部</string>
+    <string name="function_kit_bindings_filter_other">其他</string>
+    <string name="function_kit_binding_snackbar_triggered">已触发：%1$s</string>
+    <string name="function_kit_binding_snackbar_open">打开</string>
     <string name="function_kit_clipboard_prompt_channel">剪贴板提示</string>
     <string name="function_kit_clipboard_prompt_content">点击打开剪贴板动作。</string>
     <string name="function_kit_clipboard_prompt_focus_input_hint">已复制。请点输入框打开键盘后使用剪贴板动作。</string>
