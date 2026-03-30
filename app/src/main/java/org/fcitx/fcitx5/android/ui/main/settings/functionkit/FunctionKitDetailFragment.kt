@@ -277,6 +277,8 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
             "storage.write" -> R.string.function_kit_permission_storage_write
             "files.pick" -> R.string.function_kit_permission_files_pick
             "panel.state.write" -> R.string.function_kit_permission_panel_state_write
+            "runtime.message.send" -> R.string.function_kit_permission_runtime_message_send
+            "runtime.message.receive" -> R.string.function_kit_permission_runtime_message_receive
             "network.fetch" -> R.string.function_kit_permission_network_fetch
             "ai.request" -> R.string.function_kit_permission_ai_chat
             "ai.agent.list" -> R.string.function_kit_permission_ai_agent_access

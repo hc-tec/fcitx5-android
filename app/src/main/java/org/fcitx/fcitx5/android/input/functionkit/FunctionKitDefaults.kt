@@ -23,6 +23,8 @@ internal object FunctionKitDefaults {
             "storage.write",
             "files.pick",
             "panel.state.write",
+            "runtime.message.send",
+            "runtime.message.receive",
             "network.fetch",
             "ai.request",
             "send.intercept.ime_action",
@@ -43,7 +45,9 @@ internal object FunctionKitDefaults {
             "storage.read",
             "storage.write",
             "files.pick",
-            "panel.state.write"
+            "panel.state.write",
+            "runtime.message.send",
+            "runtime.message.receive"
         )
 
     val remotePermissions =

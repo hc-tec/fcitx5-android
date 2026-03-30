@@ -401,6 +401,8 @@
     <string name="function_kit_permission_storage_write">允许写入功能件存储</string>
     <string name="function_kit_permission_files_pick">允许选择文件</string>
     <string name="function_kit_permission_panel_state_write">允许保存面板状态</string>
+    <string name="function_kit_permission_runtime_message_send">允许向其他功能件发送消息</string>
+    <string name="function_kit_permission_runtime_message_receive">允许接收来自其他功能件的消息</string>
     <string name="reload_function_kit">重新加载功能件</string>
     <string name="function_kit_panel_expand">放大面板</string>
     <string name="function_kit_panel_collapse">收起面板</string>

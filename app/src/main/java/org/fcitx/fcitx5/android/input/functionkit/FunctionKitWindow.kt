@@ -104,6 +104,14 @@ class FunctionKitWindow(
         val createdAtEpochMs: Long = System.currentTimeMillis()
     )
 
+    private data class RuntimeMessageDelivery(
+        val fromKitId: String,
+        val fromSurface: String?,
+        val channel: String?,
+        val data: Any?,
+        val sentAtEpochMs: Long
+    )
+
     private data class ExecutionConfig(
         val remoteEnabled: Boolean,
         val configuredBaseUrl: String,
@@ -184,6 +192,7 @@ class FunctionKitWindow(
     private val theme: Theme by manager.theme()
     private val windowManager: InputWindowManager by manager.must()
     private val kawaiiBar: KawaiiBarComponent by manager.must()
+    private val windowPool: FunctionKitWindowPool by manager.must()
     private val aiPrefs = AppPrefs.getInstance().ai
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
     private val functionKitManifest by lazy {
@@ -510,6 +519,7 @@ class FunctionKitWindow(
     private var bridgeReady = false
     private var pendingOpenOptionsIntent = false
     private val pendingBindingInvocations = ArrayDeque<BindingInvocation>()
+    private val pendingRuntimeMessages = ArrayDeque<RuntimeMessageDelivery>()
     private var renderSeed = 0
     private var sessionId = newSessionId()
     private var requestedPermissions = emptyList<String>()
@@ -814,6 +824,7 @@ class FunctionKitWindow(
             "ai.request" -> handleAiRequest(replyTo, surface, payload)
             "ai.agent.list" -> handleAiAgentList(replyTo, surface)
             "ai.agent.run" -> handleAiAgentRun(replyTo, surface, payload)
+            "runtime.message.send" -> handleRuntimeMessageSend(replyTo, surface, payload)
             "tasks.sync.request" -> handleTasksSyncRequest(replyTo, surface, payload)
             "task.cancel" -> handleTaskCancel(replyTo, surface, payload)
             "send.intercept.ime_action.register" -> handleSendInterceptImeActionRegister(replyTo, surface, payload)
@@ -873,6 +884,7 @@ class FunctionKitWindow(
         dispatchComposerStateSync(replyTo = null, surface = surface, reason = "bridge.ready")
         pushHostState("宿主握手完成")
         flushPendingBindingInvocations()
+        flushPendingRuntimeMessages()
         flushPendingUiIntents()
     }
 
@@ -890,6 +902,29 @@ class FunctionKitWindow(
             )
         }
     }
+
+    private fun flushPendingRuntimeMessages() {
+        if (!panelInitialized || !bridgeReady) {
+            return
+        }
+
+        while (pendingRuntimeMessages.isNotEmpty()) {
+            val message = pendingRuntimeMessages.removeFirst()
+            host.dispatchRuntimeMessage(
+                kitId = functionKitId,
+                surface = Surface,
+                payload = buildRuntimeMessagePayload(message)
+            )
+        }
+    }
+
+    private fun buildRuntimeMessagePayload(message: RuntimeMessageDelivery): JSONObject =
+        JSONObject()
+            .put("fromKitId", message.fromKitId)
+            .put("fromSurface", message.fromSurface?.trim()?.takeIf { it.isNotBlank() })
+            .put("channel", message.channel?.trim()?.takeIf { it.isNotBlank() })
+            .put("data", message.data)
+            .put("sentAtEpochMs", message.sentAtEpochMs)
 
     private fun buildBindingInvokePayload(invocation: BindingInvocation): JSONObject {
         val requestedPayloads = invocation.requestedPayloads
@@ -2207,6 +2242,154 @@ class FunctionKitWindow(
                 JSONObject()
                     .put("request", JSONObject(payload.toString()))
         )
+    }
+
+    private fun handleRuntimeMessageSend(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "runtime.message.send") ?: return
+
+        val toKitId = payload.optString("toKitId").trim()
+        if (toKitId.isBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "invalid_payload",
+                message = "Missing toKitId for runtime message.",
+                retryable = false,
+                details = JSONObject().put("payload", JSONObject(payload.toString()))
+            )
+            return
+        }
+
+        val channel = payload.optString("channel").trim().takeIf { it.isNotBlank() }
+        val data = payload.takeIf { it.has("data") }?.opt("data")
+        val sentAtEpochMs = System.currentTimeMillis()
+
+        val installed = FunctionKitRegistry.listInstalled(context)
+        val receiverManifest = installed.firstOrNull { it.id == toKitId }
+        val ackPayload =
+            JSONObject()
+                .put("toKitId", toKitId)
+                .put("channel", channel)
+                .put("sentAtEpochMs", sentAtEpochMs)
+
+        if (receiverManifest == null) {
+            host.dispatchRuntimeMessageSendAck(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                payload =
+                    ackPayload
+                        .put("delivered", 0)
+                        .put("reason", "kit_not_found")
+            )
+            return
+        }
+
+        if (!FunctionKitKitSettings.isKitEnabled(toKitId)) {
+            host.dispatchRuntimeMessageSendAck(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                payload =
+                    ackPayload
+                        .put("delivered", 0)
+                        .put("reason", "kit_disabled")
+            )
+            return
+        }
+
+        if (!receiverManifest.runtimePermissions.contains("runtime.message.receive")) {
+            host.dispatchRuntimeMessageSendAck(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                payload =
+                    ackPayload
+                        .put("delivered", 0)
+                        .put("reason", "receiver_permission_missing")
+            )
+            return
+        }
+
+        if (!FunctionKitPermissionPolicy.isEnabled("runtime.message.receive", functionKitPrefs, toKitId)) {
+            host.dispatchRuntimeMessageSendAck(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                payload =
+                    ackPayload
+                        .put("delivered", 0)
+                        .put("reason", "receiver_permission_denied")
+            )
+            return
+        }
+
+        val delivered =
+            try {
+                windowPool
+                    .require(toKitId)
+                    .receiveRuntimeMessage(
+                        fromKitId = functionKitId,
+                        fromSurface = surface,
+                        channel = channel,
+                        data = data,
+                        sentAtEpochMs = sentAtEpochMs
+                    )
+            } catch (error: Throwable) {
+                false
+            }
+
+        host.dispatchRuntimeMessageSendAck(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload =
+                ackPayload
+                    .put("delivered", if (delivered) 1 else 0)
+                    .apply {
+                        if (!delivered) {
+                            put("reason", "not_delivered")
+                        }
+                    }
+        )
+    }
+
+    internal fun receiveRuntimeMessage(
+        fromKitId: String,
+        fromSurface: String?,
+        channel: String?,
+        data: Any?,
+        sentAtEpochMs: Long
+    ): Boolean {
+        ensureManifestStateInitialized()
+        val permission = "runtime.message.receive"
+        val declared = permission in supportedRuntimePermissions
+        if (!declared) {
+            return false
+        }
+        if (!FunctionKitPermissionPolicy.isEnabled(permission, functionKitPrefs, functionKitId)) {
+            return false
+        }
+        if (!panelInitialized) {
+            ensureHeadlessPanelInitialized(reason = "runtime.message")
+        }
+
+        pendingRuntimeMessages.addLast(
+            RuntimeMessageDelivery(
+                fromKitId = fromKitId,
+                fromSurface = fromSurface,
+                channel = channel,
+                data = data,
+                sentAtEpochMs = sentAtEpochMs
+            )
+        )
+        flushPendingRuntimeMessages()
+        return true
     }
 
     private fun handleComposerOpen(

@@ -534,6 +534,16 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             "function_kit_permission_panel_state_write",
             true
         )
+        val allowRuntimeMessageSend = switch(
+            R.string.function_kit_permission_runtime_message_send,
+            "function_kit_permission_runtime_message_send",
+            true
+        )
+        val allowRuntimeMessageReceive = switch(
+            R.string.function_kit_permission_runtime_message_receive,
+            "function_kit_permission_runtime_message_receive",
+            true
+        )
     }
 
     inner class Symbols : ManagedPreferenceCategory(R.string.emoji_and_symbols, sharedPreferences) {

@@ -20,6 +20,8 @@ internal object FunctionKitPermissionPolicy {
             "storage.write" -> prefs.allowStorageWrite.getValue()
             "files.pick" -> prefs.allowFilesPick.getValue()
             "panel.state.write" -> prefs.allowPanelStateWrite.getValue()
+            "runtime.message.send" -> prefs.allowRuntimeMessageSend.getValue()
+            "runtime.message.receive" -> prefs.allowRuntimeMessageReceive.getValue()
             "network.fetch" -> prefs.allowNetworkFetch.getValue()
             "ai.request" -> prefs.allowAiChat.getValue()
             "send.intercept.ime_action" -> prefs.allowSendInterceptImeAction.getValue()

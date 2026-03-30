@@ -56,6 +56,7 @@ private val AllowedInboundTypes =
         "ai.request",
         "ai.agent.list",
         "ai.agent.run",
+        "runtime.message.send",
         "tasks.sync.request",
         "task.cancel",
         "send.intercept.ime_action.register",
@@ -83,11 +84,14 @@ private val AllowedOutboundTypes =
         "send.intercept.ime_action.ack",
         "send.intercept.ime_action.intent",
         "host.state.update",
+        "runtime.message.send.ack",
+        "runtime.message",
         "permission.denied",
         "bridge.error",
         "network.fetch.result",
         "files.pick.result",
         "ai.response",
+        "ai.response.delta",
         "ai.agent.list.result",
         "ai.agent.run.result",
         "task.update",
@@ -578,6 +582,35 @@ class FunctionKitWebViewHost(
                 JSONObject()
                     .put("label", label)
                     .put("details", details)
+        )
+    }
+
+    fun dispatchRuntimeMessageSendAck(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "runtime.message.send.ack",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchRuntimeMessage(
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "runtime.message",
+            replyTo = null,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
         )
     }
 
