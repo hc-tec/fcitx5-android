@@ -30,6 +30,7 @@ import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.core.CapabilityFlags
 import org.fcitx.fcitx5.android.core.FcitxEvent
 import org.fcitx.fcitx5.android.core.FormattedText
+import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.FcitxInputMethodService
@@ -99,8 +100,11 @@ class FunctionKitWindow(
         val bindingId: String,
         val bindingTitle: String,
         val requestedPayloads: Set<String>,
+        val providedPayloads: Set<String>,
+        val missingPermissions: Set<String>,
+        val payloadTruncated: Boolean,
+        val capturedContext: JSONObject,
         val clipboardText: String? = null,
-        val capturedContext: JSONObject? = null,
         val createdAtEpochMs: Long = System.currentTimeMillis()
     )
 
@@ -750,7 +754,6 @@ class FunctionKitWindow(
         binding: FunctionKitBindingEntry,
         trigger: FunctionKitBindingTrigger,
         clipboardText: String? = null,
-        capturedContext: JSONObject? = null,
         startHeadless: Boolean = false
     ) {
         val resolvedKitId =
@@ -764,21 +767,88 @@ class FunctionKitWindow(
             return
         }
 
+        ensureManifestStateInitialized()
+        refreshGrantedPermissions(notifyUi = false)
+
+        val requestedPayloads = resolveBindingRequestedPayloads(binding.requestedPayloads, trigger)
+        val missingPermissions = mutableSetOf<String>()
+        val allowedPayloads = requestedPayloads.toMutableSet()
+
+        if ("context.read" !in grantedPermissions &&
+            (allowedPayloads.any { it.startsWith("selection.") } || "clipboard.text" in allowedPayloads)
+        ) {
+            missingPermissions += "context.read"
+            allowedPayloads.removeAll(BindingSelectionPayloads)
+            allowedPayloads.remove("clipboard.text")
+        }
+
+        val captureResult =
+            FunctionKitBindingInvocationContext.capture(
+                service = service,
+                requestedPayloads = allowedPayloads,
+                candidateCount = currentCandidateCount
+            )
+
+        var payloadTruncated = captureResult.payloadTruncated
+        val providedPayloads = captureResult.providedPayloads.toMutableSet()
+        val clipboardTextForPayload =
+            if ("clipboard.text" in allowedPayloads) {
+                val raw = clipboardText ?: ClipboardManager.lastEntry?.text
+                if (raw == null) {
+                    null
+                } else {
+                    val (normalized, truncated) = truncateTextForBridge(raw, BindingClipboardTextMaxChars)
+                    payloadTruncated = payloadTruncated || truncated
+                    providedPayloads += "clipboard.text"
+                    normalized
+                }
+            } else {
+                null
+            }
+
         pendingBindingInvocations.addLast(
             BindingInvocation(
                 invocationId = "invk-${UUID.randomUUID()}",
                 trigger = trigger,
                 bindingId = binding.bindingId,
                 bindingTitle = binding.title,
-                requestedPayloads = binding.requestedPayloads,
-                clipboardText = clipboardText,
-                capturedContext = capturedContext
+                requestedPayloads = requestedPayloads,
+                providedPayloads = providedPayloads,
+                missingPermissions = missingPermissions,
+                payloadTruncated = payloadTruncated,
+                capturedContext = captureResult.context,
+                clipboardText = clipboardTextForPayload
             )
         )
         if (startHeadless) {
             ensureHeadlessPanelInitialized(reason = "binding.invoke")
         }
         flushPendingBindingInvocations()
+    }
+
+    private fun resolveBindingRequestedPayloads(
+        declaredPayloads: Set<String>?,
+        trigger: FunctionKitBindingTrigger
+    ): Set<String> {
+        if (declaredPayloads != null) {
+            return declaredPayloads
+        }
+
+        return when (trigger) {
+            FunctionKitBindingTrigger.Clipboard -> DefaultBindingRequestedPayloadsClipboard
+            FunctionKitBindingTrigger.Selection -> DefaultBindingRequestedPayloadsSelection
+            FunctionKitBindingTrigger.Manual -> DefaultBindingRequestedPayloadsManual
+        }
+    }
+
+    private fun truncateTextForBridge(
+        value: String,
+        maxChars: Int
+    ): Pair<String, Boolean> {
+        if (value.length <= maxChars) {
+            return value to false
+        }
+        return value.take(maxChars) to true
     }
 
     private fun ensureHeadlessPanelInitialized(reason: String) {
@@ -927,7 +997,6 @@ class FunctionKitWindow(
             .put("sentAtEpochMs", message.sentAtEpochMs)
 
     private fun buildBindingInvokePayload(invocation: BindingInvocation): JSONObject {
-        val requestedPayloads = invocation.requestedPayloads
         val payload =
             JSONObject()
                 .put("invocationId", invocation.invocationId)
@@ -938,24 +1007,21 @@ class FunctionKitWindow(
                         .put("id", invocation.bindingId)
                         .put("title", invocation.bindingTitle)
                 )
-                .put("context", invocation.capturedContext ?: buildBindingInvocationContextPayload(requestedPayloads))
+                .put("context", invocation.capturedContext)
                 .put("createdAtEpochMs", invocation.createdAtEpochMs)
+                .put("requestedPayloads", JSONArray(invocation.requestedPayloads))
+                .put("providedPayloads", JSONArray(invocation.providedPayloads))
+                .put("payloadLimits", FunctionKitBindingInvocationContext.payloadLimits())
+                .put("payloadTruncated", invocation.payloadTruncated)
 
-        if ("clipboard.text" in requestedPayloads) {
-            invocation.clipboardText?.let { text ->
-                payload.put("clipboardText", text)
-            }
+        invocation.clipboardText?.let { text ->
+            payload.put("clipboardText", text)
+        }
+        if (invocation.missingPermissions.isNotEmpty()) {
+            payload.put("missingPermissions", JSONArray(invocation.missingPermissions))
         }
 
         return payload
-    }
-
-    private fun buildBindingInvocationContextPayload(requestedPayloads: Set<String>): JSONObject {
-        return FunctionKitBindingInvocationContext.capture(
-            service = service,
-            requestedPayloads = requestedPayloads,
-            candidateCount = currentCandidateCount
-        )
     }
 
     private fun handleContextRequest(replyTo: String, payload: JSONObject) {
@@ -4293,6 +4359,18 @@ class FunctionKitWindow(
         private const val MaxInlineImageBytes = 2 * 1024 * 1024
         private const val LocalDemoAgentId = "android-local-demo"
         private const val RemoteHostAgentId = "android-remote-host"
+        private const val BindingClipboardTextMaxChars = 8 * 1024
+
+        private val BindingSelectionPayloads =
+            setOf(
+                "selection.text",
+                "selection.beforeCursor",
+                "selection.afterCursor"
+            )
+
+        private val DefaultBindingRequestedPayloadsManual = BindingSelectionPayloads
+        private val DefaultBindingRequestedPayloadsSelection = BindingSelectionPayloads
+        private val DefaultBindingRequestedPayloadsClipboard = setOf("clipboard.text")
 
         private val CandidateVariants =
             listOf(

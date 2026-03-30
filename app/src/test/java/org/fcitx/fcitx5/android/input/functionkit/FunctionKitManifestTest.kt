@@ -163,6 +163,11 @@ class FunctionKitManifestTest {
                               "requestedPayloads": ["selection.text"]
                             },
                             {
+                              "id": "manual.gamma",
+                              "title": "Gamma",
+                              "triggers": ["manual"]
+                            },
+                            {
                               "id": "ignored.invalid-trigger",
                               "title": "Ignored",
                               "triggers": ["unknown"]
@@ -182,12 +187,15 @@ class FunctionKitManifestTest {
                 fallbackRuntimePermissions = FunctionKitDefaults.supportedPermissions
             )
 
-        assertEquals(2, manifest.bindings.size)
+        assertEquals(3, manifest.bindings.size)
         assertEquals("clipboard.alpha", manifest.bindings[0].id)
         assertEquals("Alpha", manifest.bindings[0].title)
         assertEquals(listOf("clipboard", "manual"), manifest.bindings[0].triggers)
         assertEquals(listOf("clipboard.text"), manifest.bindings[0].requestedPayloads)
         assertEquals("selection.beta", manifest.bindings[1].id)
         assertEquals(listOf("selection", "manual"), manifest.bindings[1].triggers)
+        assertEquals(listOf("selection.text"), manifest.bindings[1].requestedPayloads)
+        assertEquals("manual.gamma", manifest.bindings[2].id)
+        assertEquals(null, manifest.bindings[2].requestedPayloads)
     }
 }

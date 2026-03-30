@@ -92,7 +92,7 @@ internal data class FunctionKitManifest(
         val id: String,
         val title: String,
         val triggers: List<String>,
-        val requestedPayloads: List<String> = emptyList(),
+        val requestedPayloads: List<String>? = null,
         val preferredPresentation: String? = null
     ) {
         fun toJson(): JSONObject =
@@ -100,8 +100,10 @@ internal data class FunctionKitManifest(
                 .put("id", id)
                 .put("title", title)
                 .put("triggers", JSONArray(triggers))
-                .put("requestedPayloads", JSONArray(requestedPayloads))
                 .apply {
+                    requestedPayloads?.let { payloads ->
+                        put("requestedPayloads", JSONArray(payloads))
+                    }
                     preferredPresentation?.trim()?.takeIf { it.isNotBlank() }?.let { put("preferredPresentation", it) }
                 }
     }
@@ -339,6 +341,13 @@ internal data class FunctionKitManifest(
             val bindingsNode = root.optJSONArray("bindings") ?: return emptyList()
             val bindings = mutableListOf<Binding>()
             val supportedTriggers = setOf("manual", "selection", "clipboard")
+            val supportedRequestedPayloads =
+                setOf(
+                    "selection.text",
+                    "selection.beforeCursor",
+                    "selection.afterCursor",
+                    "clipboard.text"
+                )
 
             for (index in 0 until bindingsNode.length()) {
                 val item = bindingsNode.optJSONObject(index) ?: continue
@@ -363,11 +372,16 @@ internal data class FunctionKitManifest(
                 }
 
                 val requestedPayloads =
-                    item.optJSONArray("requestedPayloads")
-                        .toStringList()
-                        .map(String::trim)
-                        .filter(String::isNotBlank)
-                        .distinct()
+                    if (item.has("requestedPayloads")) {
+                        item.optJSONArray("requestedPayloads")
+                            .toStringList()
+                            .map(String::trim)
+                            .filter(String::isNotBlank)
+                            .filter { it in supportedRequestedPayloads }
+                            .distinct()
+                    } else {
+                        null
+                    }
 
                 bindings +=
                     Binding(

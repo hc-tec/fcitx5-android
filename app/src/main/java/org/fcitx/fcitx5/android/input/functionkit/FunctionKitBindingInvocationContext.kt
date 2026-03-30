@@ -9,35 +9,73 @@ import org.json.JSONObject
 
 internal object FunctionKitBindingInvocationContext {
     private const val CursorContextChars = 256
+    private const val SelectionTextMaxChars = 8 * 1024
+    private const val ClipboardTextMaxChars = 8 * 1024
+
+    data class CaptureResult(
+        val context: JSONObject,
+        val providedPayloads: Set<String>,
+        val payloadTruncated: Boolean
+    )
+
+    fun payloadLimits(): JSONObject =
+        JSONObject()
+            .put("cursorContextChars", CursorContextChars)
+            .put("selectionTextMaxChars", SelectionTextMaxChars)
+            .put("clipboardTextMaxChars", ClipboardTextMaxChars)
 
     fun capture(
         service: FcitxInputMethodService,
         requestedPayloads: Set<String>,
         candidateCount: Int = 0
-    ): JSONObject {
+    ): CaptureResult {
         val inputConnection = service.currentInputConnection
         val beforeCursor = inputConnection?.getTextBeforeCursor(CursorContextChars, 0)?.toString().orEmpty()
         val afterCursor = inputConnection?.getTextAfterCursor(CursorContextChars, 0)?.toString().orEmpty()
-        val selectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
+        val rawSelectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
         val selection = service.currentInputSelection
 
-        return JSONObject()
-            .put("sourcePackage", service.currentInputEditorInfo.packageName.orEmpty())
-            .put("selectionStart", selection.start)
-            .put("selectionEnd", selection.end)
-            .put("inputType", service.currentInputEditorInfo.inputType)
-            .put("candidateCount", candidateCount)
-            .apply {
-                if ("selection.text" in requestedPayloads) {
-                    put("selectedText", selectedText.trim())
+        val providedPayloads = mutableSetOf<String>()
+        var payloadTruncated = false
+
+        val payload =
+            JSONObject()
+                .put("sourcePackage", service.currentInputEditorInfo.packageName.orEmpty())
+                .put("selectionStart", selection.start)
+                .put("selectionEnd", selection.end)
+                .put("inputType", service.currentInputEditorInfo.inputType)
+                .put("candidateCount", candidateCount)
+                .apply {
+                    if ("selection.text" in requestedPayloads) {
+                        val (selectedText, truncated) = truncateText(rawSelectedText.trim(), SelectionTextMaxChars)
+                        put("selectedText", selectedText)
+                        providedPayloads += "selection.text"
+                        payloadTruncated = payloadTruncated || truncated
+                    }
+                    if ("selection.beforeCursor" in requestedPayloads) {
+                        put("beforeCursor", beforeCursor)
+                        providedPayloads += "selection.beforeCursor"
+                    }
+                    if ("selection.afterCursor" in requestedPayloads) {
+                        put("afterCursor", afterCursor)
+                        providedPayloads += "selection.afterCursor"
+                    }
                 }
-                if ("selection.beforeCursor" in requestedPayloads) {
-                    put("beforeCursor", beforeCursor)
-                }
-                if ("selection.afterCursor" in requestedPayloads) {
-                    put("afterCursor", afterCursor)
-                }
-            }
+
+        return CaptureResult(
+            context = payload,
+            providedPayloads = providedPayloads,
+            payloadTruncated = payloadTruncated
+        )
+    }
+
+    private fun truncateText(
+        value: String,
+        maxChars: Int
+    ): Pair<String, Boolean> {
+        if (value.length <= maxChars) {
+            return value to false
+        }
+        return value.take(maxChars) to true
     }
 }
-

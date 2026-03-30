@@ -29,7 +29,7 @@ internal data class FunctionKitBindingEntry(
     val bindingId: String,
     val title: String,
     val triggers: Set<FunctionKitBindingTrigger>,
-    val requestedPayloads: Set<String>,
+    val requestedPayloads: Set<String>?,
     val preferredPresentation: String?
 ) {
     val stableId: String = "$kitId:$bindingId"
@@ -64,7 +64,7 @@ internal object FunctionKitBindingRegistry {
                         bindingId = binding.id,
                         title = binding.title,
                         triggers = triggers,
-                        requestedPayloads = binding.requestedPayloads.toSet(),
+                        requestedPayloads = binding.requestedPayloads?.toSet(),
                         preferredPresentation = binding.preferredPresentation
                     )
                 }

@@ -70,24 +70,17 @@ internal class FunctionKitBindingsWindow(
                     }
                     is StatusAreaEntry.FunctionKitBindingAction -> {
                         val bindingEntry = entry.binding
-                        val clipboardText =
-                            if ("clipboard.text" in bindingEntry.requestedPayloads) {
-                                this@FunctionKitBindingsWindow.clipboardText
-                                    ?: ClipboardManager.lastEntry?.text
-                            } else {
-                                null
-                            }
-
                         val window = requireFunctionKitWindow(bindingEntry.kitId)
                         window.enqueueBindingInvocation(
                             binding = bindingEntry,
                             trigger = trigger,
-                            clipboardText = clipboardText,
-                            capturedContext =
-                                FunctionKitBindingInvocationContext.capture(
-                                    service = service,
-                                    requestedPayloads = bindingEntry.requestedPayloads
-                                ),
+                            clipboardText =
+                                if (trigger == FunctionKitBindingTrigger.Clipboard) {
+                                    this@FunctionKitBindingsWindow.clipboardText
+                                        ?: ClipboardManager.lastEntry?.text
+                                } else {
+                                    null
+                                },
                             startHeadless = true
                         )
                         Toast.makeText(context, bindingEntry.title, Toast.LENGTH_SHORT).show()

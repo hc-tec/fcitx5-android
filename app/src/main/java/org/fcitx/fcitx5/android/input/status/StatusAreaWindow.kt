@@ -208,23 +208,10 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                     }
                     is StatusAreaEntry.FunctionKitBindingAction -> {
                         val bindingEntry = entry.binding
-                        val clipboardText =
-                            if ("clipboard.text" in bindingEntry.requestedPayloads) {
-                                ClipboardManager.lastEntry?.text
-                            } else {
-                                null
-                            }
-
                         val window = requireFunctionKitWindow(bindingEntry.kitId)
                         window.enqueueBindingInvocation(
                             binding = bindingEntry,
                             trigger = FunctionKitBindingTrigger.Manual,
-                            clipboardText = clipboardText,
-                            capturedContext =
-                                FunctionKitBindingInvocationContext.capture(
-                                    service = service,
-                                    requestedPayloads = bindingEntry.requestedPayloads
-                                ),
                             startHeadless = true
                         )
                         Toast.makeText(context, bindingEntry.title, Toast.LENGTH_SHORT).show()
