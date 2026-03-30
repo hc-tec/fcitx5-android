@@ -100,6 +100,7 @@ class FunctionKitWindow(
         val bindingTitle: String,
         val requestedPayloads: Set<String>,
         val clipboardText: String? = null,
+        val capturedContext: JSONObject? = null,
         val createdAtEpochMs: Long = System.currentTimeMillis()
     )
 
@@ -738,7 +739,9 @@ class FunctionKitWindow(
     internal fun enqueueBindingInvocation(
         binding: FunctionKitBindingEntry,
         trigger: FunctionKitBindingTrigger,
-        clipboardText: String? = null
+        clipboardText: String? = null,
+        capturedContext: JSONObject? = null,
+        startHeadless: Boolean = false
     ) {
         val resolvedKitId =
             requestedKitId?.takeIf { it.isNotBlank() }
@@ -758,10 +761,32 @@ class FunctionKitWindow(
                 bindingId = binding.bindingId,
                 bindingTitle = binding.title,
                 requestedPayloads = binding.requestedPayloads,
-                clipboardText = clipboardText
+                clipboardText = clipboardText,
+                capturedContext = capturedContext
             )
         )
+        if (startHeadless) {
+            ensureHeadlessPanelInitialized(reason = "binding.invoke")
+        }
         flushPendingBindingInvocations()
+    }
+
+    private fun ensureHeadlessPanelInitialized(reason: String) {
+        ensureManifestStateInitialized()
+        syncCurrentInputState()
+        refreshGrantedPermissions(notifyUi = false)
+
+        if (!panelInitialized) {
+            host.initialize(functionKitManifest.entryHtmlAssetPath)
+            panelInitialized = true
+        }
+        webView.onResume()
+        host.dispatchHostStateUpdate(
+            kitId = functionKitId,
+            surface = Surface,
+            label = "Android Function Kit 运行中（后台）",
+            details = buildHostDetails(currentExecutionConfig()).put("reason", reason)
+        )
     }
 
     private fun handleUiEnvelope(envelope: JSONObject) {
@@ -852,7 +877,7 @@ class FunctionKitWindow(
     }
 
     private fun flushPendingBindingInvocations() {
-        if (!windowAttached || !panelInitialized || !bridgeReady) {
+        if (!panelInitialized || !bridgeReady) {
             return
         }
 
@@ -878,7 +903,7 @@ class FunctionKitWindow(
                         .put("id", invocation.bindingId)
                         .put("title", invocation.bindingTitle)
                 )
-                .put("context", buildBindingInvocationContextPayload(requestedPayloads))
+                .put("context", invocation.capturedContext ?: buildBindingInvocationContextPayload(requestedPayloads))
                 .put("createdAtEpochMs", invocation.createdAtEpochMs)
 
         if ("clipboard.text" in requestedPayloads) {
@@ -891,28 +916,11 @@ class FunctionKitWindow(
     }
 
     private fun buildBindingInvocationContextPayload(requestedPayloads: Set<String>): JSONObject {
-        val inputConnection = service.currentInputConnection
-        val beforeCursor = inputConnection?.getTextBeforeCursor(64, 0)?.toString().orEmpty()
-        val afterCursor = inputConnection?.getTextAfterCursor(64, 0)?.toString().orEmpty()
-        val selectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
-
-        return JSONObject()
-            .put("sourcePackage", currentPackageName)
-            .put("selectionStart", currentSelectionStart)
-            .put("selectionEnd", currentSelectionEnd)
-            .put("inputType", currentInputType)
-            .put("candidateCount", currentCandidateCount)
-            .apply {
-                if ("selection.text" in requestedPayloads) {
-                    put("selectedText", selectedText.trim())
-                }
-                if ("selection.beforeCursor" in requestedPayloads) {
-                    put("beforeCursor", beforeCursor)
-                }
-                if ("selection.afterCursor" in requestedPayloads) {
-                    put("afterCursor", afterCursor)
-                }
-            }
+        return FunctionKitBindingInvocationContext.capture(
+            service = service,
+            requestedPayloads = requestedPayloads,
+            candidateCount = currentCandidateCount
+        )
     }
 
     private fun handleContextRequest(replyTo: String, payload: JSONObject) {
@@ -1606,7 +1614,7 @@ class FunctionKitWindow(
         surface: String,
         payload: JSONObject
     ) {
-        ensurePermission(replyTo, "storage.read") ?: return
+        ensurePermission(replyTo, "files.pick") ?: return
 
         if (pendingFilePickRequestId != null) {
             host.dispatchBridgeError(

@@ -10,16 +10,17 @@ import org.junit.Test
 
 class FunctionKitQuickAccessSpecTest {
     @Test
-    fun `toolbar order inserts function kits before secondary actions`() {
+    fun `toolbar order keeps bindings and task center before function kits`() {
         assertEquals(
             listOf(
+                FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Bindings),
+                FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter),
                 FunctionKitQuickAccessSpec.ToolbarSlot.FunctionKit("chat-auto-reply"),
                 FunctionKitQuickAccessSpec.ToolbarSlot.FunctionKit("quick-phrases"),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Undo),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Redo),
-                FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.More)
             ),
             FunctionKitQuickAccessSpec.buildToolbarSlots(listOf("chat-auto-reply", "quick-phrases"))
@@ -47,11 +48,12 @@ class FunctionKitQuickAccessSpecTest {
     fun `fixed toolbar order keeps clipboard editing undo redo task center and more`() {
         assertEquals(
             listOf(
+                FunctionKitQuickAccessSpec.ToolbarShortcut.Bindings,
+                FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter,
                 FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard,
                 FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove,
                 FunctionKitQuickAccessSpec.ToolbarShortcut.Undo,
                 FunctionKitQuickAccessSpec.ToolbarShortcut.Redo,
-                FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter,
                 FunctionKitQuickAccessSpec.ToolbarShortcut.More
             ),
             FunctionKitQuickAccessSpec.fixedToolbarOrder

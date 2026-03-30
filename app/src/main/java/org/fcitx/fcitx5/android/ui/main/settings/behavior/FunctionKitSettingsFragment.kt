@@ -285,6 +285,7 @@ class FunctionKitSettingsFragment :
             "settings.open" -> R.string.function_kit_permission_settings_open
             "storage.read" -> R.string.function_kit_permission_storage_read
             "storage.write" -> R.string.function_kit_permission_storage_write
+            "files.pick" -> R.string.function_kit_permission_files_pick
             "panel.state.write" -> R.string.function_kit_permission_panel_state_write
             "network.fetch" -> R.string.function_kit_status_permission_network_fetch
             "ai.request" -> R.string.function_kit_status_permission_ai_chat

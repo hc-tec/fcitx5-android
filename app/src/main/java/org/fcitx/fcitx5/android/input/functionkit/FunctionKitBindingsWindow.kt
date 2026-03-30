@@ -82,9 +82,16 @@ internal class FunctionKitBindingsWindow(
                         window.enqueueBindingInvocation(
                             binding = bindingEntry,
                             trigger = trigger,
-                            clipboardText = clipboardText
+                            clipboardText = clipboardText,
+                            capturedContext =
+                                FunctionKitBindingInvocationContext.capture(
+                                    service = service,
+                                    requestedPayloads = bindingEntry.requestedPayloads
+                                ),
+                            startHeadless = true
                         )
-                        windowManager.view.post { windowManager.attachWindow(window) }
+                        Toast.makeText(context, bindingEntry.title, Toast.LENGTH_SHORT).show()
+                        windowManager.attachWindow(KeyboardWindow)
                     }
                     else -> {}
                 }

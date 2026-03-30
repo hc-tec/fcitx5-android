@@ -13,6 +13,7 @@ internal object FunctionKitQuickAccessSpec {
 
     enum class ToolbarShortcut {
         Clipboard,
+        Bindings,
         CursorMove,
         Undo,
         Redo,
@@ -36,20 +37,27 @@ internal object FunctionKitQuickAccessSpec {
 
     val fixedToolbarOrder =
         listOf(
+            ToolbarShortcut.Bindings,
+            ToolbarShortcut.TaskCenter,
             ToolbarShortcut.Clipboard,
             ToolbarShortcut.CursorMove,
             ToolbarShortcut.Undo,
             ToolbarShortcut.Redo,
-            ToolbarShortcut.TaskCenter,
             ToolbarShortcut.More
         )
 
     fun buildToolbarSlots(functionKitIds: Collection<String>): List<ToolbarSlot> =
-        functionKitIds
-            .filter { it.isNotBlank() }
-            .distinct()
-            .map(ToolbarSlot::FunctionKit) +
-            fixedToolbarOrder.map(ToolbarSlot::Fixed)
+        buildList {
+            val primary = setOf(ToolbarShortcut.Bindings, ToolbarShortcut.TaskCenter)
+            addAll(fixedToolbarOrder.filter { it in primary }.map(ToolbarSlot::Fixed))
+            addAll(
+                functionKitIds
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .map(ToolbarSlot::FunctionKit)
+            )
+            addAll(fixedToolbarOrder.filterNot { it in primary }.map(ToolbarSlot::Fixed))
+        }
 
     fun functionKitMonogram(label: String): String {
         val trimmed = label.trim()
@@ -78,6 +86,11 @@ internal object FunctionKitQuickAccessSpec {
                 FixedToolbarButtonSpec(
                     icon = R.drawable.ic_clipboard,
                     label = R.string.clipboard
+                )
+            ToolbarShortcut.Bindings ->
+                FixedToolbarButtonSpec(
+                    icon = R.drawable.ic_baseline_auto_awesome_24,
+                    label = R.string.function_kit_bindings
                 )
             ToolbarShortcut.CursorMove ->
                 FixedToolbarButtonSpec(

@@ -399,6 +399,7 @@
     <string name="function_kit_permission_settings_open">Allow opening Function Kit settings</string>
     <string name="function_kit_permission_storage_read">Allow reading Function Kit storage</string>
     <string name="function_kit_permission_storage_write">Allow writing Function Kit storage</string>
+    <string name="function_kit_permission_files_pick">Allow picking files</string>
     <string name="function_kit_permission_panel_state_write">Allow saving panel state</string>
     <string name="reload_function_kit">Reload Function Kit</string>
     <string name="function_kit_panel_expand">Expand panel</string>

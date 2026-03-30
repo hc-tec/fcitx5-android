@@ -86,6 +86,8 @@ class ButtonsBarUi(
 
     val clipboardButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard)
 
+    val bindingsButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.Bindings)
+
     val taskCenterButton = fixedToolButton(FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter)
 
     var functionKitButtons: List<FunctionKitToolbarButtonUi> = emptyList()
@@ -122,6 +124,7 @@ class ButtonsBarUi(
                     val button =
                         when (slot.shortcut) {
                             FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard -> clipboardButton
+                            FunctionKitQuickAccessSpec.ToolbarShortcut.Bindings -> bindingsButton
                             FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove -> cursorMoveButton
                             FunctionKitQuickAccessSpec.ToolbarShortcut.Undo -> undoButton
                             FunctionKitQuickAccessSpec.ToolbarShortcut.Redo -> redoButton

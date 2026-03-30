@@ -524,6 +524,11 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             "function_kit_permission_storage_write",
             true
         )
+        val allowFilesPick = switch(
+            R.string.function_kit_permission_files_pick,
+            "function_kit_permission_files_pick",
+            true
+        )
         val allowPanelStateWrite = switch(
             R.string.function_kit_permission_panel_state_write,
             "function_kit_permission_panel_state_write",

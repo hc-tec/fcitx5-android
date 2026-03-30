@@ -18,6 +18,7 @@ internal object FunctionKitPermissionPolicy {
             "settings.open" -> prefs.allowSettingsOpen.getValue()
             "storage.read" -> prefs.allowStorageRead.getValue()
             "storage.write" -> prefs.allowStorageWrite.getValue()
+            "files.pick" -> prefs.allowFilesPick.getValue()
             "panel.state.write" -> prefs.allowPanelStateWrite.getValue()
             "network.fetch" -> prefs.allowNetworkFetch.getValue()
             "ai.request" -> prefs.allowAiChat.getValue()

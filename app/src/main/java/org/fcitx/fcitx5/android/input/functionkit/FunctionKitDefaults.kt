@@ -21,6 +21,7 @@ internal object FunctionKitDefaults {
             "settings.open",
             "storage.read",
             "storage.write",
+            "files.pick",
             "panel.state.write",
             "network.fetch",
             "ai.request",
@@ -41,6 +42,7 @@ internal object FunctionKitDefaults {
             "settings.open",
             "storage.read",
             "storage.write",
+            "files.pick",
             "panel.state.write"
         )
 

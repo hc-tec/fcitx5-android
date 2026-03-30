@@ -55,10 +55,10 @@ class FunctionKitSettingsStatusResolverTest {
                 timeoutSeconds = 20,
                 showToolbarButton = false,
                 expandToolbarByDefault = false
-            )
+        )
 
         assertEquals(5, status.corePermissions.enabled)
-        assertEquals(11, status.corePermissions.total)
+        assertEquals(12, status.corePermissions.total)
         assertEquals(
             listOf(
                 "input.commitImage",
@@ -66,6 +66,7 @@ class FunctionKitSettingsStatusResolverTest {
                 "candidates.regenerate",
                 "send.intercept.ime_action",
                 "settings.open",
+                "files.pick",
                 "panel.state.write"
             ),
             status.corePermissions.disabledPermissions

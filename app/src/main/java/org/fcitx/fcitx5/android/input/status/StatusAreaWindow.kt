@@ -28,6 +28,7 @@ import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.editorinfo.EditorInfoWindow
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingInvocationContext
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessOrderer
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
@@ -35,6 +36,7 @@ import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitTaskCenterWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
+import org.fcitx.fcitx5.android.input.keyboard.KeyboardWindow
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.InputMethod
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKit
 import org.fcitx.fcitx5.android.input.status.StatusAreaEntry.Android.Type.FunctionKitBindings
@@ -217,9 +219,16 @@ class StatusAreaWindow : InputWindow.ExtendedInputWindow<StatusAreaWindow>(),
                         window.enqueueBindingInvocation(
                             binding = bindingEntry,
                             trigger = FunctionKitBindingTrigger.Manual,
-                            clipboardText = clipboardText
+                            clipboardText = clipboardText,
+                            capturedContext =
+                                FunctionKitBindingInvocationContext.capture(
+                                    service = service,
+                                    requestedPayloads = bindingEntry.requestedPayloads
+                                ),
+                            startHeadless = true
                         )
-                        windowManager.view.post { windowManager.attachWindow(window) }
+                        Toast.makeText(context, bindingEntry.title, Toast.LENGTH_SHORT).show()
+                        windowManager.attachWindow(KeyboardWindow)
                     }
                     is StatusAreaEntry.Android -> when (entry.type) {
                         FunctionKit -> {

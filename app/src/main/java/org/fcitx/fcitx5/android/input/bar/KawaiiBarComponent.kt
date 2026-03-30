@@ -477,6 +477,9 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 clipboardButton.setOnClickListener {
                     windowManager.attachWindow(ClipboardWindow())
                 }
+                bindingsButton.setOnClickListener {
+                    windowManager.attachWindow(FunctionKitBindingsWindow())
+                }
                 taskCenterButton.setOnClickListener {
                     windowManager.attachWindow(FunctionKitTaskCenterWindow())
                 }
