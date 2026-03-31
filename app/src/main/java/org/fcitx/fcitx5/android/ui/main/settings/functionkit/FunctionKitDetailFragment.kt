@@ -8,27 +8,34 @@ import android.content.ClipData
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import androidx.appcompat.app.AlertDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitDefaults
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitStudioRemoteAttach
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitManifest
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitPackageManager
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitPermissionPolicy
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRuntimePermissionResolver
 import org.fcitx.fcitx5.android.ui.common.PaddingPreferenceFragment
+import org.fcitx.fcitx5.android.ui.common.withLoadingDialog
 import org.fcitx.fcitx5.android.ui.main.modified.MySwitchPreference
 import org.fcitx.fcitx5.android.ui.main.settings.SettingsRoute
 import org.fcitx.fcitx5.android.utils.clipboardManager
 import org.fcitx.fcitx5.android.utils.lazyRoute
 import org.fcitx.fcitx5.android.utils.setup
+import org.fcitx.fcitx5.android.utils.toast
 
 class FunctionKitDetailFragment : PaddingPreferenceFragment() {
 
@@ -156,6 +163,22 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
                     )
                     isSelectable = false
                     isIconSpaceReserved = false
+                }
+            )
+        }
+
+        if (FunctionKitPackageManager.isUserInstalled(context, kit.id)) {
+            kitCategory.addPreference(
+                Preference(context).apply {
+                    setup(
+                        title = getString(R.string.function_kit_download_center_uninstall_title),
+                        summary = getString(R.string.function_kit_download_center_uninstall_summary)
+                    )
+                    isIconSpaceReserved = false
+                    setOnPreferenceClickListener {
+                        showUninstallDialog()
+                        true
+                    }
                 }
             )
         }
@@ -331,9 +354,42 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
         if (!this::enabledPreference.isInitialized) {
             return
         }
+        val updatedKit =
+            FunctionKitRegistry.listInstalled(requireContext())
+                .firstOrNull { it.id == args.kitId }
+                ?: run {
+                    requireActivity().onBackPressedDispatcher.onBackPressed()
+                    return
+                }
+        kit = updatedKit
         enabledPreference.isChecked = FunctionKitKitSettings.isKitEnabled(kit.id)
         pinnedPreference.isChecked = FunctionKitKitSettings.isKitPinned(kit.id)
         preferenceScreen?.let { renderUi(it) }
+    }
+
+    private fun showUninstallDialog() {
+        val context = requireContext()
+        AlertDialog.Builder(context)
+            .setTitle(R.string.function_kit_download_center_uninstall_title)
+            .setMessage(getString(R.string.function_kit_download_center_uninstall_confirm, kit.name))
+            .setPositiveButton(R.string.function_kit_download_center_uninstall_button) { _, _ ->
+                lifecycleScope.withLoadingDialog(context, title = R.string.function_kit_download_center_uninstalling) {
+                    val success =
+                        withContext(NonCancellable + Dispatchers.IO) {
+                            FunctionKitPackageManager.uninstall(context, kit.id)
+                        }
+                    withContext(Dispatchers.Main) {
+                        if (!success) {
+                            context.toast(R.string.function_kit_download_center_uninstall_failed)
+                            return@withContext
+                        }
+                        context.toast(getString(R.string.function_kit_download_center_uninstalled, kit.id))
+                        refresh()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun showPermissionDialog(permission: String) {

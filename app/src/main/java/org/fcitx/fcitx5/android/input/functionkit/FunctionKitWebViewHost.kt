@@ -26,6 +26,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.time.OffsetDateTime
@@ -153,13 +154,36 @@ class FunctionKitWebViewHost(
             context: Context,
             config: Config = Config()
         ): WebViewAssetLoader =
-            WebViewAssetLoader.Builder()
+            createAssetLoader(
+                context = context,
+                config = config,
+                installRootDir = FunctionKitPackageManager.kitsRootDir(context)
+            )
+
+        private fun createAssetLoader(
+            context: Context,
+            config: Config,
+            installRootDir: File
+        ): WebViewAssetLoader {
+            val assetsHandler = WebViewAssetLoader.AssetsPathHandler(context)
+            val kitsHandler =
+                FunctionKitInstalledFirstPathHandler(
+                    context = context,
+                    installRootDir = installRootDir,
+                    fallback = assetsHandler
+                )
+            return WebViewAssetLoader.Builder()
                 .setDomain(config.localDomain)
                 .addPathHandler(
+                    "${config.normalizedAssetPathPrefix}function-kits/",
+                    kitsHandler
+                )
+                .addPathHandler(
                     config.normalizedAssetPathPrefix,
-                    WebViewAssetLoader.AssetsPathHandler(context)
+                    assetsHandler
                 )
                 .build()
+        }
 
         fun supportedInboundTypes(): List<String> = AllowedInboundTypes.toList().sorted()
 
@@ -171,6 +195,35 @@ class FunctionKitWebViewHost(
                 .put("surfaces", JSONArray(AllowedSurfaces.toList().sorted()))
                 .put("inboundTypes", JSONArray(supportedInboundTypes()))
                 .put("outboundTypes", JSONArray(supportedOutboundTypes()))
+    }
+
+    private class FunctionKitInstalledFirstPathHandler(
+        context: Context,
+        private val installRootDir: File,
+        private val fallback: WebViewAssetLoader.PathHandler
+    ) : WebViewAssetLoader.PathHandler {
+        private val internalStorageHandler =
+            WebViewAssetLoader.InternalStoragePathHandler(context, installRootDir)
+
+        override fun handle(path: String): WebResourceResponse? {
+            val normalized =
+                path.replace("\\", "/")
+                    .trimStart('/')
+                    .takeUnless(String::isBlank)
+                    ?: return fallback.handle(path)
+
+            val segments = normalized.split('/')
+            if (segments.any { it.isBlank() || it == "." || it == ".." }) {
+                return fallback.handle(path)
+            }
+
+            val target = File(installRootDir, normalized)
+            if (target.isFile) {
+                return internalStorageHandler.handle(path)
+            }
+
+            return fallback.handle(path)
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")

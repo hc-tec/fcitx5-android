@@ -20,6 +20,7 @@ import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRuntimePermissionResolver
 import org.fcitx.fcitx5.android.ui.common.PaddingPreferenceFragment
 import org.fcitx.fcitx5.android.ui.main.modified.MySwitchPreference
+import org.fcitx.fcitx5.android.ui.main.settings.SettingsRoute
 import org.fcitx.fcitx5.android.utils.navigateWithAnim
 import org.fcitx.fcitx5.android.utils.setup
 
@@ -55,6 +56,20 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
                 )
                 setDefaultValue(functionKitPrefs.showToolbarButton.defaultValue)
                 isIconSpaceReserved = false
+            }
+        )
+
+        generalCategory.addPreference(
+            Preference(context).apply {
+                setup(
+                    title = getString(R.string.function_kit_download_center),
+                    summary = getString(R.string.function_kit_download_center_summary)
+                )
+                isIconSpaceReserved = false
+                setOnPreferenceClickListener {
+                    navigateWithAnim(SettingsRoute.FunctionKitDownloadCenter)
+                    true
+                }
             }
         )
 

@@ -37,6 +37,7 @@ import org.fcitx.fcitx5.android.ui.main.settings.im.InputMethodListFragment
 import org.fcitx.fcitx5.android.ui.main.settings.theme.ThemeFragment
 import org.fcitx.fcitx5.android.ui.main.settings.functionkit.FunctionKitManagerFragment
 import org.fcitx.fcitx5.android.ui.main.settings.functionkit.FunctionKitDetailFragment
+import org.fcitx.fcitx5.android.ui.main.settings.functionkit.FunctionKitDownloadCenterFragment
 import org.fcitx.fcitx5.android.utils.config.ConfigDescriptor
 import org.fcitx.fcitx5.android.utils.parcelable
 import kotlin.reflect.typeOf
@@ -88,6 +89,9 @@ sealed class SettingsRoute : Parcelable {
 
     @Serializable
     data object FunctionKitManager : SettingsRoute()
+
+    @Serializable
+    data object FunctionKitDownloadCenter : SettingsRoute()
 
     @Serializable
     data class FunctionKitDetail(val kitId: String) : SettingsRoute()
@@ -239,6 +243,9 @@ sealed class SettingsRoute : Parcelable {
             }
             fragment<FunctionKitManagerFragment, FunctionKitManager> {
                 label = ctx.getString(R.string.function_kit)
+            }
+            fragment<FunctionKitDownloadCenterFragment, FunctionKitDownloadCenter> {
+                label = ctx.getString(R.string.function_kit_download_center)
             }
             fragment<FunctionKitDetailFragment, FunctionKitDetail> {
                 label = ctx.getString(R.string.function_kit)

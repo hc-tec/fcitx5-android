@@ -12,26 +12,15 @@ internal object FunctionKitRegistry {
     private const val ManifestFileName = "manifest.json"
 
     fun listInstalled(context: Context): List<FunctionKitManifest> {
-        val assetManager = context.assets
-        val kitDirectories =
-            assetManager.list(AssetRoot)
-                ?.filter { candidate ->
-                    candidate.isNotBlank() &&
-                        assetManager.list("$AssetRoot/$candidate")?.contains(ManifestFileName) == true
-                }
-                .orEmpty()
-                .sorted()
-
-        return kitDirectories.map { directory ->
-            val assetPath = "$AssetRoot/$directory/$ManifestFileName"
-            FunctionKitManifest.loadFromAssets(
-                context = context,
-                assetPath = assetPath,
-                fallbackId = directory,
-                fallbackEntryHtmlAssetPath = "$AssetRoot/$directory/ui/app/index.html",
-                fallbackRuntimePermissions = emptySet()
-            )
+        val bundled = listBundledFromAssets(context)
+        val userInstalled = FunctionKitPackageManager.listUserInstalledManifests(context)
+        if (userInstalled.isEmpty()) {
+            return bundled
         }
+        val merged = LinkedHashMap<String, FunctionKitManifest>()
+        bundled.forEach { kit -> merged[kit.id] = kit }
+        userInstalled.forEach { kit -> merged[kit.id] = kit }
+        return merged.values.toList().sortedWith(compareBy({ it.name.lowercase() }, { it.id.lowercase() }))
     }
 
     fun resolve(
@@ -66,6 +55,29 @@ internal object FunctionKitRegistry {
             FunctionKitDefaults.kitId -> context.getString(R.string.function_kit_auto_reply)
             else -> manifest.name
         }
+
+    private fun listBundledFromAssets(context: Context): List<FunctionKitManifest> {
+        val assetManager = context.assets
+        val kitDirectories =
+            assetManager.list(AssetRoot)
+                ?.filter { candidate ->
+                    candidate.isNotBlank() &&
+                        assetManager.list("$AssetRoot/$candidate")?.contains(ManifestFileName) == true
+                }
+                .orEmpty()
+                .sorted()
+
+        return kitDirectories.map { directory ->
+            val assetPath = "$AssetRoot/$directory/$ManifestFileName"
+            FunctionKitManifest.loadFromAssets(
+                context = context,
+                assetPath = assetPath,
+                fallbackId = directory,
+                fallbackEntryHtmlAssetPath = "$AssetRoot/$directory/ui/app/index.html",
+                fallbackRuntimePermissions = emptySet()
+            )
+        }
+    }
 
     internal fun selectPreferredKitId(
         availableKitIds: Collection<String>,
