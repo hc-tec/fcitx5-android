@@ -77,7 +77,7 @@ internal class FunctionKitTaskTracker(
                 }
     }
 
-    private val lock = java.lang.Object()
+    private val lock = Any()
     private val tasksById = LinkedHashMap<String, Task>()
     private var runningIds = mutableListOf<String>()
     private var historyIds = mutableListOf<String>()
