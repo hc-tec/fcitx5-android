@@ -205,6 +205,12 @@ class FunctionKitWindow(
     private val functionKitManifest by lazy {
         FunctionKitRegistry.resolve(context, requestedKitId)
     }
+    private val kitStudioAttach by lazy(LazyThreadSafetyMode.NONE) {
+        FunctionKitKitStudioRemoteAttach(
+            context = context,
+            prefs = functionKitPrefs
+        )
+    }
 
     private val hostConfig by lazy {
         FunctionKitWebViewHost.Config(
@@ -223,6 +229,7 @@ class FunctionKitWindow(
             webView = webView,
             assetLoader = FunctionKitWebViewHost.createDefaultAssetLoader(context, hostConfig),
             onUiEnvelope = ::handleUiEnvelope,
+            onHostEnvelope = ::handleHostEnvelope,
             onHostEvent = ::handleHostEvent,
             config = hostConfig
         )
@@ -917,6 +924,7 @@ class FunctionKitWindow(
 
     private fun handleUiEnvelope(envelope: JSONObject) {
         FunctionKitEnvelopeProbe.recordInbound(envelope)
+        kitStudioAttach.recordInbound(envelope)
         val type = envelope.optString("type")
         val replyTo = envelope.optString("messageId")
         val replyToHostMessageId = envelope.optString("replyTo")
@@ -963,6 +971,10 @@ class FunctionKitWindow(
                 )
             }
         }
+    }
+
+    private fun handleHostEnvelope(envelope: JSONObject) {
+        kitStudioAttach.recordOutbound(envelope)
     }
 
     private fun handleBridgeReady(

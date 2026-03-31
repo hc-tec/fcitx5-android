@@ -459,6 +459,24 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             300,
             "s"
         ) { remoteInferenceEnabled.getValue() }
+        val kitStudioAttachEnabled = switch(
+            R.string.function_kit_kitstudio_attach_enabled,
+            "function_kit_kitstudio_attach_enabled",
+            false,
+            R.string.function_kit_kitstudio_attach_enabled_summary
+        )
+        val kitStudioAttachBaseUrl = string(
+            R.string.function_kit_kitstudio_attach_base_url,
+            "function_kit_kitstudio_attach_base_url",
+            "http://127.0.0.1:39001",
+            R.string.function_kit_kitstudio_attach_base_url_summary
+        ) { kitStudioAttachEnabled.getValue() }
+        val kitStudioAttachToken = string(
+            R.string.function_kit_kitstudio_attach_token,
+            "function_kit_kitstudio_attach_token",
+            "",
+            R.string.function_kit_kitstudio_attach_token_summary
+        ) { kitStudioAttachEnabled.getValue() }
         val allowContextRead = switch(
             R.string.function_kit_permission_context_read,
             "function_kit_permission_context_read",

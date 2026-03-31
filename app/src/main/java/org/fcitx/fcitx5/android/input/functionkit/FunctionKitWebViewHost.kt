@@ -104,6 +104,7 @@ class FunctionKitWebViewHost(
     private val webView: WebView,
     private val assetLoader: WebViewAssetLoader,
     private val onUiEnvelope: (JSONObject) -> Unit,
+    private val onHostEnvelope: (JSONObject) -> Unit = {},
     private val onHostEvent: (String) -> Unit = {},
     private val config: Config = Config()
 ) {
@@ -292,6 +293,8 @@ class FunctionKitWebViewHost(
 
     fun dispatchEnvelope(envelope: JSONObject) {
         FunctionKitEnvelopeProbe.recordOutbound(envelope)
+        runCatching { onHostEnvelope(envelope) }
+            .onFailure { error -> Log.w(LogTag, "Host envelope hook failed", error) }
         val serializedEnvelope = envelope.toString()
         val messageType = envelope.optString("type")
         webView.post {
