@@ -21,6 +21,7 @@ internal object FunctionKitTaskHub {
         val kitId: String,
         val surface: String,
         val kind: String,
+        val title: String,
         val status: String,
         val updatedAt: String,
         val cancellable: Boolean,
@@ -149,6 +150,7 @@ internal object FunctionKitTaskHub {
         val kitId = task.optString("kitId").trim()
         val surface = task.optString("surface").trim()
         val kind = task.optString("kind").trim()
+        val title = task.optString("title").trim()
         val status = task.optString("status").trim()
         val updatedAt = task.optString("updatedAt").trim()
         val cancellable = task.optBoolean("cancellable", false)
@@ -158,6 +160,7 @@ internal object FunctionKitTaskHub {
             kitId = kitId,
             surface = surface,
             kind = kind,
+            title = title,
             status = status,
             updatedAt = updatedAt,
             cancellable = cancellable,
@@ -179,8 +182,6 @@ internal object FunctionKitTaskHub {
         if (progress != null) {
             val message = progress.optString("message").trim()
             if (message.isNotBlank()) return message
-            val stage = progress.optString("stage").trim()
-            if (stage.isNotBlank()) return stage
         }
 
         val result = task.optJSONObject("result")

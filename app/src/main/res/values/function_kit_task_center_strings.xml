@@ -11,6 +11,7 @@
     <string name="function_kit_task_center_hide_developer_info">Hide developer info</string>
     <string name="function_kit_task_kind_network_fetch">Network request</string>
     <string name="function_kit_task_kind_ai_request">AI request</string>
+    <string name="function_kit_task_kind_generic">Task</string>
     <string name="function_kit_task_status_queued">Queued</string>
     <string name="function_kit_task_status_running">Running</string>
     <string name="function_kit_task_status_canceling">Canceling</string>

@@ -232,25 +232,42 @@ internal class FunctionKitTaskCenterWindow :
                 val status = statusLabel(title.context, preview.status)
                 val kit = kitLabel(preview.kitId)
                 val summary = preview.summary.trim()
-                title.text =
-                    if (summary.isBlank()) {
-                        "$kind · $status"
-                    } else {
-                        summary
+                val taskTitle = preview.title.trim()
+                val displayTitle =
+                    when {
+                        taskTitle.isNotBlank() -> taskTitle
+                        summary.isNotBlank() -> summary
+                        kind.isNotBlank() && status.isNotBlank() -> "$kind · $status"
+                        kind.isNotBlank() -> kind
+                        status.isNotBlank() -> status
+                        else -> title.context.getString(R.string.function_kit_task_kind_generic)
                     }
-                subtitle.text =
-                    if (summary.isBlank()) {
+
+                val displaySubtitle =
+                    if (taskTitle.isNotBlank()) {
+                        listOf(kit, status, summary)
+                            .map(String::trim)
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .joinToString(" · ")
+                    } else if (summary.isNotBlank()) {
+                        listOf(kit, kind, status)
+                            .map(String::trim)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · ")
+                    } else {
                         kit
-                    } else {
-                        "$kit · $kind · $status"
                     }
+
+                title.text = displayTitle
+                subtitle.text = displaySubtitle
             }
 
             private fun kindLabel(context: Context, kind: String): String =
                 when (kind.trim()) {
                     "network.fetch" -> context.getString(R.string.function_kit_task_kind_network_fetch)
                     "ai.request" -> context.getString(R.string.function_kit_task_kind_ai_request)
-                    else -> kind
+                    else -> context.getString(R.string.function_kit_task_kind_generic)
                 }
 
             private fun statusLabel(context: Context, status: String): String =

@@ -246,7 +246,13 @@ internal class FunctionKitTaskDetailWindow(
             return
         }
 
-        userTitleView.text = kindLabel(context, task.optString("kind").trim())
+        val taskTitle = task.optString("title").trim()
+        userTitleView.text =
+            if (taskTitle.isNotBlank()) {
+                taskTitle
+            } else {
+                kindLabel(context, task.optString("kind").trim())
+            }
         val kitId = task.optString("kitId").trim()
         val status = statusLabel(context, task.optString("status").trim())
         val kit =
@@ -295,8 +301,6 @@ internal class FunctionKitTaskDetailWindow(
         if (progress != null) {
             val message = progress.optString("message").trim()
             if (message.isNotBlank()) return message
-            val stage = progress.optString("stage").trim()
-            if (stage.isNotBlank()) return stage
         }
 
         val result = task.optJSONObject("result")
@@ -336,7 +340,7 @@ internal class FunctionKitTaskDetailWindow(
         when (kind.trim()) {
             "network.fetch" -> context.getString(R.string.function_kit_task_kind_network_fetch)
             "ai.request" -> context.getString(R.string.function_kit_task_kind_ai_request)
-            else -> kind
+            else -> context.getString(R.string.function_kit_task_kind_generic)
         }
 
     private fun statusLabel(context: Context, status: String): String =

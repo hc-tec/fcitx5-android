@@ -11,6 +11,7 @@
     <string name="function_kit_task_center_hide_developer_info">隐藏开发者信息</string>
     <string name="function_kit_task_kind_network_fetch">网络请求</string>
     <string name="function_kit_task_kind_ai_request">AI 请求</string>
+    <string name="function_kit_task_kind_generic">任务</string>
     <string name="function_kit_task_status_queued">排队中</string>
     <string name="function_kit_task_status_running">进行中</string>
     <string name="function_kit_task_status_canceling">取消中</string>

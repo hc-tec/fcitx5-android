@@ -1979,13 +1979,21 @@ class FunctionKitWindow(
         val init = payload.optJSONObject("init") ?: JSONObject()
         val executionConfig = currentExecutionConfig()
         val requestSessionId = sessionId
+        val taskTitle: String? =
+            payload.optJSONObject("task")?.optString("title")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: init.optJSONObject("task")?.optString("title")
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
         val taskId =
             taskTracker.create(
                 kind = "network.fetch",
                 surface = surface,
+                title = taskTitle,
                 status = "queued",
                 cancellable = true,
-                progress = JSONObject().put("stage", "queued").put("message", "network.fetch queued").put("url", rawUrl)
+                progress = JSONObject().put("stage", "queued").put("url", rawUrl)
             )
 
         val future =
@@ -1995,7 +2003,7 @@ class FunctionKitWindow(
                         taskTracker.update(
                             taskId = taskId,
                             status = "running",
-                            progress = JSONObject().put("stage", "request").put("message", "network.fetch running").put("url", rawUrl)
+                            progress = JSONObject().put("stage", "request").put("url", rawUrl)
                         )
                         val responsePayload = executeNetworkFetch(rawUrl, init, executionConfig)
                         ContextCompat.getMainExecutor(service).execute {
@@ -2206,16 +2214,20 @@ class FunctionKitWindow(
         val messages = buildAiChatMessages(payload)
         val temperature = payload.optDouble("temperature").takeIf { payload.has("temperature") }
         val maxOutputTokens = payload.optInt("maxTokens").takeIf { payload.has("maxTokens") }
+        val taskTitle: String? =
+            payload.optJSONObject("task")?.optString("title")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
         val taskId =
             taskTracker.create(
                 kind = "ai.request",
                 surface = surface,
+                title = taskTitle,
                 status = "queued",
                 cancellable = true,
                 progress =
                     JSONObject()
                         .put("stage", "queued")
-                        .put("message", "ai.request queued")
                         .put("requestId", requestId)
                         .put("routeKind", routeKind)
                         .put("model", aiChatConfig.model)
@@ -2243,7 +2255,6 @@ class FunctionKitWindow(
                         progress =
                             JSONObject()
                                 .put("stage", "request")
-                                .put("message", "ai.request running")
                                 .put("requestId", requestId)
                                 .put("routeKind", routeKind)
                                 .put("model", aiChatConfig.model)
@@ -2280,11 +2291,7 @@ class FunctionKitWindow(
                             return@execute
                         }
 
-                        taskTracker.update(
-                            taskId = taskId,
-                            status = "succeeded",
-                            result = JSONObject().put("summary", "AI request completed")
-                        )
+                        taskTracker.update(taskId = taskId, status = "succeeded")
                         if (sessionMismatch) {
                             return@execute
                         }

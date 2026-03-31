@@ -41,6 +41,7 @@ internal class FunctionKitTaskTracker(
         val kitId: String,
         val surface: String,
         val kind: String,
+        var title: String?,
         var status: String,
         var createdAt: String,
         var updatedAt: String,
@@ -65,6 +66,7 @@ internal class FunctionKitTaskTracker(
                 .put("seq", seq)
                 .put("cancellable", cancellable)
                 .apply {
+                    title?.takeIf { it.isNotBlank() }?.let { put("title", it) }
                     if (cancelRequested) {
                         put("cancelRequested", true)
                         cancelRequestedAt?.takeIf { it.isNotBlank() }?.let { put("cancelRequestedAt", it) }
@@ -93,18 +95,21 @@ internal class FunctionKitTaskTracker(
     fun create(
         kind: String,
         surface: String,
+        title: String? = null,
         status: String = "queued",
         cancellable: Boolean = false,
         progress: JSONObject? = null
     ): String {
         val taskId = "t-${UUID.randomUUID()}"
         val now = OffsetDateTime.now().toString()
+        val normalizedTitle = title?.trim()?.takeIf { it.isNotBlank() }
         val task =
             Task(
                 taskId = taskId,
                 kitId = kitId,
                 surface = surface,
                 kind = kind,
+                title = normalizedTitle,
                 status = status,
                 createdAt = now,
                 updatedAt = now,
