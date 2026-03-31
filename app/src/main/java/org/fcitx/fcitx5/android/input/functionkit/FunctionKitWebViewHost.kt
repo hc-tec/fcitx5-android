@@ -155,9 +155,9 @@ class FunctionKitWebViewHost(
             config: Config = Config()
         ): WebViewAssetLoader =
             createAssetLoader(
-                context = context,
+                context = FunctionKitPackageManager.storageContext(context),
                 config = config,
-                installRootDir = FunctionKitPackageManager.kitsRootDir(context)
+                installRootDir = FunctionKitPackageManager.kitsRootDir(context).apply { mkdirs() }
             )
 
         private fun createAssetLoader(

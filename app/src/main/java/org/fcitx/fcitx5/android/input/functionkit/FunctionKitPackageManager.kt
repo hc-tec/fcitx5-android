@@ -218,6 +218,8 @@ internal object FunctionKitPackageManager {
         return File(ctx.filesDir, KitDirectoryName)
     }
 
+    fun storageContext(context: Context): Context = resolveStorageContext(context)
+
     private fun resolveStorageContext(context: Context): Context {
         val app = context.applicationContext
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
