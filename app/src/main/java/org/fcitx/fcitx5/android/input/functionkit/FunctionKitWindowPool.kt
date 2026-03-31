@@ -53,6 +53,7 @@ class FunctionKitWindowPool :
                 )
             }
         entry.lastUsedAtEpochMs = now
+        windowManager.keepWindowInScope(entry.window)
         evictIfNeeded()
         return entry.window
     }
@@ -76,6 +77,7 @@ class FunctionKitWindowPool :
 
         val targetEvictCount = (entries.size - maxKept).coerceAtLeast(0)
         candidates.take(targetEvictCount).forEach { entry ->
+            windowManager.releaseWindowFromScope(entry.window)
             entries.remove(entry.kitId)
         }
     }

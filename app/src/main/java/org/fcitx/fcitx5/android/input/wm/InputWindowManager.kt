@@ -34,6 +34,13 @@ class InputWindowManager : UniqueViewComponent<InputWindowManager, FrameLayout>(
     private lateinit var scope: DynamicScope
 
     private val essentialWindows = mutableMapOf<EssentialWindow.Key, Pair<InputWindow, View?>>()
+    /**
+     * Non-essential windows that must remain in the dynamic scope even when not attached.
+     *
+     * This is used for background/headless Function Kit execution where we want to keep the window alive
+     * to receive dependencies and process pending invocations without forcing a visible UI attach.
+     */
+    private val residentWindows = mutableSetOf<InputWindow>()
 
     private var currentWindow: InputWindow? = null
     private var currentView: View? = null
@@ -123,7 +130,10 @@ class InputWindowManager : UniqueViewComponent<InputWindowManager, FrameLayout>(
                 .also { essentialWindows[window.key] = window to it }
         } else {
             // add the new window to scope, except essential windows (they are always in scope)
-            scope += window
+            // If the window is already resident in scope (headless/background), don't add it twice.
+            if (window !in residentWindows) {
+                scope += window
+            }
             window.onCreateView()
         }
         if (currentWindow != null) {
@@ -143,7 +153,8 @@ class InputWindowManager : UniqueViewComponent<InputWindowManager, FrameLayout>(
             broadcaster.onWindowDetached(oldWindow)
             Timber.d("Detach $oldWindow")
             // finally remove the old window from scope only if it's not an essential window,
-            if (oldWindow !is EssentialWindow)
+            // and is not marked as resident.
+            if (oldWindow !is EssentialWindow && oldWindow !in residentWindows)
                 scope -= oldWindow
         }
         // call before attached for essential window
@@ -184,6 +195,42 @@ class InputWindowManager : UniqueViewComponent<InputWindowManager, FrameLayout>(
     fun isAttached(window: InputWindow) = currentWindow === window
 
     fun currentWindowOrNull(): InputWindow? = currentWindow
+
+    /**
+     * Ensure [window] is present in the dynamic scope without attaching its view.
+     *
+     * This is required for headless Function Kit bindings execution: the kit window needs access to
+     * injected dependencies (context/service/theme/etc) even when we keep the UI in the KeyboardWindow.
+     */
+    fun keepWindowInScope(window: InputWindow) {
+        if (window is EssentialWindow) {
+            return
+        }
+        if (!residentWindows.add(window)) {
+            return
+        }
+        if (::scope.isInitialized) {
+            scope += window
+        }
+    }
+
+    /**
+     * Remove [window] from the resident scope set, and also from the dynamic scope when safe.
+     *
+     * Note: if the window is currently attached, it will be removed from scope when it is detached.
+     */
+    fun releaseWindowFromScope(window: InputWindow) {
+        if (window is EssentialWindow) {
+            return
+        }
+        residentWindows.remove(window)
+        if (!::scope.isInitialized) {
+            return
+        }
+        if (currentWindow !== window) {
+            scope -= window
+        }
+    }
 
     companion object {
         @Volatile

@@ -86,6 +86,26 @@ class FunctionKitWindow(
     FunctionKitImeActionSendInterceptor,
     ImeWindowHiddenListener {
 
+    private val windowKey: String =
+        requestedKitId
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: "__default__"
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) {
+            return true
+        }
+        if (other !is FunctionKitWindow) {
+            return false
+        }
+        return windowKey == other.windowKey
+    }
+
+    override fun hashCode(): Int = windowKey.hashCode()
+
+    override fun toString(): String = "FunctionKitWindow($windowKey)"
+
     private data class CandidateDraft(
         val id: String,
         val text: String,
