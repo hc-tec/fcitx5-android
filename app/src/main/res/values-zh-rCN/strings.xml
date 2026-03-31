@@ -344,6 +344,16 @@
     <string name="function_kit_download_center_installed_category">已安装（用户）</string>
     <string name="function_kit_download_center_installed_empty_title">暂无用户安装的功能件</string>
     <string name="function_kit_download_center_installed_empty_summary">安装一个功能件 zip 包后会显示在这里。</string>
+    <string name="function_kit_download_center_catalog_category">目录</string>
+    <string name="function_kit_download_center_catalog_url_title">目录 URL</string>
+    <string name="function_kit_download_center_catalog_url_summary">设置一个目录接口，例如 KitStudio 的 /api/kit-packages。</string>
+    <string name="function_kit_download_center_catalog_url_hint">http://127.0.0.1:39001/api/kit-packages</string>
+    <string name="function_kit_download_center_catalog_url_save">保存</string>
+    <string name="function_kit_download_center_catalog_url_clear">清除</string>
+    <string name="function_kit_download_center_catalog_refresh">刷新目录</string>
+    <string name="function_kit_download_center_catalog_refresh_summary">从目录获取可安装功能件。</string>
+    <string name="function_kit_download_center_catalog_missing_zip_url">缺少 %1$s 的 zipUrl。</string>
+    <string name="function_kit_download_center_catalog_sha256_mismatch">%1$s 的 sha256 不匹配。</string>
     <string name="function_kit_download_center_uninstall_title">卸载</string>
     <string name="function_kit_download_center_uninstall_summary">移除此功能件的用户安装副本。</string>
     <string name="function_kit_download_center_uninstall_confirm">确定卸载「%1$s」？</string>

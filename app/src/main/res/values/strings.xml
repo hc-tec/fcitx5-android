@@ -344,6 +344,16 @@
     <string name="function_kit_download_center_installed_category">Installed (user)</string>
     <string name="function_kit_download_center_installed_empty_title">No user-installed Function Kits</string>
     <string name="function_kit_download_center_installed_empty_summary">Install a kit zip package to make it appear here.</string>
+    <string name="function_kit_download_center_catalog_category">Catalog</string>
+    <string name="function_kit_download_center_catalog_url_title">Catalog URL</string>
+    <string name="function_kit_download_center_catalog_url_summary">Set a catalog endpoint such as KitStudio /api/kit-packages.</string>
+    <string name="function_kit_download_center_catalog_url_hint">http://127.0.0.1:39001/api/kit-packages</string>
+    <string name="function_kit_download_center_catalog_url_save">Save</string>
+    <string name="function_kit_download_center_catalog_url_clear">Clear</string>
+    <string name="function_kit_download_center_catalog_refresh">Refresh catalog</string>
+    <string name="function_kit_download_center_catalog_refresh_summary">Fetch available kits from the catalog.</string>
+    <string name="function_kit_download_center_catalog_missing_zip_url">Missing zipUrl for %1$s</string>
+    <string name="function_kit_download_center_catalog_sha256_mismatch">sha256 mismatch for %1$s</string>
     <string name="function_kit_download_center_uninstall_title">Uninstall</string>
     <string name="function_kit_download_center_uninstall_summary">Remove the user-installed copy of this Function Kit.</string>
     <string name="function_kit_download_center_uninstall_confirm">Uninstall “%1$s”?</string>
