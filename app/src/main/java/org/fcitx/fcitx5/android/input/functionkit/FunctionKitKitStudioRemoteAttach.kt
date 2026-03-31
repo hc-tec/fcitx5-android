@@ -210,6 +210,15 @@ internal class FunctionKitKitStudioRemoteAttach(
         private const val PrefName = "function_kit_kitstudio_attach"
         private const val ClientIdKey = "client_id"
 
+        fun channelIdForKit(
+            context: Context,
+            kitId: String
+        ): String =
+            buildChannelId(
+                kitId = kitId,
+                clientId = getOrCreateClientId(context)
+            )
+
         private fun normalizeEndpoint(baseUrl: String): String? {
             val raw = baseUrl.trim()
             if (raw.isBlank()) {

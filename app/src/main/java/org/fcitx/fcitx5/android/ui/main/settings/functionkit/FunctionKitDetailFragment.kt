@@ -4,8 +4,10 @@
  */
 package org.fcitx.fcitx5.android.ui.main.settings.functionkit
 
+import android.content.ClipData
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.widget.Toast
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.ListPreference
@@ -15,6 +17,7 @@ import androidx.appcompat.app.AlertDialog
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitDefaults
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitStudioRemoteAttach
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitManifest
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitPermissionPolicy
@@ -23,6 +26,7 @@ import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRuntimePermissionRe
 import org.fcitx.fcitx5.android.ui.common.PaddingPreferenceFragment
 import org.fcitx.fcitx5.android.ui.main.modified.MySwitchPreference
 import org.fcitx.fcitx5.android.ui.main.settings.SettingsRoute
+import org.fcitx.fcitx5.android.utils.clipboardManager
 import org.fcitx.fcitx5.android.utils.lazyRoute
 import org.fcitx.fcitx5.android.utils.setup
 
@@ -113,6 +117,35 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
                 }
             }
         kitCategory.addPreference(pinnedPreference)
+
+        runCatching {
+            val channelId = FunctionKitKitStudioRemoteAttach.channelIdForKit(context, kit.id)
+            kitCategory.addPreference(
+                Preference(context).apply {
+                    key = "function_kit_kitstudio_attach_channel:${kit.id}"
+                    isPersistent = false
+                    setup(
+                        title = getString(R.string.function_kit_kitstudio_attach_channel_id),
+                        summary = "$channelId\n${getString(R.string.function_kit_kitstudio_attach_channel_id_summary)}"
+                    )
+                    isIconSpaceReserved = false
+                    setOnPreferenceClickListener {
+                        context.clipboardManager.setPrimaryClip(
+                            ClipData.newPlainText(
+                                "kitstudio-remote-attach-channel",
+                                channelId
+                            )
+                        )
+                        Toast.makeText(
+                            context,
+                            getString(R.string.ime_bridge_copied_to_clipboard),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        true
+                    }
+                }
+            )
+        }
 
         kit.description?.takeIf { it.isNotBlank() }?.let { description ->
             kitCategory.addPreference(

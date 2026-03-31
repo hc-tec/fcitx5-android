@@ -402,6 +402,8 @@
     <string name="function_kit_kitstudio_attach_base_url_summary">Base URL only, for example http://127.0.0.1:39001. Use adb reverse for localhost or a LAN/Tailscale address</string>
     <string name="function_kit_kitstudio_attach_token">KitStudio attach token</string>
     <string name="function_kit_kitstudio_attach_token_summary">Optional. Must match KitStudio attach.token when it is configured</string>
+    <string name="function_kit_kitstudio_attach_channel_id">KitStudio Remote Attach channelId</string>
+    <string name="function_kit_kitstudio_attach_channel_id_summary">Tap to copy. Paste it into KitStudio → Remote Attach.</string>
     <string name="function_kit_permission_context_read">Allow reading input context</string>
     <string name="function_kit_permission_input_insert">Allow inserting candidate text</string>
     <string name="function_kit_permission_input_replace">Allow replacing current text</string>
