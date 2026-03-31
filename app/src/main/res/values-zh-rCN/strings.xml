@@ -334,6 +334,11 @@
     <string name="function_kit_manager_enabled">已启用</string>
     <string name="function_kit_manager_disabled">已禁用</string>
     <string name="function_kit_manager_permissions_summary">%1$d/%2$d 已授予</string>
+    <string name="function_kit_manager_category_filter_title">按类别筛选</string>
+    <string name="function_kit_manager_categories_summary">分类：%1$s</string>
+    <string name="function_kit_manager_bindings_category">动作</string>
+    <string name="function_kit_manager_bindings_empty_title">未声明动作</string>
+    <string name="function_kit_manager_bindings_empty_summary">该功能件未声明任何可触发的动作（bindings）。</string>
     <string name="function_kit_manager_description">描述</string>
     <string name="function_kit_manager_permissions_category">运行时权限</string>
     <string name="function_kit_manager_permissions_empty_title">未声明权限</string>

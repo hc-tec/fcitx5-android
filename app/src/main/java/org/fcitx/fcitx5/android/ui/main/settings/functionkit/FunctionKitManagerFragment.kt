@@ -5,6 +5,7 @@
 package org.fcitx.fcitx5.android.ui.main.settings.functionkit
 
 import android.os.Bundle
+import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceScreen
@@ -12,6 +13,7 @@ import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitDefaults
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitManifest
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitPermissionPolicy
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitQuickAccessOrderer
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
@@ -24,6 +26,7 @@ import org.fcitx.fcitx5.android.utils.setup
 class FunctionKitManagerFragment : PaddingPreferenceFragment() {
 
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
+    private var selectedCategoryId: String = CATEGORY_FILTER_ALL
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceScreen =
@@ -65,6 +68,16 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
         val installed =
             FunctionKitRegistry.listInstalled(context)
                 .ifEmpty { listOf(FunctionKitRegistry.resolve(context)) }
+        val kitCategoriesById =
+            installed.associate { kit ->
+                kit.id to resolveKitCategories(kit)
+            }
+        val allCategories =
+            kitCategoriesById.values
+                .flatten()
+                .distinct()
+                .sortedWith(compareBy { it.lowercase() })
+        val hasUncategorizedKits = kitCategoriesById.values.any { it.isEmpty() }
         val pinnedKitIds =
             installed.mapNotNull { kit ->
                 kit.id.takeIf { FunctionKitKitSettings.isKitPinned(it) }
@@ -81,7 +94,53 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
                 lastUsedAtEpochMsByKitId = lastUsedAtEpochMsByKitId
             )
 
-        orderedKitIds.mapNotNull { kitById[it] }.forEach { kit ->
+        if (allCategories.isNotEmpty() || hasUncategorizedKits) {
+            kitsCategory.addPreference(
+                ListPreference(context).apply {
+                    key = "function_kit_manager_category_filter"
+                    isPersistent = false
+                    title = getString(R.string.function_kit_manager_category_filter_title)
+                    entries =
+                        buildList {
+                            add(getString(R.string.function_kit_bindings_filter_all))
+                            addAll(allCategories)
+                            if (hasUncategorizedKits) {
+                                add(getString(R.string.function_kit_bindings_filter_other))
+                            }
+                        }.toTypedArray()
+                    entryValues =
+                        buildList {
+                            add(CATEGORY_FILTER_ALL)
+                            addAll(allCategories)
+                            if (hasUncategorizedKits) {
+                                add(CATEGORY_FILTER_OTHER)
+                            }
+                        }.toTypedArray()
+                    value = selectedCategoryId
+                    summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+                    isIconSpaceReserved = false
+                    setOnPreferenceChangeListener { _, newValue ->
+                        selectedCategoryId = newValue?.toString()?.trim().orEmpty().ifBlank { CATEGORY_FILTER_ALL }
+                        renderUi(screen)
+                        true
+                    }
+                }
+            )
+        }
+
+        orderedKitIds
+            .mapNotNull { kitById[it] }
+            .filter { kit ->
+                val selected = selectedCategoryId
+                if (selected == CATEGORY_FILTER_ALL) {
+                    return@filter true
+                }
+                val categories = kitCategoriesById[kit.id].orEmpty()
+                if (selected == CATEGORY_FILTER_OTHER) {
+                    return@filter categories.isEmpty()
+                }
+                return@filter categories.contains(selected)
+            }.forEach { kit ->
             val supportedPermissions =
                 FunctionKitRuntimePermissionResolver.resolveSupported(
                     manifestDeclared = kit.runtimePermissions,
@@ -122,6 +181,16 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
                             )
                         )
                     }
+                    val kitCategories = kitCategoriesById[kit.id].orEmpty()
+                    if (kitCategories.isNotEmpty()) {
+                        append('\n')
+                        append(
+                            getString(
+                                R.string.function_kit_manager_categories_summary,
+                                kitCategories.joinToString(", ")
+                            )
+                        )
+                    }
                 }
 
             kitsCategory.addPreference(
@@ -142,5 +211,20 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
                 }
             )
         }
+    }
+
+    private fun resolveKitCategories(kit: FunctionKitManifest): List<String> =
+        kit.bindings
+            .flatMap { binding ->
+                binding.categories?.mapNotNull { category ->
+                    category.trim().takeIf { it.isNotBlank() }
+                }.orEmpty()
+            }
+            .distinct()
+            .sortedWith(compareBy { it.lowercase() })
+
+    private companion object {
+        private const val CATEGORY_FILTER_ALL = "__all__"
+        private const val CATEGORY_FILTER_OTHER = "__other__"
     }
 }

@@ -334,6 +334,11 @@
     <string name="function_kit_manager_enabled">Enabled</string>
     <string name="function_kit_manager_disabled">Disabled</string>
     <string name="function_kit_manager_permissions_summary">%1$d/%2$d granted</string>
+    <string name="function_kit_manager_category_filter_title">Filter by category</string>
+    <string name="function_kit_manager_categories_summary">Categories: %1$s</string>
+    <string name="function_kit_manager_bindings_category">Bindings</string>
+    <string name="function_kit_manager_bindings_empty_title">No bindings declared</string>
+    <string name="function_kit_manager_bindings_empty_summary">This Function Kit does not declare any bindings.</string>
     <string name="function_kit_manager_description">Description</string>
     <string name="function_kit_manager_permissions_category">Runtime permissions</string>
     <string name="function_kit_manager_permissions_empty_title">No permissions requested</string>

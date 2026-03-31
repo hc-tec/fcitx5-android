@@ -8,6 +8,7 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
+import androidx.preference.ListPreference
 import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import androidx.appcompat.app.AlertDialog
@@ -29,6 +30,7 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
 
     private val args by lazyRoute<SettingsRoute.FunctionKitDetail>()
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
+    private var selectedBindingCategoryId: String = CATEGORY_FILTER_ALL
 
     private lateinit var kit: FunctionKitManifest
 
@@ -123,6 +125,115 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
                     isIconSpaceReserved = false
                 }
             )
+        }
+
+        val bindingsCategory =
+            PreferenceCategory(context).apply {
+                title = getString(R.string.function_kit_manager_bindings_category)
+                order = -195
+            }
+        screen.addPreference(bindingsCategory)
+
+        val bindingCategoriesById =
+            kit.bindings.associate { binding ->
+                binding.id to resolveBindingCategories(binding)
+            }
+        val allBindingCategories =
+            bindingCategoriesById.values
+                .flatten()
+                .distinct()
+                .sortedWith(compareBy { it.lowercase() })
+        val hasUncategorizedBindings =
+            bindingCategoriesById.values.any { categories -> categories.isEmpty() } && allBindingCategories.isNotEmpty()
+
+        if (kit.bindings.isEmpty()) {
+            bindingsCategory.addPreference(
+                Preference(context).apply {
+                    setup(
+                        title = getString(R.string.function_kit_manager_bindings_empty_title),
+                        summary = getString(R.string.function_kit_manager_bindings_empty_summary)
+                    )
+                    isSelectable = false
+                    isIconSpaceReserved = false
+                }
+            )
+        } else {
+            if (allBindingCategories.isNotEmpty()) {
+                bindingsCategory.addPreference(
+                    ListPreference(context).apply {
+                        key = "function_kit_binding_category_filter:${kit.id}"
+                        isPersistent = false
+                        title = getString(R.string.function_kit_manager_category_filter_title)
+                        entries =
+                            buildList {
+                                add(getString(R.string.function_kit_bindings_filter_all))
+                                addAll(allBindingCategories)
+                                if (hasUncategorizedBindings) {
+                                    add(getString(R.string.function_kit_bindings_filter_other))
+                                }
+                            }.toTypedArray()
+                        entryValues =
+                            buildList {
+                                add(CATEGORY_FILTER_ALL)
+                                addAll(allBindingCategories)
+                                if (hasUncategorizedBindings) {
+                                    add(CATEGORY_FILTER_OTHER)
+                                }
+                            }.toTypedArray()
+                        value = selectedBindingCategoryId
+                        summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+                        isIconSpaceReserved = false
+                        setOnPreferenceChangeListener { _, newValue ->
+                            selectedBindingCategoryId =
+                                newValue?.toString()?.trim().orEmpty().ifBlank { CATEGORY_FILTER_ALL }
+                            renderUi(screen)
+                            true
+                        }
+                    }
+                )
+            }
+
+            kit.bindings
+                .filter { binding ->
+                    val selected = selectedBindingCategoryId
+                    if (selected == CATEGORY_FILTER_ALL) {
+                        return@filter true
+                    }
+                    val categories = bindingCategoriesById[binding.id].orEmpty()
+                    if (selected == CATEGORY_FILTER_OTHER) {
+                        return@filter categories.isEmpty()
+                    }
+                    return@filter categories.contains(selected)
+                }
+                .sortedWith(compareBy<FunctionKitManifest.Binding>({ it.title.lowercase() }, { it.id.lowercase() }))
+                .forEach { binding ->
+                    val categories = bindingCategoriesById[binding.id].orEmpty()
+                    val summaryLines = mutableListOf<String>()
+                    summaryLines += "id=${binding.id}"
+                    if (binding.triggers.isNotEmpty()) {
+                        summaryLines += "triggers=${binding.triggers.joinToString(",")}"
+                    }
+                    if (categories.isNotEmpty()) {
+                        summaryLines += "categories=${categories.joinToString(", ")}"
+                    }
+                    binding.preferredPresentation?.trim()?.takeIf { it.isNotBlank() }?.let { value ->
+                        summaryLines += "presentation=$value"
+                    }
+                    binding.requestedPayloads?.takeIf { it.isNotEmpty() }?.let { payloads ->
+                        summaryLines += "payloads=${payloads.joinToString(",")}"
+                    }
+
+                    bindingsCategory.addPreference(
+                        Preference(context).apply {
+                            setup(
+                                title = binding.title,
+                                summary = summaryLines.joinToString("\n")
+                            )
+                            isSelectable = false
+                            isIconSpaceReserved = false
+                        }
+                    )
+                }
         }
 
         val permissionsCategory =
@@ -284,5 +395,19 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
             "ai.agent.list" -> R.string.function_kit_permission_ai_agent_access
             "ai.agent.run" -> R.string.function_kit_permission_ai_agent_access
             else -> android.R.string.untitled
-        }
+    }
+
+    private fun resolveBindingCategories(binding: FunctionKitManifest.Binding): List<String> =
+        binding.categories
+            ?.mapNotNull { category ->
+                category.trim().takeIf { it.isNotBlank() }
+            }
+            ?.distinct()
+            ?.sortedWith(compareBy { it.lowercase() })
+            ?: emptyList()
+
+    private companion object {
+        private const val CATEGORY_FILTER_ALL = "__all__"
+        private const val CATEGORY_FILTER_OTHER = "__other__"
+    }
 }
