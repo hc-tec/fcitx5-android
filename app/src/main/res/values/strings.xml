@@ -316,6 +316,7 @@
     <string name="function_kit_bindings_selection">Selection Actions</string>
     <string name="function_kit_bindings_filter_all">All</string>
     <string name="function_kit_bindings_filter_other">Other</string>
+    <string name="function_kit_bindings_empty">No actions in this category.</string>
     <string name="function_kit_binding_snackbar_triggered">Triggered: %1$s</string>
     <string name="function_kit_binding_snackbar_open">Open</string>
     <string name="function_kit_clipboard_prompt_channel">Clipboard prompt</string>
