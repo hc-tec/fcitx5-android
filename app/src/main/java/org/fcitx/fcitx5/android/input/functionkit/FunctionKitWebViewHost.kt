@@ -210,19 +210,19 @@ class FunctionKitWebViewHost(
                 path.replace("\\", "/")
                     .trimStart('/')
                     .takeUnless(String::isBlank)
-                    ?: return fallback.handle(path)
+                    ?: return fallback.handle("/function-kits/")
 
             val segments = normalized.split('/')
             if (segments.any { it.isBlank() || it == "." || it == ".." }) {
-                return fallback.handle(path)
+                return null
             }
 
             val target = File(installRootDir, normalized)
             if (target.isFile) {
-                return internalStorageHandler.handle(path)
+                return internalStorageHandler.handle("/$normalized")
             }
 
-            return fallback.handle(path)
+            return fallback.handle("/function-kits/$normalized")
         }
     }
 
