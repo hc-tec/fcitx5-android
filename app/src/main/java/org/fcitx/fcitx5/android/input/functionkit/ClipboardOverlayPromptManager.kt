@@ -54,6 +54,7 @@ internal object ClipboardOverlayPromptManager {
     private const val NOTIFICATION_ID = 0xfcb1
     private const val RESUME_SOURCE = "clipboard.prompt"
     private const val DUPLICATE_TEXT_SUPPRESS_MS = 10_000L
+    private const val UNAVAILABLE_HINT_THROTTLE_MS = 15_000L
     private const val BINDINGS_CACHE_MS = 3_000L
     // The IME bridge overlay is a focusable TYPE_APPLICATION_OVERLAY hosting a hidden EditText.
     // Some ROMs refuse to show IME for overlays; in that case we should clean it up to avoid
@@ -77,7 +78,8 @@ internal object ClipboardOverlayPromptManager {
     private var lastPromptText: String? = null
     private var lastPromptAtElapsedMs: Long = 0L
 
-    private var didNotifyMissingPermission: Boolean = false
+    private var didNotifyOverlayPermissionMissing: Boolean = false
+    private var lastUnavailableHintAtElapsedMs: Long = 0L
 
     private var bindingsCacheAtElapsedMs: Long = 0L
     private var bindingsCacheHasClipboardBindings: Boolean? = null
@@ -151,19 +153,46 @@ internal object ClipboardOverlayPromptManager {
         )
         if (!shown) {
             Timber.i("Clipboard prompt unavailable (no overlay permission and notifications disabled)")
-            if (BuildConfig.DEBUG && !didNotifyMissingPermission) {
-                didNotifyMissingPermission = true
+            // Keep debouncing consistent even when we can't show the prompt.
+            lastPromptText = text
+            lastPromptAtElapsedMs = now
+
+            // Best-effort: show actions in the IME if it's currently visible,
+            // otherwise resume into the clipboard actions window on next IME activation.
+            val activeWm = InputWindowManager.activeOrNull()
+            if (activeWm != null && activeWm.view.isAttachedToWindow && activeWm.view.isShown) {
+                activeWm.view.post {
+                    activeWm.attachWindow(
+                        FunctionKitBindingsWindow(
+                            trigger = FunctionKitBindingTrigger.Clipboard,
+                            clipboardText = text
+                        )
+                    )
+                }
+                return
+            } else {
+                ImeWindowResumeManager.schedule(
+                    ImeWindowResumeManager.Request.FunctionKitBindings(
+                        clipboardText = text,
+                        source = RESUME_SOURCE
+                    )
+                )
+            }
+
+            // Provide a user-facing hint instead of failing silently.
+            if (now - lastUnavailableHintAtElapsedMs >= UNAVAILABLE_HINT_THROTTLE_MS) {
+                lastUnavailableHintAtElapsedMs = now
                 Toast.makeText(
                     appContext,
-                    appContext.getString(R.string.function_kit_clipboard_prompt_unavailable_hint),
+                    appContext.getString(R.string.function_kit_clipboard_prompt_focus_input_hint),
                     Toast.LENGTH_LONG
                 ).show()
             }
             return
         }
 
-        if (BuildConfig.DEBUG && !overlayEnabled && !didNotifyMissingPermission) {
-            didNotifyMissingPermission = true
+        if (BuildConfig.DEBUG && !overlayEnabled && !didNotifyOverlayPermissionMissing) {
+            didNotifyOverlayPermissionMissing = true
             Toast.makeText(
                 appContext,
                 appContext.getString(R.string.function_kit_clipboard_prompt_overlay_permission_missing_hint),
