@@ -199,7 +199,8 @@ val functionKitWorkspaceRoot =
         ?: rootDir.resolve("../../../")
 val functionKitRuntimeSdkDir = functionKitWorkspaceRoot.resolve("function-kit-runtime-sdk")
 val functionKitCatalogDir = functionKitWorkspaceRoot.resolve("function-kits")
-val functionKitExcludedIds = setOf("bridge-debugger")
+// Only bundle curated kits into the APK. Others should be installed via Download Center (zip) for real-world flows.
+val functionKitExcludedIds = setOf("bridge-debugger", "tone-rewrite")
 val functionKitDirectories =
     functionKitCatalogDir.listFiles()
         ?.filter { it.isDirectory && it.resolve("manifest.json").isFile && it.name !in functionKitExcludedIds }
