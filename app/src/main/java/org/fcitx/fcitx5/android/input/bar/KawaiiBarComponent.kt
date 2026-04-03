@@ -85,6 +85,7 @@ import splitties.bitflags.hasFlag
 import splitties.dimensions.dp
 import splitties.views.backgroundColor
 import splitties.views.dsl.core.add
+import splitties.views.dsl.core.frameLayout
 import splitties.views.dsl.core.lParams
 import splitties.views.dsl.core.matchParent
 import java.util.concurrent.Executor
@@ -538,6 +539,15 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         }
     }
 
+    private val candidateSlot by lazy {
+        context.frameLayout {
+            add(
+                candidateUi.root,
+                lParams(matchParent, matchParent)
+            )
+        }
+    }
+
     private val titleUi by lazy {
         TitleUi(context, theme)
     }
@@ -548,8 +558,36 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
 
     private var activeExtendedWindow: InputWindow.ExtendedInputWindow<*>? = null
     private var functionKitEmbeddedComposerActive: Boolean = false
+    private var functionKitCandidateDockContainer: ViewGroup? = null
+    private var functionKitCandidateDockActive: Boolean = false
     private var isPreeditEmpty: Boolean = true
     private var isCandidateEmpty: Boolean = true
+
+    internal fun setFunctionKitCandidateDock(container: ViewGroup?) {
+        if (functionKitCandidateDockContainer === container) {
+            return
+        }
+        functionKitCandidateDockContainer = container
+        functionKitCandidateDockActive = container != null
+
+        val candidateRoot = candidateUi.root
+        (candidateRoot.parent as? ViewGroup)?.removeView(candidateRoot)
+
+        val targetParent = container ?: candidateSlot
+        targetParent.addView(
+            candidateRoot,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        syncExpandButtonState()
+    }
+
+    private fun syncExpandButtonState() {
+        val enabled = expandButtonStateMachine.currentState != Hidden
+        setExpandButtonEnabled(enabled)
+    }
 
     internal fun setFunctionKitEmbeddedComposerActive(active: Boolean) {
         if (functionKitEmbeddedComposerActive == active) {
@@ -638,7 +676,9 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
 
     // should be used with setExpandButtonToAttach or setExpandButtonToDetach
     private fun setExpandButtonEnabled(enabled: Boolean) {
-        candidateUi.expandButton.visibility = if (enabled) View.VISIBLE else View.INVISIBLE
+        val shouldEnable = enabled && !functionKitCandidateDockActive
+        candidateUi.expandButton.visibility = if (shouldEnable) View.VISIBLE else View.INVISIBLE
+        candidateUi.expandButton.isEnabled = shouldEnable
     }
 
     private fun switchUiByState(state: KawaiiBarStateMachine.State) {
@@ -659,7 +699,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 if (ThemeManager.prefs.keyBorder.getValue()) Color.TRANSPARENT
                 else theme.barColor
             add(idleUi.root, lParams(matchParent, matchParent))
-            add(candidateUi.root, lParams(matchParent, matchParent))
+            add(candidateSlot, lParams(matchParent, matchParent))
             add(titleUi.root, lParams(matchParent, matchParent))
         }
     }

@@ -32,6 +32,7 @@ import org.fcitx.fcitx5.android.core.FcitxEvent
 import org.fcitx.fcitx5.android.core.FormattedText
 import org.fcitx.fcitx5.android.data.clipboard.ClipboardManager
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
+import org.fcitx.fcitx5.android.data.theme.ThemeManager
 import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.FcitxInputMethodService
 import org.fcitx.fcitx5.android.input.bar.KawaiiBarComponent
@@ -40,6 +41,8 @@ import org.fcitx.fcitx5.android.input.broadcast.InputBroadcastReceiver
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.keyboard.KeyboardWindow
+import org.fcitx.fcitx5.android.input.preedit.PreeditComponent
+import org.fcitx.fcitx5.android.input.preedit.PreeditUi
 import org.fcitx.fcitx5.android.input.wm.ImeBridgeState
 import org.fcitx.fcitx5.android.input.wm.ImeWindowHiddenListener
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
@@ -51,17 +54,21 @@ import org.json.JSONArray
 import org.json.JSONObject
 import splitties.dimensions.dp
 import splitties.views.backgroundColor
+import splitties.views.horizontalPadding
 import splitties.views.dsl.core.add
 import splitties.views.dsl.core.frameLayout
 import splitties.views.dsl.core.horizontalLayout
 import splitties.views.dsl.core.lParams
 import splitties.views.dsl.core.matchParent
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.Executors
 
@@ -219,6 +226,7 @@ class FunctionKitWindow(
     private val theme: Theme by manager.theme()
     private val windowManager: InputWindowManager by manager.must()
     private val kawaiiBar: KawaiiBarComponent by manager.must()
+    private val preedit: PreeditComponent by manager.must()
     private val windowPool: FunctionKitWindowPool by manager.must()
     private val aiPrefs = AppPrefs.getInstance().ai
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
@@ -340,12 +348,7 @@ class FunctionKitWindow(
         if (panelPeekHeightPx != heightPx) {
             panelPeekHeightPx = heightPx
         }
-        (panelContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
-            if (params.height != heightPx) {
-                params.height = heightPx
-                panelContainer.layoutParams = params
-            }
-        }
+        syncEmbeddedCandidateDock(shouldShowEmbeddedKeyboard())
     }
 
     private fun setWindowManagerHeightPx(heightPx: Int) {
@@ -421,11 +424,91 @@ class FunctionKitWindow(
         collapsePanelExpanded(reason)
     }
 
+    private val embeddedCandidateDockHeightPx by lazy { context.dp(KawaiiBarComponent.HEIGHT) }
+    private val embeddedPreeditDockFallbackHeightPx by lazy { context.dp(56) }
+    private val embeddedPreeditUi by lazy {
+        val keyBorder = ThemeManager.prefs.keyBorder.getValue()
+        val bkgColor =
+            if (!keyBorder && theme is Theme.Builtin) theme.barColor else theme.backgroundColor
+        PreeditUi(context, theme, setupTextView = {
+            backgroundColor = bkgColor
+            horizontalPadding = dp(8)
+        }).apply {
+            root.alpha = 0.8f
+            root.visibility = View.INVISIBLE
+        }
+    }
+
+    private fun syncEmbeddedCandidateDock(showKeyboard: Boolean) {
+        val dockActive = windowAttached && showKeyboard
+        if (dockActive) {
+            kawaiiBar.setFunctionKitCandidateDock(embeddedCandidateDockContainer)
+        } else {
+            kawaiiBar.setFunctionKitCandidateDock(null)
+        }
+        preedit.setFunctionKitSuppressed(dockActive)
+
+        val showCandidates = dockActive && currentCandidateCount > 0
+        val showPreedit = dockActive && embeddedPreeditUi.visible
+
+        val candidateHeightPx = if (showCandidates) embeddedCandidateDockHeightPx else 0
+        val preeditHeightPx =
+            if (showPreedit) {
+                val widthPx =
+                    (embeddedDockContainer.width.takeIf { it > 0 }
+                        ?: windowManager.view.width.takeIf { it > 0 }
+                        ?: context.resources.displayMetrics.widthPixels)
+                        .coerceAtLeast(1)
+                val preeditRoot = embeddedPreeditUi.root
+                val widthSpec = View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY)
+                val heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+                preeditRoot.measure(widthSpec, heightSpec)
+                preeditRoot.measuredHeight.takeIf { it > 0 } ?: embeddedPreeditDockFallbackHeightPx
+            } else {
+                0
+            }
+
+        val dockHeightPx = preeditHeightPx + candidateHeightPx
+        val shouldShowDock = dockActive && dockHeightPx > 0
+
+        embeddedDockContainer.visibility = if (shouldShowDock) View.VISIBLE else View.GONE
+        (embeddedDockContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+            if (params.height != dockHeightPx) {
+                params.height = dockHeightPx
+                embeddedDockContainer.layoutParams = params
+            }
+        }
+
+        embeddedPreeditDockContainer.visibility = if (preeditHeightPx > 0) View.VISIBLE else View.GONE
+        (embeddedPreeditDockContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+            if (params.height != preeditHeightPx) {
+                params.height = preeditHeightPx
+                embeddedPreeditDockContainer.layoutParams = params
+            }
+        }
+
+        embeddedCandidateDockContainer.visibility = if (candidateHeightPx > 0) View.VISIBLE else View.GONE
+        (embeddedCandidateDockContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+            if (params.height != candidateHeightPx) {
+                params.height = candidateHeightPx
+                embeddedCandidateDockContainer.layoutParams = params
+            }
+        }
+
+        // Keep the overall panel area height stable by borrowing space from the WebView panel when
+        // the candidate dock is visible, instead of shrinking the embedded keyboard.
+        val panelHeightPx = (panelPeekHeightPx - dockHeightPx).coerceAtLeast(0)
+        (panelContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+            if (params.height != panelHeightPx) {
+                params.height = panelHeightPx
+                panelContainer.layoutParams = params
+            }
+        }
+    }
+
     private fun syncEmbeddedKeyboardLayout() {
         val showKeyboard = shouldShowEmbeddedKeyboard()
-        // When the embedded keyboard is visible (either via WebView input focus or manual pin),
-        // keep candidate/preedit UI usable so users can commit Chinese input.
-        kawaiiBar.setFunctionKitEmbeddedComposerActive(showKeyboard)
+        syncEmbeddedCandidateDock(showKeyboard)
         embeddedKeyboardContainer.visibility = if (showKeyboard) View.VISIBLE else View.GONE
 
         // The keyboard container defaults to VISIBLE; always force the correct visibility and window height
@@ -462,6 +545,49 @@ class FunctionKitWindow(
         }
     }
 
+    private val embeddedPreeditDockContainer by lazy {
+        context.frameLayout {
+            backgroundColor = theme.barColor
+            visibility = View.GONE
+            addView(
+                embeddedPreeditUi.root,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+    }
+
+    private val embeddedCandidateDockContainer by lazy {
+        context.frameLayout {
+            backgroundColor = theme.barColor
+            visibility = View.GONE
+        }
+    }
+
+    private val embeddedDockContainer by lazy {
+        LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(theme.barColor)
+            visibility = View.GONE
+            addView(
+                embeddedPreeditDockContainer,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0
+                )
+            )
+            addView(
+                embeddedCandidateDockContainer,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0
+                )
+            )
+        }
+    }
+
     private val rootView by lazy {
         LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -471,6 +597,13 @@ class FunctionKitWindow(
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     panelPeekHeightPx.takeIf { it > 0 } ?: context.dp(320)
+                )
+            )
+            addView(
+                embeddedDockContainer,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0
                 )
             )
             addView(
@@ -662,13 +795,7 @@ class FunctionKitWindow(
                 windowManagerHeightBeforeAttach = fallbackHeight
             }
         }
-        panelPeekHeightPx = resolvePanelPeekHeightPx(windowManagerHeightBeforeAttach ?: baseHeight)
-        (panelContainer.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
-            if (params.height != panelPeekHeightPx) {
-                params.height = panelPeekHeightPx
-                panelContainer.layoutParams = params
-            }
-        }
+        applyPanelPeekHeightPx(resolvePanelPeekHeightPx(windowManagerHeightBeforeAttach ?: baseHeight))
 
         val keyboardView = windowManager.requireEssentialWindowView(KeyboardWindow)
         (keyboardView.parent as? ViewGroup)?.removeView(keyboardView)
@@ -732,7 +859,8 @@ class FunctionKitWindow(
         sendInterceptImeActionRegistered = false
         embeddedKeyboardPinned = false
         applyEmbeddedKeyboardPinnedButtonState(pinnedKeyboardButton, embeddedKeyboardPinned)
-        kawaiiBar.setFunctionKitEmbeddedComposerActive(false)
+        kawaiiBar.setFunctionKitCandidateDock(null)
+        preedit.setFunctionKitSuppressed(false)
         if (composerState.open || composerState.focused) {
             // Never keep the composer open after the panel is detached, otherwise users will see it
             // unexpectedly next time they open the panel (or worse: typing gets routed to it).
@@ -807,11 +935,33 @@ class FunctionKitWindow(
 
     override fun onCandidateUpdate(data: FcitxEvent.CandidateListEvent.Data) {
         currentCandidateCount = data.candidates.size
+        syncEmbeddedCandidateDock(shouldShowEmbeddedKeyboard())
     }
 
     override fun onClientPreeditUpdate(data: FormattedText) {
         currentPreeditText = data.toString()
+        if (windowAttached) {
+            embeddedPreeditUi.update(
+                FcitxEvent.InputPanelEvent.Data(
+                    preedit = data,
+                    auxUp = FormattedText.Empty,
+                    auxDown = FormattedText.Empty
+                )
+            )
+            embeddedPreeditUi.root.visibility =
+                if (embeddedPreeditUi.visible) View.VISIBLE else View.INVISIBLE
+        }
+        syncEmbeddedCandidateDock(shouldShowEmbeddedKeyboard())
         scheduleInputObserveSync("preedit-update")
+    }
+
+    override fun onInputPanelUpdate(data: FcitxEvent.InputPanelEvent.Data) {
+        if (windowAttached) {
+            embeddedPreeditUi.update(data)
+            embeddedPreeditUi.root.visibility =
+                if (embeddedPreeditUi.visible) View.VISIBLE else View.INVISIBLE
+        }
+        syncEmbeddedCandidateDock(shouldShowEmbeddedKeyboard())
     }
 
     override val title: String by lazy { FunctionKitRegistry.displayName(context, functionKitManifest) }
@@ -895,7 +1045,14 @@ class FunctionKitWindow(
         if (startHeadless) {
             ensureHeadlessPanelInitialized(reason = "binding.invoke")
         }
-        flushPendingBindingInvocations()
+        // Only flush immediately when the WebView is resumed.
+        //
+        // For panel-style bindings, callers typically enqueue first and then attach the window on the
+        // next frame. Flushing while the window is detached would dispatch to a paused WebView and
+        // the kit might never receive the invocation, leading to stale UI state (wrong tone/view).
+        if (startHeadless || windowAttached) {
+            flushPendingBindingInvocations()
+        }
         return invocationId
     }
 
@@ -964,6 +1121,8 @@ class FunctionKitWindow(
             "storage.set" -> handleStorageSet(replyTo, payload)
             "panel.state.update" -> handlePanelStateUpdate(replyTo, payload)
             "files.pick" -> handleFilesPick(replyTo, surface, payload)
+            "files.download" -> handleFilesDownload(replyTo, surface, payload)
+            "files.getUrl" -> handleFilesGetUrl(replyTo, surface, payload)
             "network.fetch" -> handleNetworkFetch(replyTo, surface, payload)
             "ai.request" -> handleAiRequest(replyTo, surface, payload)
             "ai.agent.list" -> handleAiAgentList(replyTo, surface)
@@ -971,6 +1130,14 @@ class FunctionKitWindow(
             "runtime.message.send" -> handleRuntimeMessageSend(replyTo, surface, payload)
             "tasks.sync.request" -> handleTasksSyncRequest(replyTo, surface, payload)
             "task.cancel" -> handleTaskCancel(replyTo, surface, payload)
+            "kits.sync.request" -> handleKitsSyncRequest(replyTo, surface, payload)
+            "kits.open" -> handleKitsOpen(replyTo, surface, payload)
+            "kits.install" -> handleKitsInstall(replyTo, surface, payload)
+            "kits.uninstall" -> handleKitsUninstall(replyTo, surface, payload)
+            "kits.settings.update" -> handleKitsSettingsUpdate(replyTo, surface, payload)
+            "catalog.sources.get" -> handleCatalogSourcesGet(replyTo, surface, payload)
+            "catalog.sources.set" -> handleCatalogSourcesSet(replyTo, surface, payload)
+            "catalog.refresh" -> handleCatalogRefresh(replyTo, surface, payload)
             "send.intercept.ime_action.register" -> handleSendInterceptImeActionRegister(replyTo, surface, payload)
             "send.intercept.ime_action.unregister" -> handleSendInterceptImeActionUnregister(replyTo, surface, payload)
             "send.intercept.ime_action.result" -> handleSendInterceptImeActionResult(replyToHostMessageId, surface, payload)
@@ -1885,6 +2052,40 @@ class FunctionKitWindow(
         }
     }
 
+    private fun handleFilesDownload(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "files.download") ?: return
+        host.dispatchBridgeError(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            code = "files_download_not_implemented",
+            message = "files.download is not implemented on Android host yet.",
+            retryable = false,
+            details = JSONObject().put("payload", payload)
+        )
+    }
+
+    private fun handleFilesGetUrl(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "files.download") ?: return
+        host.dispatchBridgeError(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            code = "files_get_url_not_implemented",
+            message = "files.getUrl is not implemented on Android host yet.",
+            retryable = false,
+            details = JSONObject().put("payload", payload)
+        )
+    }
+
     private fun handleSettingsOpen(
         replyTo: String,
         payload: JSONObject
@@ -1951,6 +2152,705 @@ class FunctionKitWindow(
             surface = surface,
             payload = decision.toJson(taskId)
         )
+    }
+
+    private fun handleKitsSyncRequest(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "kits.manage") ?: return
+        val includeDisabled = payload.optBoolean("includeDisabled", false)
+        dispatchKitsSyncSnapshot(replyTo = replyTo, surface = surface, includeDisabled = includeDisabled)
+    }
+
+    private fun handleKitsOpen(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "kits.manage") ?: return
+
+        val targetKitId = payload.optString("kitId").trim()
+        if (targetKitId.isBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "kits_open_invalid_payload",
+                message = "kits.open requires a non-empty kitId.",
+                retryable = false
+            )
+            return
+        }
+
+        if (targetKitId == functionKitId) {
+            host.dispatchKitsOpenResult(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                payload = JSONObject().put("ok", true).put("kitId", targetKitId)
+            )
+            return
+        }
+
+        val installed = FunctionKitRegistry.listInstalled(context).any { it.id == targetKitId }
+        if (!installed) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "kit_not_found",
+                message = "Kit is not installed: $targetKitId",
+                retryable = false
+            )
+            return
+        }
+
+        if (!FunctionKitKitSettings.isKitEnabled(targetKitId)) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "kit_disabled",
+                message = "Kit is disabled: $targetKitId",
+                retryable = false
+            )
+            return
+        }
+
+        host.dispatchKitsOpenResult(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload = JSONObject().put("ok", true).put("kitId", targetKitId)
+        )
+
+        webView.post {
+            windowManager.attachWindow(windowPool.require(targetKitId))
+        }
+    }
+
+    private fun dispatchKitsSyncSnapshot(
+        replyTo: String?,
+        surface: String,
+        includeDisabled: Boolean
+    ) {
+        val installed = FunctionKitRegistry.listInstalled(context)
+        val kitsJson = JSONArray()
+
+        installed.forEach { manifest ->
+            val kitId = manifest.id
+            val enabled = FunctionKitKitSettings.isKitEnabled(kitId)
+            if (!includeDisabled && !enabled) {
+                return@forEach
+            }
+
+            kitsJson.put(
+                manifest.toJson()
+                    .put("kitId", kitId)
+                    .put("displayName", FunctionKitRegistry.displayName(context, manifest))
+                    .put("enabled", enabled)
+                    .put("pinned", FunctionKitKitSettings.isKitPinned(kitId))
+                    .put("userInstalled", FunctionKitPackageManager.isUserInstalled(context, kitId))
+                    .put(
+                        "source",
+                        if (FunctionKitPackageManager.isUserInstalled(context, kitId)) "user" else "bundled"
+                    )
+            )
+        }
+
+        host.dispatchKitsSync(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload = JSONObject().put("kits", kitsJson)
+        )
+    }
+
+    private fun handleKitsSettingsUpdate(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "kits.manage") ?: return
+
+        val kitId = payload.optString("kitId").trim()
+        if (kitId.isBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "kits_settings_invalid_payload",
+                message = "kits.settings.update requires a non-empty kitId.",
+                retryable = false
+            )
+            return
+        }
+
+        val installed = FunctionKitRegistry.listInstalled(context).any { it.id == kitId }
+        if (!installed) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "kit_not_found",
+                message = "Kit is not installed: $kitId",
+                retryable = false
+            )
+            return
+        }
+
+        val patch = payload.optJSONObject("patch") ?: JSONObject()
+        if (patch.has("enabled")) {
+            FunctionKitKitSettings.setKitEnabled(kitId, patch.optBoolean("enabled", true))
+        }
+        if (patch.has("pinned")) {
+            FunctionKitKitSettings.setKitPinned(kitId, patch.optBoolean("pinned", false))
+        }
+
+        patch.optJSONObject("permissionOverrides")?.let { overrides ->
+            val iterator = overrides.keys()
+            while (iterator.hasNext()) {
+                val permission = iterator.next().trim()
+                if (permission.isBlank()) {
+                    continue
+                }
+                when (val value = overrides.opt(permission)) {
+                    JSONObject.NULL -> FunctionKitKitSettings.setPermissionOverride(kitId, permission, null)
+                    is Boolean -> FunctionKitKitSettings.setPermissionOverride(kitId, permission, value)
+                }
+            }
+        }
+
+        host.dispatchKitsSettingsUpdateResult(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload = JSONObject().put("ok", true).put("kitId", kitId)
+        )
+        dispatchKitsSyncSnapshot(replyTo = null, surface = surface, includeDisabled = true)
+    }
+
+    private fun handleKitsInstall(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "kits.manage") ?: return
+
+        val source = payload.optJSONObject("source") ?: JSONObject()
+        val kind = source.optString("kind").trim().lowercase()
+        val taskTitle: String? =
+            payload.optJSONObject("task")?.optString("title")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+
+        val taskId =
+            taskTracker.create(
+                kind = "kits.install",
+                surface = surface,
+                title = taskTitle,
+                status = "queued",
+                cancellable = true,
+                progress = JSONObject().put("stage", "queued").put("sourceKind", kind)
+            )
+
+        val requestSessionId = sessionId
+        val future =
+            remoteExecutor.submit {
+                try {
+                    taskTracker.update(
+                        taskId = taskId,
+                        status = "running",
+                        progress = JSONObject().put("stage", "install").put("sourceKind", kind)
+                    )
+                    val outcome = executeKitInstall(source)
+                    ContextCompat.getMainExecutor(service).execute {
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+
+                        if (taskTracker.cancelRequested(taskId)) {
+                            taskTracker.update(taskId = taskId, status = "canceled")
+                            host.dispatchBridgeError(
+                                replyTo = replyTo,
+                                kitId = functionKitId,
+                                surface = surface,
+                                code = "task_canceled",
+                                message = "kits.install canceled.",
+                                retryable = false,
+                                details = JSONObject().put("taskId", taskId)
+                            )
+                            return@execute
+                        }
+
+                        when (outcome) {
+                            is FunctionKitPackageManager.InstallOutcome.Ok -> {
+                                taskTracker.update(
+                                    taskId = taskId,
+                                    status = "succeeded",
+                                    result = JSONObject().put("summary", "Installed ${outcome.kitId}")
+                                )
+                                host.dispatchKitsInstallResult(
+                                    replyTo = replyTo,
+                                    kitId = functionKitId,
+                                    surface = surface,
+                                    payload =
+                                        JSONObject()
+                                            .put("ok", true)
+                                            .put("kitId", outcome.kitId)
+                                            .put("replaced", outcome.replaced)
+                                            .put("taskId", taskId)
+                                )
+                                dispatchKitsSyncSnapshot(replyTo = null, surface = surface, includeDisabled = true)
+                            }
+                            is FunctionKitPackageManager.InstallOutcome.Error -> {
+                                taskTracker.update(
+                                    taskId = taskId,
+                                    status = "failed",
+                                    error =
+                                        JSONObject()
+                                            .put("code", "kits_install_failed")
+                                            .put("message", outcome.message)
+                                            .put("retryable", true)
+                                )
+                                host.dispatchBridgeError(
+                                    replyTo = replyTo,
+                                    kitId = functionKitId,
+                                    surface = surface,
+                                    code = "kits_install_failed",
+                                    message = outcome.message,
+                                    retryable = true,
+                                    details = JSONObject().put("taskId", taskId)
+                                )
+                            }
+                        }
+                    }
+                } catch (error: RemoteInferenceException) {
+                    ContextCompat.getMainExecutor(service).execute {
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "failed",
+                            error =
+                                JSONObject()
+                                    .put("code", error.code)
+                                    .put("message", error.message)
+                                    .put("retryable", error.retryable)
+                                    .put("details", JSONObject.wrap(error.details))
+                        )
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+                        host.dispatchBridgeError(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            code = error.code,
+                            message = error.message,
+                            retryable = error.retryable,
+                            details =
+                                JSONObject()
+                                    .put("taskId", taskId)
+                                    .put("statusCode", error.statusCode)
+                                    .put("details", JSONObject.wrap(error.details))
+                        )
+                    }
+                } catch (error: Throwable) {
+                    ContextCompat.getMainExecutor(service).execute {
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "failed",
+                            error =
+                                JSONObject()
+                                    .put("code", "kits_install_unexpected_error")
+                                    .put("message", error.message ?: "Unexpected error")
+                                    .put("retryable", false)
+                                    .put("details", JSONObject().put("kind", error.javaClass.name))
+                        )
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+                        host.dispatchBridgeError(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            code = "kits_install_unexpected_error",
+                            message = "kits.install failed: ${error.message ?: "Unexpected error"}",
+                            retryable = false,
+                            details =
+                                JSONObject()
+                                    .put("taskId", taskId)
+                                    .put("kind", error.javaClass.name)
+                        )
+                    }
+                }
+            }
+
+        taskTracker.attachFuture(taskId, future)
+    }
+
+    private fun handleKitsUninstall(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "kits.manage") ?: return
+
+        val targetKitId = payload.optString("kitId").trim()
+        if (targetKitId.isBlank()) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "kits_uninstall_invalid_payload",
+                message = "kits.uninstall requires a non-empty kitId.",
+                retryable = false
+            )
+            return
+        }
+
+        if (targetKitId == functionKitId) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "kits_uninstall_blocked",
+                message = "Cannot uninstall the currently running kit.",
+                retryable = false
+            )
+            return
+        }
+
+        if (!FunctionKitPackageManager.isUserInstalled(context, targetKitId)) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "kits_uninstall_not_user_installed",
+                message = "Only user-installed kits can be uninstalled: $targetKitId",
+                retryable = false
+            )
+            return
+        }
+
+        val taskTitle: String? =
+            payload.optJSONObject("task")?.optString("title")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+
+        val taskId =
+            taskTracker.create(
+                kind = "kits.uninstall",
+                surface = surface,
+                title = taskTitle,
+                status = "queued",
+                cancellable = true,
+                progress = JSONObject().put("stage", "queued").put("kitId", targetKitId)
+            )
+
+        val requestSessionId = sessionId
+        val future =
+            remoteExecutor.submit {
+                try {
+                    taskTracker.update(
+                        taskId = taskId,
+                        status = "running",
+                        progress = JSONObject().put("stage", "uninstall").put("kitId", targetKitId)
+                    )
+                    val ok = FunctionKitPackageManager.uninstall(context, targetKitId)
+                    ContextCompat.getMainExecutor(service).execute {
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+
+                        if (taskTracker.cancelRequested(taskId)) {
+                            taskTracker.update(taskId = taskId, status = "canceled")
+                            host.dispatchBridgeError(
+                                replyTo = replyTo,
+                                kitId = functionKitId,
+                                surface = surface,
+                                code = "task_canceled",
+                                message = "kits.uninstall canceled.",
+                                retryable = false,
+                                details = JSONObject().put("taskId", taskId)
+                            )
+                            return@execute
+                        }
+
+                        if (!ok) {
+                            taskTracker.update(
+                                taskId = taskId,
+                                status = "failed",
+                                error =
+                                    JSONObject()
+                                        .put("code", "kits_uninstall_failed")
+                                        .put("message", "Failed to uninstall kit: $targetKitId")
+                                        .put("retryable", true)
+                            )
+                            host.dispatchBridgeError(
+                                replyTo = replyTo,
+                                kitId = functionKitId,
+                                surface = surface,
+                                code = "kits_uninstall_failed",
+                                message = "Failed to uninstall kit: $targetKitId",
+                                retryable = true,
+                                details = JSONObject().put("taskId", taskId)
+                            )
+                            return@execute
+                        }
+
+                        FunctionKitKitSettings.clearAll(targetKitId)
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "succeeded",
+                            result = JSONObject().put("summary", "Uninstalled $targetKitId")
+                        )
+                        host.dispatchKitsUninstallResult(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            payload =
+                                JSONObject()
+                                    .put("ok", true)
+                                    .put("kitId", targetKitId)
+                                    .put("taskId", taskId)
+                        )
+                        dispatchKitsSyncSnapshot(replyTo = null, surface = surface, includeDisabled = true)
+                    }
+                } catch (error: Throwable) {
+                    ContextCompat.getMainExecutor(service).execute {
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "failed",
+                            error =
+                                JSONObject()
+                                    .put("code", "kits_uninstall_unexpected_error")
+                                    .put("message", error.message ?: "Unexpected error")
+                                    .put("retryable", false)
+                                    .put("details", JSONObject().put("kind", error.javaClass.name))
+                        )
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+                        host.dispatchBridgeError(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            code = "kits_uninstall_unexpected_error",
+                            message = "kits.uninstall failed: ${error.message ?: "Unexpected error"}",
+                            retryable = false,
+                            details =
+                                JSONObject()
+                                    .put("taskId", taskId)
+                                    .put("kind", error.javaClass.name)
+                        )
+                    }
+                }
+            }
+
+        taskTracker.attachFuture(taskId, future)
+    }
+
+    private fun handleCatalogSourcesGet(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "kits.manage") ?: return
+        dispatchCatalogSourcesSnapshot(replyTo = replyTo, surface = surface)
+    }
+
+    private fun handleCatalogSourcesSet(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "kits.manage") ?: return
+
+        val sourcesNode = payload.optJSONArray("sources")
+        if (sourcesNode == null) {
+            host.dispatchBridgeError(
+                replyTo = replyTo,
+                kitId = functionKitId,
+                surface = surface,
+                code = "catalog_sources_invalid_payload",
+                message = "catalog.sources.set requires sources[].",
+                retryable = false
+            )
+            return
+        }
+
+        val sources =
+            buildList {
+                for (index in 0 until sourcesNode.length()) {
+                    val item = sourcesNode.optJSONObject(index) ?: continue
+                    val url = item.optString("url").trim()
+                    if (url.isBlank()) continue
+                    val enabled = if (item.has("enabled")) item.optBoolean("enabled", true) else true
+                    add(FunctionKitCatalogStore.Source(url = url, enabled = enabled))
+                }
+            }
+
+        FunctionKitCatalogStore.saveSources(sources)
+        dispatchCatalogSourcesSnapshot(replyTo = replyTo, surface = surface)
+    }
+
+    private fun dispatchCatalogSourcesSnapshot(
+        replyTo: String?,
+        surface: String
+    ) {
+        val sourcesJson = JSONArray()
+        FunctionKitCatalogStore.getSources(context).forEach { source ->
+            sourcesJson.put(source.toJson())
+        }
+        host.dispatchCatalogSourcesSync(
+            replyTo = replyTo,
+            kitId = functionKitId,
+            surface = surface,
+            payload = JSONObject().put("sources", sourcesJson)
+        )
+    }
+
+    private fun handleCatalogRefresh(
+        replyTo: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        ensurePermission(replyTo, "kits.manage") ?: return
+
+        val requestedUrl = payload.optString("url").trim()
+        val sources =
+            if (requestedUrl.isNotBlank()) {
+                listOf(FunctionKitCatalogStore.Source(url = requestedUrl, enabled = true))
+            } else {
+                FunctionKitCatalogStore.getSources(context).filter { it.enabled }
+            }
+
+        val taskTitle: String? =
+            payload.optJSONObject("task")?.optString("title")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+
+        val taskId =
+            taskTracker.create(
+                kind = "catalog.refresh",
+                surface = surface,
+                title = taskTitle,
+                status = "queued",
+                cancellable = true,
+                progress = JSONObject().put("stage", "queued").put("sourceCount", sources.size)
+            )
+
+        val requestSessionId = sessionId
+        val future =
+            remoteExecutor.submit {
+                try {
+                    taskTracker.update(
+                        taskId = taskId,
+                        status = "running",
+                        progress = JSONObject().put("stage", "fetch").put("sourceCount", sources.size)
+                    )
+                    val packages = executeCatalogRefresh(sources)
+                    ContextCompat.getMainExecutor(service).execute {
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+
+                        if (taskTracker.cancelRequested(taskId)) {
+                            taskTracker.update(taskId = taskId, status = "canceled")
+                            host.dispatchBridgeError(
+                                replyTo = replyTo,
+                                kitId = functionKitId,
+                                surface = surface,
+                                code = "task_canceled",
+                                message = "catalog.refresh canceled.",
+                                retryable = false,
+                                details = JSONObject().put("taskId", taskId)
+                            )
+                            return@execute
+                        }
+
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "succeeded",
+                            result = JSONObject().put("summary", "Fetched ${packages.size} packages")
+                        )
+
+                        val packagesJson = JSONArray()
+                        packages.forEach { pkg -> packagesJson.put(pkg) }
+
+                        host.dispatchCatalogSync(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            payload =
+                                JSONObject()
+                                    .put("packages", packagesJson)
+                                    .put("taskId", taskId)
+                        )
+                    }
+                } catch (error: RemoteInferenceException) {
+                    ContextCompat.getMainExecutor(service).execute {
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "failed",
+                            error =
+                                JSONObject()
+                                    .put("code", error.code)
+                                    .put("message", error.message)
+                                    .put("retryable", error.retryable)
+                                    .put("details", JSONObject.wrap(error.details))
+                        )
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+                        host.dispatchBridgeError(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            code = error.code,
+                            message = error.message,
+                            retryable = error.retryable,
+                            details =
+                                JSONObject()
+                                    .put("taskId", taskId)
+                                    .put("statusCode", error.statusCode)
+                                    .put("details", JSONObject.wrap(error.details))
+                        )
+                    }
+                } catch (error: Throwable) {
+                    ContextCompat.getMainExecutor(service).execute {
+                        taskTracker.update(
+                            taskId = taskId,
+                            status = "failed",
+                            error =
+                                JSONObject()
+                                    .put("code", "catalog_refresh_unexpected_error")
+                                    .put("message", error.message ?: "Unexpected error")
+                                    .put("retryable", false)
+                                    .put("details", JSONObject().put("kind", error.javaClass.name))
+                        )
+                        if (requestSessionId != sessionId) {
+                            return@execute
+                        }
+                        host.dispatchBridgeError(
+                            replyTo = replyTo,
+                            kitId = functionKitId,
+                            surface = surface,
+                            code = "catalog_refresh_unexpected_error",
+                            message = "catalog.refresh failed: ${error.message ?: "Unexpected error"}",
+                            retryable = false,
+                            details =
+                                JSONObject()
+                                    .put("taskId", taskId)
+                                    .put("kind", error.javaClass.name)
+                        )
+                    }
+                }
+            }
+
+        taskTracker.attachFuture(taskId, future)
     }
 
     private fun handleNetworkFetch(
@@ -3304,6 +4204,388 @@ class FunctionKitWindow(
             .put("agents", agents)
     }
 
+    private fun executeKitInstall(source: JSONObject): FunctionKitPackageManager.InstallOutcome {
+        val kind = source.optString("kind").trim().lowercase()
+        return when (kind) {
+            "file" -> {
+                val fileId = source.optString("fileId").trim()
+                if (fileId.isBlank()) {
+                    throw RemoteInferenceException(
+                        code = "kits_install_invalid_source",
+                        message = "kits.install source.kind=file requires source.fileId.",
+                        retryable = false
+                    )
+                }
+
+                val entry =
+                    fileStore.get(fileId)
+                        ?: throw RemoteInferenceException(
+                            code = "kits_install_file_not_found",
+                            message = "kits.install fileId not found: $fileId",
+                            retryable = false
+                        )
+
+                FunctionKitPackageManager.installFromZipUri(context, entry.uri)
+            }
+            "url" -> {
+                val url = source.optString("url").trim()
+                if (url.isBlank()) {
+                    throw RemoteInferenceException(
+                        code = "kits_install_invalid_source",
+                        message = "kits.install source.kind=url requires source.url.",
+                        retryable = false
+                    )
+                }
+
+                val maxBytes =
+                    source.optLong("maxBytes")
+                        .takeIf { it > 0 }
+                        ?: MaxStoreZipBytes
+
+                val download = downloadToTempZip(urlString = url, maxBytes = maxBytes)
+                val tempZip = download.file
+                    ?: throw RemoteInferenceException(
+                        code = "kits_install_download_failed",
+                        message = "Failed to download kit zip: ${download.errorMessage ?: url}",
+                        retryable = true,
+                        details = JSONObject().put("url", url)
+                    )
+
+                try {
+                    val expectedSha = source.optString("sha256").trim()
+                    if (expectedSha.isNotBlank()) {
+                        val actual = sha256Hex(tempZip)
+                        if (!equalsSha256(expectedSha, actual)) {
+                            throw RemoteInferenceException(
+                                code = "kits_install_sha256_mismatch",
+                                message = "Kit zip SHA-256 mismatch.",
+                                retryable = false,
+                                details =
+                                    JSONObject()
+                                        .put("expectedSha256", expectedSha)
+                                        .put("actualSha256", actual)
+                            )
+                        }
+                    }
+
+                    FunctionKitPackageManager.installFromZipFile(context, tempZip)
+                } finally {
+                    runCatching { tempZip.delete() }
+                }
+            }
+            "catalog" -> {
+                val catalogUrl = source.optString("catalogUrl").trim()
+                val kitId = source.optString("kitId").trim()
+                if (catalogUrl.isBlank() || kitId.isBlank()) {
+                    throw RemoteInferenceException(
+                        code = "kits_install_invalid_source",
+                        message = "kits.install source.kind=catalog requires source.catalogUrl and source.kitId.",
+                        retryable = false
+                    )
+                }
+
+                val resolvedZipUrl =
+                    resolveZipUrl(
+                        catalogUrl = catalogUrl,
+                        kitId = kitId,
+                        zipUrl = source.optString("zipUrl").trim().takeIf { it.isNotBlank() }
+                    ) ?: throw RemoteInferenceException(
+                        code = "kits_install_invalid_source",
+                        message = "kits.install failed to resolve catalog zipUrl.",
+                        retryable = false,
+                        details = JSONObject().put("catalogUrl", catalogUrl).put("kitId", kitId)
+                    )
+
+                val urlSource =
+                    JSONObject()
+                        .put("kind", "url")
+                        .put("url", resolvedZipUrl)
+                        .apply {
+                            source.optString("sha256").trim().takeIf { it.isNotBlank() }?.let { put("sha256", it) }
+                            source.optLong("maxBytes").takeIf { it > 0 }?.let { put("maxBytes", it) }
+                        }
+
+                executeKitInstall(urlSource)
+            }
+            else ->
+                throw RemoteInferenceException(
+                    code = "kits_install_invalid_source",
+                    message = "Unsupported kits.install source kind: $kind",
+                    retryable = false,
+                    details = JSONObject().put("kind", kind)
+                )
+        }
+    }
+
+    private fun executeCatalogRefresh(sources: List<FunctionKitCatalogStore.Source>): List<JSONObject> {
+        val packages = mutableListOf<JSONObject>()
+        val seen = LinkedHashSet<String>()
+
+        sources.forEach { source ->
+            fetchCatalogPackages(source.url).forEach { pkg ->
+                val kitId = pkg.optString("kitId").trim()
+                if (kitId.isBlank() || kitId in seen) {
+                    return@forEach
+                }
+                seen.add(kitId)
+                packages += pkg
+            }
+        }
+
+        return packages
+    }
+
+    private fun fetchCatalogPackages(catalogUrl: String): List<JSONObject> {
+        val connection =
+            try {
+                val url = URL(catalogUrl)
+                require(url.protocol == "http" || url.protocol == "https") {
+                    "Unsupported URL scheme: ${url.protocol}"
+                }
+                url.openConnection() as HttpURLConnection
+            } catch (error: Exception) {
+                throw RemoteInferenceException(
+                    code = "catalog_invalid_url",
+                    message = "catalog.refresh only supports absolute http/https URLs.",
+                    retryable = false,
+                    details = error.message ?: catalogUrl
+                )
+            }
+
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 30_000
+            connection.instanceFollowRedirects = true
+            connection.useCaches = false
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connect()
+
+            val status = connection.responseCode
+            val body =
+                if (status in 200..299) {
+                    connection.inputStream.use { readUtf8Limited(it, MaxCatalogIndexBytes) }
+                } else {
+                    val errorBody =
+                        runCatching {
+                            connection.errorStream?.use { readUtf8Limited(it, MaxCatalogIndexBytes) }
+                        }.getOrNull()
+                    throw RemoteInferenceException(
+                        code = "catalog_http_error",
+                        message = "HTTP $status",
+                        retryable = true,
+                        statusCode = status,
+                        details =
+                            JSONObject()
+                                .put("url", catalogUrl)
+                                .put("body", errorBody)
+                    )
+                }
+
+            val root =
+                runCatching { JSONObject(body) }
+                    .getOrElse { error ->
+                        throw RemoteInferenceException(
+                            code = "catalog_invalid_json",
+                            message = "Invalid catalog JSON: ${error.message ?: "parse error"}",
+                            retryable = false,
+                            details = JSONObject().put("url", catalogUrl)
+                        )
+                    }
+
+            val packagesNode = root.optJSONArray("packages")
+                ?: throw RemoteInferenceException(
+                    code = "catalog_missing_packages",
+                    message = "Missing packages[]",
+                    retryable = false,
+                    details = JSONObject().put("url", catalogUrl)
+                )
+
+            val packages = mutableListOf<JSONObject>()
+            for (index in 0 until packagesNode.length()) {
+                val item = packagesNode.optJSONObject(index) ?: continue
+                val kitId = item.optString("kitId").trim()
+                if (kitId.isBlank()) {
+                    continue
+                }
+                val normalized =
+                    JSONObject(item.toString())
+                        .put("kitId", kitId)
+                        .put("catalogUrl", catalogUrl)
+
+                val zipUrl = item.optString("zipUrl").trim().takeIf { it.isNotBlank() }
+                resolveZipUrl(catalogUrl = catalogUrl, kitId = kitId, zipUrl = zipUrl)?.let { resolved ->
+                    normalized.put("resolvedZipUrl", resolved)
+                }
+
+                packages += normalized
+            }
+
+            return packages
+        } catch (error: RemoteInferenceException) {
+            throw error
+        } catch (error: SocketTimeoutException) {
+            throw RemoteInferenceException(
+                code = "catalog_timeout",
+                message = "catalog.refresh timed out.",
+                retryable = true,
+                details = JSONObject().put("url", catalogUrl)
+            )
+        } catch (error: IOException) {
+            throw RemoteInferenceException(
+                code = "catalog_io_error",
+                message = "catalog.refresh failed: ${error.message ?: "I/O error"}",
+                retryable = true,
+                details = JSONObject().put("url", catalogUrl)
+            )
+        } catch (error: Throwable) {
+            throw RemoteInferenceException(
+                code = "catalog_unexpected_error",
+                message = "catalog.refresh crashed: ${error.message ?: "Unexpected error"}",
+                retryable = false,
+                details = JSONObject().put("url", catalogUrl).put("kind", error.javaClass.name)
+            )
+        } finally {
+            runCatching { connection.disconnect() }
+        }
+    }
+
+    private fun readUtf8Limited(
+        input: java.io.InputStream,
+        maxBytes: Long
+    ): String {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) {
+                break
+            }
+            total += read
+            if (total > maxBytes) {
+                throw RemoteInferenceException(
+                    code = "payload_too_large",
+                    message = "Payload is too large (${total} bytes).",
+                    retryable = false,
+                    details = JSONObject().put("maxBytes", maxBytes)
+                )
+            }
+            output.write(buffer, 0, read)
+        }
+        return output.toString(StandardCharsets.UTF_8.name())
+    }
+
+    private fun resolveZipUrl(
+        catalogUrl: String,
+        kitId: String,
+        zipUrl: String?
+    ): String? =
+        runCatching {
+            val base = URL(catalogUrl)
+            val raw = zipUrl?.trim().orEmpty()
+            val resolved =
+                if (raw.isNotBlank()) {
+                    URL(base, raw)
+                } else {
+                    URL(base, "./${kitId}.zip")
+                }
+            resolved.toString()
+        }.getOrNull()
+
+    private data class DownloadZipOutcome(
+        val file: File?,
+        val errorMessage: String?
+    )
+
+    private fun downloadToTempZip(
+        urlString: String,
+        maxBytes: Long
+    ): DownloadZipOutcome {
+        val ctx = FunctionKitPackageManager.storageContext(context)
+        val tempDir = File(ctx.cacheDir, "function-kits-download").apply { mkdirs() }
+        val target = File(tempDir, "kit-download-${UUID.randomUUID()}.zip")
+        var success = false
+
+        try {
+            val url = URL(urlString)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.instanceFollowRedirects = true
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 30_000
+            connection.useCaches = false
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/zip,application/octet-stream,*/*")
+
+            connection.connect()
+            val status = connection.responseCode
+            if (status < 200 || status >= 300) {
+                return DownloadZipOutcome(null, "HTTP $status")
+            }
+
+            val contentLength = connection.contentLengthLong.takeIf { it > 0 }
+            if (contentLength != null && contentLength > maxBytes) {
+                return DownloadZipOutcome(null, "Too large (${contentLength} bytes)")
+            }
+
+            connection.inputStream.use { input ->
+                FileOutputStream(target).use { output ->
+                    var total = 0L
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) {
+                            break
+                        }
+                        output.write(buffer, 0, read)
+                        total += read
+                        if (total > maxBytes) {
+                            return DownloadZipOutcome(null, "Too large (>${maxBytes} bytes)")
+                        }
+                    }
+                }
+            }
+
+            success = true
+            return DownloadZipOutcome(target, null)
+        } catch (error: Throwable) {
+            return DownloadZipOutcome(null, error.message ?: error::class.java.simpleName)
+        } finally {
+            if (!success) {
+                runCatching { target.delete() }
+            }
+        }
+    }
+
+    private fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) {
+                    break
+                }
+                digest.update(buffer, 0, read)
+            }
+        }
+        val bytes = digest.digest()
+        return buildString(bytes.size * 2) {
+            bytes.forEach { byte ->
+                append(byte.toInt().and(0xff).toString(16).padStart(2, '0'))
+            }
+        }
+    }
+
+    private fun equalsSha256(expected: String, actual: String): Boolean {
+        val trimmedExpected = expected.trim()
+        val trimmedActual = actual.trim()
+        if (trimmedExpected.isBlank() || trimmedActual.isBlank()) {
+            return false
+        }
+        return trimmedExpected.equals(trimmedActual, ignoreCase = true)
+    }
+
     private fun executeNetworkFetch(
         rawUrl: String,
         init: JSONObject,
@@ -4456,6 +5738,8 @@ class FunctionKitWindow(
         private const val RemoteMaxCharsPerCandidate = 120
         private const val MaxBridgeTextChars = 64 * 1024
         private const val MaxInlineImageBytes = 2 * 1024 * 1024
+        private const val MaxStoreZipBytes = 96L * 1024L * 1024L
+        private const val MaxCatalogIndexBytes = 2L * 1024L * 1024L
         private const val LocalDemoAgentId = "android-local-demo"
         private const val RemoteHostAgentId = "android-remote-host"
         private const val BindingClipboardTextMaxChars = 8 * 1024

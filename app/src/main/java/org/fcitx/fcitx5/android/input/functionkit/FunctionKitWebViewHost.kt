@@ -6,6 +6,7 @@ package org.fcitx.fcitx5.android.input.functionkit
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Message
@@ -40,6 +41,17 @@ private const val DefaultBridgeName = "AndroidFunctionKitHost"
 private const val DefaultLegacyBridgeName = "AndroidFunctionKitLegacyHost"
 private const val LogTag = "FunctionKitWebViewHost"
 private const val RecentReplyProxyLimit = 64
+private const val DefaultContentSecurityPolicy =
+    "default-src 'self'; " +
+        "base-uri 'none'; " +
+        "object-src 'none'; " +
+        "frame-src 'none'; " +
+        "form-action 'none'; " +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+        "style-src 'self' https: 'unsafe-inline'; " +
+        "img-src 'self' https: data: blob:; " +
+        "media-src 'self' https: data: blob:; " +
+        "font-src 'self' https: data:;"
 
 private val AllowedSurfaces = setOf("inline", "panel", "editor")
 private val AllowedInboundTypes =
@@ -54,12 +66,22 @@ private val AllowedInboundTypes =
         "candidates.regenerate",
         "network.fetch",
         "files.pick",
+        "files.download",
+        "files.getUrl",
         "ai.request",
         "ai.agent.list",
         "ai.agent.run",
         "runtime.message.send",
         "tasks.sync.request",
         "task.cancel",
+        "kits.sync.request",
+        "kits.open",
+        "kits.install",
+        "kits.uninstall",
+        "kits.settings.update",
+        "catalog.sources.get",
+        "catalog.sources.set",
+        "catalog.refresh",
         "send.intercept.ime_action.register",
         "send.intercept.ime_action.unregister",
         "send.intercept.ime_action.result",
@@ -91,6 +113,8 @@ private val AllowedOutboundTypes =
         "bridge.error",
         "network.fetch.result",
         "files.pick.result",
+        "files.download.result",
+        "files.getUrl.result",
         "ai.response",
         "ai.response.delta",
         "ai.agent.list.result",
@@ -98,6 +122,13 @@ private val AllowedOutboundTypes =
         "task.update",
         "tasks.sync",
         "task.cancel.ack",
+        "kits.sync",
+        "kits.open.result",
+        "kits.install.result",
+        "kits.uninstall.result",
+        "kits.settings.update.result",
+        "catalog.sources.sync",
+        "catalog.sync",
         "composer.state.sync",
     )
 
@@ -116,7 +147,9 @@ class FunctionKitWebViewHost(
         val legacyBridgeName: String = DefaultLegacyBridgeName,
         val expectedKitId: String? = null,
         val expectedSurface: String? = "panel",
-        val enableDevTools: Boolean = false
+        val enableDevTools: Boolean = false,
+        val allowExternalResources: Boolean = true,
+        val contentSecurityPolicy: String? = DefaultContentSecurityPolicy
     ) {
         val normalizedAssetPathPrefix: String =
             assetPathPrefix
@@ -261,7 +294,7 @@ class FunctionKitWebViewHost(
         webView.removeJavascriptInterface("accessibilityTraversal")
         webView.removeJavascriptInterface(config.legacyBridgeName)
         webView.addJavascriptInterface(legacyBridge, config.legacyBridgeName)
-        webView.isLongClickable = false
+        webView.isLongClickable = true
         webView.setDownloadListener { url, _, _, _, _ ->
             onHostEvent("Blocked download request: $url")
         }
@@ -308,6 +341,21 @@ class FunctionKitWebViewHost(
                         return false
                     }
 
+                    val scheme = uri.scheme?.lowercase()
+                    if (request.isForMainFrame && (scheme == "http" || scheme == "https")) {
+                        runCatching {
+                            view.context.startActivity(
+                                Intent(Intent.ACTION_VIEW, uri)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }.onSuccess {
+                            onHostEvent("Opened external link: $uri")
+                        }.onFailure { error ->
+                            onHostEvent("Failed to open external link: $uri error=${error.message}")
+                        }
+                        return true
+                    }
+
                     onHostEvent("Blocked navigation: $uri")
                     return true
                 }
@@ -315,10 +363,32 @@ class FunctionKitWebViewHost(
                 override fun shouldInterceptRequest(
                     view: WebView?,
                     request: WebResourceRequest?
-                ): WebResourceResponse {
+                ): WebResourceResponse? {
                     val uri = request?.url
-                    if (!isAllowedLocalUri(uri)) {
-                        onHostEvent("Blocked resource request: $uri")
+                        ?: return createTextResponse(
+                            statusCode = 404,
+                            reasonPhrase = "Not Found",
+                            body = "missing-resource"
+                        )
+                    if (isAllowedLocalUri(uri)) {
+                        return assetLoader.shouldInterceptRequest(uri)
+                            ?.let { response -> applyHtmlSecurityHeaders(uri, response) }
+                            ?: createTextResponse(
+                                statusCode = 404,
+                                reasonPhrase = "Not Found",
+                                body = "missing-local-resource"
+                            )
+                    }
+                    if (isAllowedOrigin(uri)) {
+                        onHostEvent("Blocked local resource request: $uri")
+                        return createTextResponse(
+                            statusCode = 404,
+                            reasonPhrase = "Not Found",
+                            body = "missing-local-resource"
+                        )
+                    }
+                    if (!config.allowExternalResources || request.isForMainFrame) {
+                        onHostEvent("Blocked external resource request: $uri")
                         return createTextResponse(
                             statusCode = 403,
                             reasonPhrase = "Forbidden",
@@ -326,12 +396,7 @@ class FunctionKitWebViewHost(
                         )
                     }
 
-                    return uri?.let(assetLoader::shouldInterceptRequest)
-                        ?: createTextResponse(
-                            statusCode = 404,
-                            reasonPhrase = "Not Found",
-                            body = "missing-local-resource"
-                        )
+                    return null
                 }
             }
 
@@ -759,6 +824,36 @@ class FunctionKitWebViewHost(
         )
     }
 
+    fun dispatchFilesDownloadResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "files.download.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchFilesGetUrlResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "files.getUrl.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
     fun dispatchAiResponse(
         replyTo: String?,
         kitId: String,
@@ -861,6 +956,111 @@ class FunctionKitWebViewHost(
     ) {
         dispatchTypedPayload(
             type = "task.cancel.ack",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchKitsSync(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "kits.sync",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchKitsOpenResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "kits.open.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchKitsInstallResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "kits.install.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchKitsUninstallResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "kits.uninstall.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchKitsSettingsUpdateResult(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "kits.settings.update.result",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchCatalogSourcesSync(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "catalog.sources.sync",
+            replyTo = replyTo,
+            kitId = kitId,
+            surface = surface,
+            payload = payload
+        )
+    }
+
+    fun dispatchCatalogSync(
+        replyTo: String?,
+        kitId: String,
+        surface: String,
+        payload: JSONObject
+    ) {
+        dispatchTypedPayload(
+            type = "catalog.sync",
             replyTo = replyTo,
             kitId = kitId,
             surface = surface,
@@ -1079,6 +1279,38 @@ class FunctionKitWebViewHost(
         }
 
         return uri.host.equals(config.localDomain, ignoreCase = true)
+    }
+
+    private fun applyHtmlSecurityHeaders(
+        uri: Uri,
+        response: WebResourceResponse
+    ): WebResourceResponse {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            return response
+        }
+        val mimeType = response.mimeType?.trim()?.lowercase().orEmpty()
+        val path = uri.encodedPath?.trim()?.lowercase().orEmpty()
+        val isHtml =
+            mimeType.contains("text/html") ||
+                path.endsWith(".html") ||
+                path.endsWith(".htm")
+        if (!isHtml) {
+            return response
+        }
+
+        val headers = LinkedHashMap<String, String>()
+        response.responseHeaders?.let { existing -> headers.putAll(existing) }
+        config.contentSecurityPolicy?.trim()?.takeIf { it.isNotBlank() }?.let { value ->
+            headers["Content-Security-Policy"] = value
+        }
+        if (!headers.containsKey("Cache-Control")) {
+            headers["Cache-Control"] = "no-store"
+        }
+        if (!headers.containsKey("X-Content-Type-Options")) {
+            headers["X-Content-Type-Options"] = "nosniff"
+        }
+        response.responseHeaders = headers
+        return response
     }
 
     private fun requireFeature(feature: String) {

@@ -35,6 +35,8 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         val pid = int("pid", 0)
         val editorInfoInspector = bool("editor_info_inspector", false)
         val needNotifications = bool("need_notifications", true)
+        val migratedFunctionKitToolbarShortcutDefaultOn =
+            bool("migrated_function_kit_toolbar_shortcut_default_on", false)
     }
 
     inner class Advanced : ManagedPreferenceCategory(R.string.advanced, sharedPreferences) {
@@ -638,6 +640,22 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         }
     }
 
+    private fun applyMigrations() {
+        migrateFunctionKitToolbarShortcutDefaultOn()
+    }
+
+    private fun migrateFunctionKitToolbarShortcutDefaultOn() {
+        if (internal.migratedFunctionKitToolbarShortcutDefaultOn.getValue()) {
+            return
+        }
+
+        if (!functionKit.showToolbarButton.getValue()) {
+            functionKit.showToolbarButton.setValue(true)
+        }
+
+        internal.migratedFunctionKitToolbarShortcutDefaultOn.setValue(true)
+    }
+
     companion object {
         private var instance: AppPrefs? = null
 
@@ -645,10 +663,13 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
          * MUST call before use
          */
         fun init(sharedPreferences: SharedPreferences) {
-            if (instance != null)
+            if (instance != null) {
                 return
-            instance = AppPrefs(sharedPreferences)
-            sharedPreferences.registerOnSharedPreferenceChangeListener(getInstance().onSharedPreferenceChangeListener)
+            }
+            val prefs = AppPrefs(sharedPreferences)
+            prefs.applyMigrations()
+            instance = prefs
+            sharedPreferences.registerOnSharedPreferenceChangeListener(prefs.onSharedPreferenceChangeListener)
         }
 
         fun getInstance() = instance!!

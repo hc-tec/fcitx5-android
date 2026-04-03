@@ -46,6 +46,8 @@ internal class FunctionKitKitStudioRemoteAttach(
     private var drainScheduled = false
     private var lastLoggedConfigKey: String? = null
     private var lastErrorLoggedAtEpochMs: Long = 0L
+    private var lastPairClaimAttemptAtEpochMs: Long = 0L
+    private var lastPairClaimCode: String? = null
 
     fun recordInbound(envelope: JSONObject) {
         enqueue("ui->host", envelope)
@@ -126,15 +128,97 @@ internal class FunctionKitKitStudioRemoteAttach(
         }
 
         val endpoint = normalizeEndpoint(baseUrl) ?: return null
-        val token = prefs.kitStudioAttachToken.getValue().trim()
         val origin = DefaultOrigin
         val clientId = getOrCreateClientId(context)
+        val token = resolveAuthToken(endpoint, prefs.kitStudioAttachToken.getValue().trim(), origin, clientId)
         return Config(
             endpoint = endpoint,
             token = token,
             origin = origin,
             clientId = clientId
         )
+    }
+
+    private fun resolveAuthToken(
+        endpoint: String,
+        rawToken: String,
+        origin: String,
+        clientId: String
+    ): String {
+        val pairCode = normalizePairCode(rawToken) ?: return rawToken
+
+        val now = System.currentTimeMillis()
+        if (pairCode == lastPairClaimCode && now - lastPairClaimAttemptAtEpochMs < PairClaimMinIntervalMs) {
+            return rawToken
+        }
+        lastPairClaimCode = pairCode
+        lastPairClaimAttemptAtEpochMs = now
+
+        val claimed = claimPairToken(endpoint, pairCode, origin, clientId) ?: return rawToken
+        prefs.kitStudioAttachToken.setValue(claimed)
+        return claimed
+    }
+
+    private fun claimPairToken(
+        endpoint: String,
+        code: String,
+        origin: String,
+        clientId: String
+    ): String? {
+        val claimEndpoint = pairClaimEndpoint(endpoint) ?: return null
+        val bodyBytes =
+            JSONObject()
+                .put("code", code)
+                .put("origin", origin)
+                .put("clientId", clientId)
+                .toString()
+                .toByteArray(StandardCharsets.UTF_8)
+
+        try {
+            val connection = URL(claimEndpoint).openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.connectTimeout = ConnectTimeoutMs
+            connection.readTimeout = ReadTimeoutMs
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            connection.setRequestProperty("Accept", "application/json")
+
+            connection.outputStream.use { it.write(bodyBytes) }
+
+            val statusCode = connection.responseCode
+            val stream =
+                if (statusCode in 200..299) connection.inputStream
+                else connection.errorStream
+            val responseText =
+                stream
+                    ?.bufferedReader(StandardCharsets.UTF_8)
+                    ?.use { it.readText() }
+                    ?.trim()
+                    .orEmpty()
+            if (statusCode !in 200..299) {
+                maybeLogPostError("kitstudio_pair_claim_http_$statusCode")
+                return null
+            }
+            if (responseText.isBlank()) {
+                maybeLogPostError("kitstudio_pair_claim_empty")
+                return null
+            }
+            val json = runCatching { JSONObject(responseText) }.getOrNull() ?: return null
+            if (!json.optBoolean("ok", false)) {
+                maybeLogPostError("kitstudio_pair_claim_not_ok")
+                return null
+            }
+            val token = json.optString("token").trim()
+            if (token.isBlank()) {
+                maybeLogPostError("kitstudio_pair_claim_no_token")
+                return null
+            }
+            Log.i(LogTag, "KitStudio pairing claimed. scope=${json.optString("scope")} expiresAt=${json.optString("expiresAt")}")
+            return token
+        } catch (error: Throwable) {
+            maybeLogPostError(error::class.java.simpleName.ifBlank { "kitstudio_pair_claim_failed" })
+            return null
+        }
     }
 
     private fun maybeLogConfig(
@@ -150,7 +234,7 @@ internal class FunctionKitKitStudioRemoteAttach(
         val channelId = buildChannelId(kitId, config.clientId)
         Log.i(
             LogTag,
-            "KitStudio Remote Attach enabled. endpoint=${config.endpoint} channelId=$channelId origin=${config.origin} clientId=${config.clientId}"
+            "KitStudio Remote Attach enabled. endpoint=${config.endpoint} channelId=$channelId origin=${config.origin} clientId=${config.clientId} (Tip: KitStudio 里 channel 可留空直接点连接)"
         )
     }
 
@@ -206,6 +290,7 @@ internal class FunctionKitKitStudioRemoteAttach(
         private const val ConnectTimeoutMs = 1_200
         private const val ReadTimeoutMs = 1_200
         private const val ErrorLogThrottleMs = 10_000L
+        private const val PairClaimMinIntervalMs = 5_000L
 
         private const val PrefName = "function_kit_kitstudio_attach"
         private const val ClientIdKey = "client_id"
@@ -240,6 +325,32 @@ internal class FunctionKitKitStudioRemoteAttach(
             } else {
                 "$normalized/api/attach/envelope"
             }
+        }
+
+        private fun pairClaimEndpoint(envelopeEndpoint: String): String? {
+            val raw = envelopeEndpoint.trim()
+            if (raw.isBlank()) {
+                return null
+            }
+            return if (raw.endsWith("/api/attach/envelope")) {
+                raw.removeSuffix("/api/attach/envelope") + "/api/attach/pair/claim"
+            } else {
+                raw.trimEnd('/') + "/api/attach/pair/claim"
+            }
+        }
+
+        private fun normalizePairCode(raw: String): String? {
+            val cleaned =
+                raw
+                    .trim()
+                    .replace("\\s+".toRegex(), "")
+                    .uppercase()
+            if (cleaned.isBlank()) {
+                return null
+            }
+            val match = "^KS-?([A-Z2-7]{8})$".toRegex().find(cleaned) ?: return null
+            val code = match.groupValues.getOrNull(1).orEmpty().trim()
+            return if (code.isBlank()) null else "KS-$code"
         }
 
         private fun buildChannelId(

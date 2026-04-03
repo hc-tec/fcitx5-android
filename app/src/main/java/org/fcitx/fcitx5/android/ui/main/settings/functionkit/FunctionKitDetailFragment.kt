@@ -7,17 +7,21 @@ package org.fcitx.fcitx5.android.ui.main.settings.functionkit
 import android.content.ClipData
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.text.InputType
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import androidx.appcompat.app.AlertDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitDefaults
@@ -36,12 +40,37 @@ import org.fcitx.fcitx5.android.utils.clipboardManager
 import org.fcitx.fcitx5.android.utils.lazyRoute
 import org.fcitx.fcitx5.android.utils.setup
 import org.fcitx.fcitx5.android.utils.toast
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.charset.StandardCharsets
 
 class FunctionKitDetailFragment : PaddingPreferenceFragment() {
 
     private val args by lazyRoute<SettingsRoute.FunctionKitDetail>()
     private val functionKitPrefs = AppPrefs.getInstance().functionKit
     private var selectedBindingCategoryId: String = CATEGORY_FILTER_ALL
+
+    private fun normalizeBaseUrl(raw: String): String? {
+        val trimmed = raw.trim().trimEnd('/')
+        if (trimmed.isBlank()) {
+            return null
+        }
+        return when {
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            trimmed.contains("://") -> null
+            else -> "http://$trimmed"
+        }
+    }
+
+    private fun normalizeKitStudioPairCode(raw: String): String? {
+        val cleaned = raw.trim().replace("\\s+".toRegex(), "").uppercase()
+        if (cleaned.isBlank()) {
+            return null
+        }
+        val match = "^KS-?([A-Z2-7]{8})$".toRegex().find(cleaned) ?: return null
+        val code = match.groupValues.getOrNull(1).orEmpty().trim()
+        return if (code.isBlank()) null else "KS-$code"
+    }
 
     private lateinit var kit: FunctionKitManifest
 
@@ -72,10 +101,9 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
             installed.firstOrNull { it.id == args.kitId }
                 ?: FunctionKitRegistry.resolve(context)
 
-        preferenceScreen =
-            preferenceManager.createPreferenceScreen(context).also { screen ->
-                renderUi(screen)
-            }
+        val screen = preferenceManager.createPreferenceScreen(context)
+        preferenceScreen = screen
+        renderUi(screen)
     }
 
     private fun renderUi(screen: PreferenceScreen) {
@@ -125,35 +153,6 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
             }
         kitCategory.addPreference(pinnedPreference)
 
-        runCatching {
-            val channelId = FunctionKitKitStudioRemoteAttach.channelIdForKit(context, kit.id)
-            kitCategory.addPreference(
-                Preference(context).apply {
-                    key = "function_kit_kitstudio_attach_channel:${kit.id}"
-                    isPersistent = false
-                    setup(
-                        title = getString(R.string.function_kit_kitstudio_attach_channel_id),
-                        summary = "$channelId\n${getString(R.string.function_kit_kitstudio_attach_channel_id_summary)}"
-                    )
-                    isIconSpaceReserved = false
-                    setOnPreferenceClickListener {
-                        context.clipboardManager.setPrimaryClip(
-                            ClipData.newPlainText(
-                                "kitstudio-remote-attach-channel",
-                                channelId
-                            )
-                        )
-                        Toast.makeText(
-                            context,
-                            getString(R.string.ime_bridge_copied_to_clipboard),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        true
-                    }
-                }
-            )
-        }
-
         kit.description?.takeIf { it.isNotBlank() }?.let { description ->
             kitCategory.addPreference(
                 Preference(context).apply {
@@ -181,6 +180,166 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
                     }
                 }
             )
+        }
+
+        if (BuildConfig.DEBUG) {
+            val attachEnabledKey = functionKitPrefs.kitStudioAttachEnabled.key
+            val remoteDebugCategory =
+                PreferenceCategory(context).apply {
+                    title = getString(R.string.function_kit_kitstudio_attach_category)
+                    order = -198
+                }
+            screen.addPreference(remoteDebugCategory)
+
+            val attachEnabledPreference =
+                MySwitchPreference(context).apply {
+                    key = attachEnabledKey
+                    setup(
+                        title = getString(R.string.function_kit_kitstudio_attach_enabled),
+                        summary = getString(R.string.function_kit_kitstudio_attach_enabled_summary)
+                    )
+                    setDefaultValue(functionKitPrefs.kitStudioAttachEnabled.defaultValue)
+                    isIconSpaceReserved = false
+                }
+            remoteDebugCategory.addPreference(attachEnabledPreference)
+
+            val baseUrlPreference =
+                EditTextPreference(context).apply {
+                    key = functionKitPrefs.kitStudioAttachBaseUrl.key
+                    setup(title = getString(R.string.function_kit_kitstudio_attach_base_url))
+                    setDefaultValue(functionKitPrefs.kitStudioAttachBaseUrl.defaultValue)
+                    summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+                    dialogMessage = getString(R.string.function_kit_kitstudio_attach_base_url_summary)
+                    isIconSpaceReserved = false
+                }
+            remoteDebugCategory.addPreference(baseUrlPreference)
+            baseUrlPreference.dependency = attachEnabledKey
+
+            val tokenPreference =
+                EditTextPreference(context).apply {
+                    key = functionKitPrefs.kitStudioAttachToken.key
+                    setup(title = getString(R.string.function_kit_kitstudio_attach_token))
+                    setDefaultValue(functionKitPrefs.kitStudioAttachToken.defaultValue)
+                    dialogMessage = getString(R.string.function_kit_kitstudio_attach_token_summary)
+                    setOnBindEditTextListener { editText ->
+                        editText.inputType =
+                            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    }
+                    summaryProvider =
+                        Preference.SummaryProvider<EditTextPreference> { pref ->
+                            val value = pref.text?.trim().orEmpty()
+                            when {
+                                value.isBlank() -> "-"
+                                normalizeKitStudioPairCode(value) != null -> normalizeKitStudioPairCode(value)
+                                value.length <= 6 -> "••••••"
+                                else -> "…${value.takeLast(4)}"
+                            }.orEmpty()
+                        }
+                    isIconSpaceReserved = false
+                }
+            remoteDebugCategory.addPreference(tokenPreference)
+            tokenPreference.dependency = attachEnabledKey
+
+            remoteDebugCategory.addPreference(
+                Preference(context).apply {
+                    key = "function_kit_kitstudio_attach_use_adb_reverse"
+                    isPersistent = false
+                    setup(
+                        title = getString(R.string.function_kit_kitstudio_attach_use_adb_reverse),
+                        summary = getString(R.string.function_kit_kitstudio_attach_use_adb_reverse_summary)
+                    )
+                    isIconSpaceReserved = false
+                    setOnPreferenceClickListener {
+                        functionKitPrefs.kitStudioAttachBaseUrl.setValue("http://127.0.0.1:39001")
+                        context.toast(R.string.done)
+                        refresh()
+                        true
+                    }
+                }
+            )
+
+            remoteDebugCategory.addPreference(
+                Preference(context).apply {
+                    key = "function_kit_kitstudio_attach_test_connection"
+                    isPersistent = false
+                    setup(
+                        title = getString(R.string.function_kit_kitstudio_attach_test_connection),
+                        summary = getString(R.string.function_kit_kitstudio_attach_test_connection_summary)
+                    )
+                    isIconSpaceReserved = false
+                    setOnPreferenceClickListener {
+                        val rawBaseUrl = functionKitPrefs.kitStudioAttachBaseUrl.getValue()
+                        val baseUrl = normalizeBaseUrl(rawBaseUrl) ?: "http://127.0.0.1:39001"
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val result =
+                                runCatching {
+                                    val connection =
+                                        URL("${baseUrl.trimEnd('/')}/api/health").openConnection() as HttpURLConnection
+                                    connection.requestMethod = "GET"
+                                    connection.connectTimeout = 1_200
+                                    connection.readTimeout = 1_200
+                                    connection.setRequestProperty("Accept", "application/json")
+
+                                    val statusCode = connection.responseCode
+                                    val stream =
+                                        if (statusCode in 200..299) connection.inputStream
+                                        else connection.errorStream
+                                    val text =
+                                        stream
+                                            ?.bufferedReader(StandardCharsets.UTF_8)
+                                            ?.use { it.readText() }
+                                            ?.trim()
+                                            .orEmpty()
+                                    statusCode in 200..299 && text.contains("\"ok\":true")
+                                }
+                            withContext(Dispatchers.Main.immediate) {
+                                if (result.getOrDefault(false)) {
+                                    context.toast(R.string.function_kit_kitstudio_attach_test_connection_ok)
+                                } else {
+                                    val reason = result.exceptionOrNull()?.javaClass?.simpleName ?: "not ok"
+                                    context.toast(
+                                        getString(
+                                            R.string.function_kit_kitstudio_attach_test_connection_failed,
+                                            reason
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                        true
+                    }
+                }
+            )
+
+            runCatching {
+                val channelId = FunctionKitKitStudioRemoteAttach.channelIdForKit(context, kit.id)
+                val channelPreference =
+                    Preference(context).apply {
+                        key = "function_kit_kitstudio_attach_channel:${kit.id}"
+                        isPersistent = false
+                        setup(
+                            title = getString(R.string.function_kit_kitstudio_attach_channel_id),
+                            summary = "$channelId\n${getString(R.string.function_kit_kitstudio_attach_channel_id_summary)}"
+                        )
+                        isIconSpaceReserved = false
+                        setOnPreferenceClickListener {
+                            context.clipboardManager.setPrimaryClip(
+                                ClipData.newPlainText(
+                                    "kitstudio-remote-attach-channel",
+                                    channelId
+                                )
+                            )
+                            Toast.makeText(
+                                context,
+                                getString(R.string.ime_bridge_copied_to_clipboard),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            true
+                        }
+                    }
+                remoteDebugCategory.addPreference(channelPreference)
+                channelPreference.dependency = attachEnabledKey
+            }
         }
 
         val bindingsCategory =

@@ -25,6 +25,8 @@ class PreeditComponent : UniqueComponent<PreeditComponent>(), Dependent, InputBr
     private val context by manager.context()
     private val theme by manager.theme()
 
+    private var functionKitSuppressed: Boolean = false
+
     val ui by lazy {
         val keyBorder = ThemeManager.prefs.keyBorder.getValue()
         val bkgColor =
@@ -39,8 +41,16 @@ class PreeditComponent : UniqueComponent<PreeditComponent>(), Dependent, InputBr
         }
     }
 
+    internal fun setFunctionKitSuppressed(suppressed: Boolean) {
+        if (functionKitSuppressed == suppressed) {
+            return
+        }
+        functionKitSuppressed = suppressed
+        ui.root.visibility = if (!functionKitSuppressed && ui.visible) View.VISIBLE else View.INVISIBLE
+    }
+
     override fun onInputPanelUpdate(data: FcitxEvent.InputPanelEvent.Data) {
         ui.update(data)
-        ui.root.visibility = if (ui.visible) View.VISIBLE else View.INVISIBLE
+        ui.root.visibility = if (!functionKitSuppressed && ui.visible) View.VISIBLE else View.INVISIBLE
     }
 }

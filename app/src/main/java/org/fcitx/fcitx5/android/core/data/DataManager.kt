@@ -71,6 +71,14 @@ object DataManager {
     private val loadedPlugins = mutableSetOf<PluginDescriptor>()
     private val failedPlugins = mutableMapOf<String, PluginLoadFailed>()
 
+    private val coreSentinelFiles = listOf(
+        "usr/share/fcitx5/addon/androidfrontend.conf",
+        "usr/share/fcitx5/addon/androidkeyboard.conf",
+    )
+
+    private fun isCoreDataPresent(): Boolean =
+        coreSentinelFiles.all { dataDir.resolve(it).exists() }
+
     fun getLoadedPlugins(): Set<PluginDescriptor> = loadedPlugins
     fun getFailedPlugins(): Map<String, PluginLoadFailed> = failedPlugins
 
@@ -185,6 +193,15 @@ object DataManager {
 
         val destDescriptorFile = File(dataDir, BuildConfig.DATA_DESCRIPTOR_NAME)
 
+        if (destDescriptorFile.exists() && !isCoreDataPresent()) {
+            Timber.w(
+                "Data descriptor exists but core data is missing; forcing a full resync. " +
+                    "dataDir=${dataDir.absolutePath}"
+            )
+            destDescriptorFile.delete()
+            dataDir.resolve("usr").deleteRecursively()
+        }
+
         // load last run's data descriptor
         val oldDescriptor = destDescriptorFile
             .runCatching { deserializeDataDescriptor(bufferedReader().use { it.readText() }) }
@@ -273,13 +290,26 @@ object DataManager {
             val oldDataDir = appContext.dataDir
             val oldDataDescriptor = oldDataDir.resolve(BuildConfig.DATA_DESCRIPTOR_NAME)
             if (oldDataDescriptor.exists()) {
-                oldDataDescriptor.delete()
-                oldDataDir.resolve("README.md").delete()
-                oldDataDir.resolve("usr").deleteRecursively()
+                if (isCoreDataPresent()) {
+                    oldDataDescriptor.delete()
+                    oldDataDir.resolve("README.md").delete()
+                    oldDataDir.resolve("usr").deleteRecursively()
+                } else {
+                    Timber.w(
+                        "Skip deleting credential encrypted assets because device encrypted core data is missing. " +
+                            "dataDir=${dataDir.absolutePath} oldDataDir=${oldDataDir.absolutePath}"
+                    )
+                }
             }
         }
         synced = true
         Timber.d("Synced")
+        if (!isCoreDataPresent()) {
+            Timber.e(
+                "DataManager.sync completed but core data is still missing. " +
+                    "dataDir=${dataDir.absolutePath}"
+            )
+        }
     }
 
     private fun removePath(path: String) =

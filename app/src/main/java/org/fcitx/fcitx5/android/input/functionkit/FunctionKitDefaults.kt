@@ -22,11 +22,13 @@ internal object FunctionKitDefaults {
             "storage.read",
             "storage.write",
             "files.pick",
+            "files.download",
             "panel.state.write",
             "runtime.message.send",
             "runtime.message.receive",
             "network.fetch",
             "ai.request",
+            "kits.manage",
             "send.intercept.ime_action",
             "ai.agent.list",
             "ai.agent.run"
