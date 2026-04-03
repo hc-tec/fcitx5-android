@@ -140,6 +140,11 @@ class FunctionKitWebViewHost(
     private val onHostEvent: (String) -> Unit = {},
     private val config: Config = Config()
 ) {
+    enum class KitAssetResolution {
+        InstalledFirst,
+        BundledOnly
+    }
+
     data class Config(
         val localDomain: String = DefaultLocalDomain,
         val assetPathPrefix: String = DefaultAssetPathPrefix,
@@ -148,6 +153,7 @@ class FunctionKitWebViewHost(
         val expectedKitId: String? = null,
         val expectedSurface: String? = "panel",
         val enableDevTools: Boolean = false,
+        val kitAssetResolution: KitAssetResolution = KitAssetResolution.InstalledFirst,
         val allowExternalResources: Boolean = true,
         val contentSecurityPolicy: String? = DefaultContentSecurityPolicy
     ) {
@@ -199,12 +205,19 @@ class FunctionKitWebViewHost(
             installRootDir: File
         ): WebViewAssetLoader {
             val assetsHandler = WebViewAssetLoader.AssetsPathHandler(context)
-            val kitsHandler =
-                FunctionKitInstalledFirstPathHandler(
-                    context = context,
-                    installRootDir = installRootDir,
-                    fallback = assetsHandler
-                )
+            val kitsHandler: WebViewAssetLoader.PathHandler =
+                when (config.kitAssetResolution) {
+                    KitAssetResolution.BundledOnly ->
+                        FunctionKitBundledOnlyPathHandler(
+                            fallback = assetsHandler
+                        )
+                    else ->
+                        FunctionKitInstalledFirstPathHandler(
+                            context = context,
+                            installRootDir = installRootDir,
+                            fallback = assetsHandler
+                        )
+                }
             return WebViewAssetLoader.Builder()
                 .setDomain(config.localDomain)
                 .addPathHandler(
@@ -253,6 +266,25 @@ class FunctionKitWebViewHost(
             val target = File(installRootDir, normalized)
             if (target.isFile) {
                 return internalStorageHandler.handle("/$normalized")
+            }
+
+            return fallback.handle("/function-kits/$normalized")
+        }
+    }
+
+    private class FunctionKitBundledOnlyPathHandler(
+        private val fallback: WebViewAssetLoader.PathHandler
+    ) : WebViewAssetLoader.PathHandler {
+        override fun handle(path: String): WebResourceResponse? {
+            val normalized =
+                path.replace("\\", "/")
+                    .trimStart('/')
+                    .takeUnless(String::isBlank)
+                    ?: return fallback.handle("/function-kits/")
+
+            val segments = normalized.split('/')
+            if (segments.any { it.isBlank() || it == "." || it == ".." }) {
+                return null
             }
 
             return fallback.handle("/function-kits/$normalized")

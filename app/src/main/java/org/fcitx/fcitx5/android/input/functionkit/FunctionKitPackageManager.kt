@@ -73,7 +73,8 @@ internal object FunctionKitPackageManager {
                 assetPath = virtualManifestPath(kitId),
                 fallbackId = kitId,
                 fallbackEntryHtmlAssetPath = "function-kits/$kitId/ui/app/index.html",
-                fallbackRuntimePermissions = emptySet()
+                fallbackRuntimePermissions = emptySet(),
+                isUserInstalled = true
             )
         }.getOrNull()
     }

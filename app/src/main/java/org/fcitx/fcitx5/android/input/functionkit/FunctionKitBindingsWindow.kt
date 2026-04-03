@@ -227,7 +227,7 @@ internal class FunctionKitBindingsWindow(
             )
 
         if (openPanel) {
-            window.requestOpenInvocation(invocationId, bindingEntry.bindingId)
+            window.requestOpenInvocation(invocationId, bindingEntry.bindingId, bindingEntry.title)
             windowManager.view.post { windowManager.attachWindow(window) }
             return
         }
@@ -240,7 +240,7 @@ internal class FunctionKitBindingsWindow(
                 theme = theme,
                 bindingTitle = bindingEntry.title
             ) {
-                window.requestOpenInvocation(invocationId, bindingEntry.bindingId)
+                window.requestOpenInvocation(invocationId, bindingEntry.bindingId, bindingEntry.title)
                 windowManager.view.post { windowManager.attachWindow(window) }
             }
         }

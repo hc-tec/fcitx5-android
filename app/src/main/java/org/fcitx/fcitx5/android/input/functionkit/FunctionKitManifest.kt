@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets
 internal data class FunctionKitManifest(
     val id: String,
     val name: String,
+    val version: String?,
     val description: String?,
     val iconAssets: List<IconAsset>,
     val entryHtmlAssetPath: String,
@@ -19,6 +20,7 @@ internal data class FunctionKitManifest(
     val ai: AiConfig,
     val bindings: List<Binding>,
     val discovery: DiscoveryConfig,
+    val isUserInstalled: Boolean,
     val manifestAssetPath: String
 ) {
     data class IconAsset(
@@ -60,6 +62,7 @@ internal data class FunctionKitManifest(
             JSONObject()
                 .put("id", id)
                 .put("name", name)
+                .put("version", version)
                 .put("description", description)
                 .put(
                     "iconAssets",
@@ -76,6 +79,7 @@ internal data class FunctionKitManifest(
                 .put("entryHtmlAssetPath", entryHtmlAssetPath)
                 .put("runtimePermissions", JSONArray(runtimePermissions))
                 .put("remoteRenderPath", remoteRenderPath)
+                .put("isUserInstalled", isUserInstalled)
                 .put("manifestAssetPath", manifestAssetPath)
                 .put("ai", ai.toJson())
                 .put(
@@ -254,7 +258,8 @@ internal data class FunctionKitManifest(
             assetPath: String,
             fallbackId: String,
             fallbackEntryHtmlAssetPath: String,
-            fallbackRuntimePermissions: Set<String>
+            fallbackRuntimePermissions: Set<String>,
+            isUserInstalled: Boolean = false
         ): FunctionKitManifest {
             val entry = root.optJSONObject("entry")
             val bundle = entry?.optJSONObject("bundle")
@@ -263,11 +268,13 @@ internal data class FunctionKitManifest(
             val discoveryRoot = root.optJSONObject("discovery")
             val slashRoot = discoveryRoot?.optJSONObject("slash")
             val id = root.optString("id").ifBlank { fallbackId }
+            val version = root.optString("version").nullIfBlank()
             val manifestAssetDirectory = assetPath.substringBeforeLast('/', missingDelimiterValue = "")
 
             return FunctionKitManifest(
                 id = id,
                 name = root.optString("name").ifBlank { id },
+                version = version,
                 description = root.optString("description").nullIfBlank(),
                 iconAssets = parseIconAssets(root, manifestAssetDirectory),
                 entryHtmlAssetPath =
@@ -302,6 +309,7 @@ internal data class FunctionKitManifest(
                         slashAliases = slashRoot?.optJSONArray("aliases").toStringList(),
                         slashTags = slashRoot?.optJSONArray("tags").toStringList()
                     ),
+                isUserInstalled = isUserInstalled,
                 manifestAssetPath = assetPath
             )
         }
@@ -310,11 +318,13 @@ internal data class FunctionKitManifest(
             assetPath: String,
             fallbackId: String,
             fallbackEntryHtmlAssetPath: String,
-            fallbackRuntimePermissions: Set<String>
+            fallbackRuntimePermissions: Set<String>,
+            isUserInstalled: Boolean = false
         ): FunctionKitManifest =
             FunctionKitManifest(
                 id = fallbackId,
                 name = fallbackId,
+                version = null,
                 description = null,
                 iconAssets = emptyList(),
                 entryHtmlAssetPath = fallbackEntryHtmlAssetPath,
@@ -342,6 +352,7 @@ internal data class FunctionKitManifest(
                         slashAliases = emptyList(),
                         slashTags = emptyList()
                     ),
+                isUserInstalled = isUserInstalled,
                 manifestAssetPath = assetPath
             )
 

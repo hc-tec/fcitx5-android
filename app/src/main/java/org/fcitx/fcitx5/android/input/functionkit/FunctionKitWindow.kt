@@ -243,7 +243,13 @@ class FunctionKitWindow(
     private val hostConfig by lazy {
         FunctionKitWebViewHost.Config(
             expectedKitId = functionKitId,
-            expectedSurface = null
+            expectedSurface = null,
+            kitAssetResolution =
+                if (functionKitManifest.isUserInstalled) {
+                    FunctionKitWebViewHost.KitAssetResolution.InstalledFirst
+                } else {
+                    FunctionKitWebViewHost.KitAssetResolution.BundledOnly
+                }
         )
     }
     private val webView by lazy {
@@ -683,9 +689,11 @@ class FunctionKitWindow(
 
     private var panelInitialized = false
     private var windowAttached = false
+    private var webViewResumed = false
     private var bridgeReady = false
     private var pendingOpenOptionsIntent = false
     private var pendingOpenInvocationIntent: JSONObject? = null
+    private var pendingEntryHash: String? = null
     private val pendingBindingInvocations = ArrayDeque<BindingInvocation>()
     private val pendingRuntimeMessages = ArrayDeque<RuntimeMessageDelivery>()
     private var renderSeed = 0
@@ -730,12 +738,14 @@ class FunctionKitWindow(
 
     fun requestOpenInvocation(
         invocationId: String?,
-        bindingId: String? = null
+        bindingId: String? = null,
+        bindingTitle: String? = null
     ) {
         val normalizedInvocationId = invocationId?.trim().orEmpty()
         if (normalizedInvocationId.isBlank()) {
             return
         }
+        pendingEntryHash = buildOpenInvocationHash(normalizedInvocationId, bindingId, bindingTitle)
         val intentPayload =
             JSONObject()
                 .put("kind", "open_invocation")
@@ -744,9 +754,13 @@ class FunctionKitWindow(
                     bindingId?.trim()?.takeIf { it.isNotBlank() }?.let { id ->
                         put("bindingId", id)
                     }
+                    bindingTitle?.trim()?.takeIf { it.isNotBlank() }?.let { title ->
+                        put("bindingTitle", title)
+                    }
                 }
         pendingOpenInvocationIntent = intentPayload
         flushPendingUiIntents()
+        flushPendingEntryHash()
     }
 
     private fun flushPendingUiIntents() {
@@ -775,6 +789,68 @@ class FunctionKitWindow(
                 JSONObject()
                     .put("intent", intentPayload)
         )
+    }
+
+    private fun buildEntryUrl(entryRelativePath: String): String {
+        val normalizedEntryPath =
+            entryRelativePath
+                .replace("\\", "/")
+                .trim('/')
+                .also { value ->
+                    require(value.isNotEmpty()) { "entryRelativePath must not be blank" }
+                    require(!value.split('/').any { segment -> segment.isBlank() || segment == ".." }) {
+                        "entryRelativePath must stay inside the local asset root"
+                    }
+                }
+
+        return "${hostConfig.localOrigin}${hostConfig.normalizedAssetPathPrefix}$normalizedEntryPath"
+    }
+
+    private fun buildOpenInvocationHash(
+        invocationId: String,
+        bindingId: String? = null,
+        bindingTitle: String? = null
+    ): String {
+        val parts = mutableListOf("fk_intent=open_invocation", "invocationId=${Uri.encode(invocationId)}")
+        bindingId?.trim()?.takeIf { it.isNotBlank() }?.let { value ->
+            parts += "bindingId=${Uri.encode(value)}"
+        }
+        bindingTitle?.trim()?.takeIf { it.isNotBlank() }?.let { value ->
+            parts += "bindingTitle=${Uri.encode(value)}"
+        }
+        return "#${parts.joinToString("&")}"
+    }
+
+    private fun flushPendingEntryHash() {
+        val hash = pendingEntryHash ?: return
+        if (!panelInitialized) {
+            return
+        }
+        if (!webViewResumed) {
+            return
+        }
+        val baseUrl =
+            webView.url
+                ?.substringBefore("#")
+                ?.takeIf { it.isNotBlank() }
+                ?: buildEntryUrl(functionKitManifest.entryHtmlAssetPath)
+        val targetUrl = "$baseUrl$hash"
+        if (webView.url == targetUrl) {
+            pendingEntryHash = null
+            return
+        }
+        val jsHash = JSONObject.quote(hash)
+        webView.post {
+            if (webView.url?.substringBefore("#") == baseUrl) {
+                webView.evaluateJavascript(
+                    "try{window.location.hash=$jsHash;}catch(_e){}",
+                    null
+                )
+            } else {
+                webView.loadUrl(targetUrl)
+            }
+        }
+        pendingEntryHash = null
     }
 
     override fun onCreateView(): View {
@@ -823,11 +899,14 @@ class FunctionKitWindow(
         syncEmbeddedKeyboardLayout()
 
         if (!panelInitialized) {
-            host.initialize(functionKitManifest.entryHtmlAssetPath)
+            val entryPath = functionKitManifest.entryHtmlAssetPath + pendingEntryHash.orEmpty()
+            pendingEntryHash = null
+            host.initialize(entryPath)
             panelInitialized = true
         }
 
         webView.onResume()
+        webViewResumed = true
         FunctionKitTestRegistry.onWindowAttached(functionKitId, webView)
         host.dispatchHostStateUpdate(
             kitId = functionKitId,
@@ -837,6 +916,7 @@ class FunctionKitWindow(
         )
         flushPendingBindingInvocations()
         flushPendingUiIntents()
+        flushPendingEntryHash()
     }
 
     override fun onDetached() {
@@ -893,6 +973,7 @@ class FunctionKitWindow(
         }
         windowManagerHeightBeforeAttach = null
 
+        webViewResumed = false
         webView.onPause()
         FunctionKitTestRegistry.onWindowDetached(functionKitId)
     }
@@ -1087,16 +1168,20 @@ class FunctionKitWindow(
         refreshGrantedPermissions(notifyUi = false)
 
         if (!panelInitialized) {
-            host.initialize(functionKitManifest.entryHtmlAssetPath)
+            val entryPath = functionKitManifest.entryHtmlAssetPath + pendingEntryHash.orEmpty()
+            pendingEntryHash = null
+            host.initialize(entryPath)
             panelInitialized = true
         }
         webView.onResume()
+        webViewResumed = true
         host.dispatchHostStateUpdate(
             kitId = functionKitId,
             surface = Surface,
             label = "Android Function Kit 运行中（后台）",
             details = buildHostDetails(currentExecutionConfig()).put("reason", reason)
         )
+        flushPendingEntryHash()
     }
 
     private fun handleUiEnvelope(envelope: JSONObject) {
@@ -1201,6 +1286,7 @@ class FunctionKitWindow(
         flushPendingBindingInvocations()
         flushPendingRuntimeMessages()
         flushPendingUiIntents()
+        flushPendingEntryHash()
     }
 
     private fun flushPendingBindingInvocations() {
@@ -4868,7 +4954,9 @@ class FunctionKitWindow(
         renderSeed = 0
         sessionId = newSessionId()
         bridgeReady = false
-        host.initialize(functionKitManifest.entryHtmlAssetPath)
+        val entryPath = functionKitManifest.entryHtmlAssetPath + pendingEntryHash.orEmpty()
+        pendingEntryHash = null
+        host.initialize(entryPath)
     }
 
     private fun buildContextPayload(

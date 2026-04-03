@@ -19,7 +19,10 @@ internal object FunctionKitRegistry {
         }
         val merged = LinkedHashMap<String, FunctionKitManifest>()
         bundled.forEach { kit -> merged[kit.id] = kit }
-        userInstalled.forEach { kit -> merged[kit.id] = kit }
+        userInstalled.forEach { kit ->
+            val existing = merged[kit.id]
+            merged[kit.id] = if (existing == null) kit else pickPreferred(existing, kit)
+        }
         return merged.values.toList().sortedWith(compareBy({ it.name.lowercase() }, { it.id.lowercase() }))
     }
 
@@ -77,6 +80,50 @@ internal object FunctionKitRegistry {
                 fallbackRuntimePermissions = emptySet()
             )
         }
+    }
+
+    private fun pickPreferred(
+        first: FunctionKitManifest,
+        second: FunctionKitManifest
+    ): FunctionKitManifest {
+        val cmp = compareVersions(first.version, second.version)
+        if (cmp != null && cmp != 0) {
+            return if (cmp > 0) first else second
+        }
+        if (first.isUserInstalled != second.isUserInstalled) {
+            return if (first.isUserInstalled) first else second
+        }
+        return second
+    }
+
+    private fun compareVersions(
+        first: String?,
+        second: String?
+    ): Int? {
+        val firstParts = parseVersionParts(first) ?: return null
+        val secondParts = parseVersionParts(second) ?: return null
+        val max = maxOf(firstParts.size, secondParts.size, 3)
+        for (index in 0 until max) {
+            val left = firstParts.getOrElse(index) { 0 }
+            val right = secondParts.getOrElse(index) { 0 }
+            if (left != right) {
+                return left.compareTo(right)
+            }
+        }
+        return 0
+    }
+
+    private fun parseVersionParts(raw: String?): List<Int>? {
+        val normalized = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val core = normalized.split('-', '+').firstOrNull()?.trim().orEmpty()
+        if (core.isBlank()) {
+            return null
+        }
+        val parts = core.split('.').map(String::trim)
+        if (parts.any { it.isBlank() }) {
+            return null
+        }
+        return parts.map { token -> token.toIntOrNull() ?: return null }
     }
 
     internal fun selectPreferredKitId(
