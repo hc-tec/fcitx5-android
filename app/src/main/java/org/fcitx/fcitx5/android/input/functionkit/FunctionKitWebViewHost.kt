@@ -167,7 +167,6 @@ class FunctionKitWebViewHost(
     }
 
     private var bridgeInstalled = false
-    private var hasReceivedUiEnvelope = false
     private val replyProxyByUiMessageId =
         object : LinkedHashMap<String, JavaScriptReplyProxy>(RecentReplyProxyLimit, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, JavaScriptReplyProxy>?): Boolean =
@@ -433,7 +432,6 @@ class FunctionKitWebViewHost(
             }
 
         WebView.setWebContentsDebuggingEnabled(config.enableDevTools)
-        hasReceivedUiEnvelope = false
         synchronized(replyProxyByUiMessageId) {
             replyProxyByUiMessageId.clear()
         }
@@ -448,13 +446,8 @@ class FunctionKitWebViewHost(
         val serializedEnvelope = envelope.toString()
         val messageType = envelope.optString("type")
         webView.post {
-            if (hasReceivedUiEnvelope) {
-                Log.d(LogTag, "Dispatching envelope type=$messageType via javascript")
-                dispatchEnvelopeViaJavascript(serializedEnvelope)
-            } else {
-                Log.d(LogTag, "Dispatching envelope type=$messageType via webmessage")
-                dispatchEnvelopeViaWebMessage(serializedEnvelope)
-            }
+            Log.d(LogTag, "Dispatching envelope type=$messageType via webmessage")
+            dispatchEnvelopeViaWebMessage(serializedEnvelope)
         }
     }
 
@@ -546,7 +539,6 @@ class FunctionKitWebViewHost(
         replyProxy: JavaScriptReplyProxy? = null
     ) {
         parseInboundEnvelope(rawEnvelope)?.let { envelope ->
-            hasReceivedUiEnvelope = true
             rememberReplyProxy(envelope, replyProxy)
             Log.d(
                 LogTag,
