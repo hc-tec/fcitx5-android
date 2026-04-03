@@ -19,7 +19,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.widget.AppCompatTextView
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.flexbox.AlignItems
 import com.google.android.flexbox.FlexWrap
@@ -228,6 +227,7 @@ internal class FunctionKitBindingsWindow(
             )
 
         if (openPanel) {
+            window.requestOpenInvocation(invocationId, bindingEntry.bindingId)
             windowManager.view.post { windowManager.attachWindow(window) }
             return
         }
@@ -289,7 +289,7 @@ internal class FunctionKitBindingsWindow(
                 setColor(Color.WHITE)
             }
         val view =
-            AppCompatTextView(context).apply {
+            TextView(context).apply {
                 text = label
                 setTextColor(if (active) theme.genericActiveForegroundColor else theme.keyTextColor)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
