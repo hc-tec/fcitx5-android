@@ -8,6 +8,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import org.json.JSONObject
+import timber.log.Timber
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -110,8 +111,19 @@ internal object FunctionKitPackageManager {
         val stagingRoot = File(ctx.cacheDir, TempDirectoryName).apply { mkdirs() }
         val stagingDir = File(stagingRoot, "kit-staging-${UUID.randomUUID()}")
         val manifestEntryInfo = findManifestEntry(zipFile) ?: return InstallOutcome.Error("manifest.json not found in zip")
-        val manifestRaw = readZipEntryText(zipFile, manifestEntryInfo.entryName)
-            ?: return InstallOutcome.Error("Failed to read manifest.json from zip")
+        val manifestRead = readZipEntryText(zipFile, manifestEntryInfo.entryName)
+        val manifestRaw =
+            manifestRead.text
+                ?: run {
+                    Timber.w(
+                        manifestRead.error,
+                        "Failed to read manifest.json from zip (entry=%s, rootPrefix=%s): %s",
+                        manifestEntryInfo.entryName,
+                        manifestEntryInfo.rootPrefix,
+                        zipFile.path
+                    )
+                    return InstallOutcome.Error("Failed to read manifest.json from zip", manifestRead.error)
+                }
         val kitId = parseKitId(manifestRaw) ?: return InstallOutcome.Error("Missing kit id in manifest.json")
         if (!KitIdRegex.matches(kitId)) {
             return InstallOutcome.Error("Invalid kit id: $kitId")
@@ -237,27 +249,39 @@ internal object FunctionKitPackageManager {
     private fun findManifestEntry(zipFile: File): ManifestEntryInfo? =
         runCatching {
             ZipFile(zipFile).use { zip ->
-                val candidates = mutableListOf<String>()
+                val candidates = mutableListOf<Pair<String, String>>()
                 zip.entries().asSequence().forEach { entry ->
                     if (entry.isDirectory) return@forEach
-                    val name = entry.name.replace('\\', '/').trimStart('/')
-                    if (name.endsWith("/$ManifestFileName")) {
-                        candidates += name
-                    } else if (name == ManifestFileName) {
-                        candidates += name
+                    val rawName = entry.name
+                    val normalizedName = rawName.replace('\\', '/').trimStart('/')
+                    if (normalizedName.endsWith("/$ManifestFileName")) {
+                        candidates += rawName to normalizedName
+                    } else if (normalizedName == ManifestFileName) {
+                        candidates += rawName to normalizedName
                     }
                 }
-                val manifest = candidates.minByOrNull { it.count { ch -> ch == '/' } } ?: return@use null
+                val (manifestRaw, manifestNormalized) =
+                    candidates.minByOrNull { (_, normalized) -> normalized.count { ch -> ch == '/' } }
+                        ?: return@use null
                 val rootPrefix =
-                    if (manifest == ManifestFileName) "" else manifest.substringBeforeLast('/', missingDelimiterValue = "") + "/"
-                ManifestEntryInfo(entryName = manifest, rootPrefix = rootPrefix)
+                    if (manifestNormalized == ManifestFileName) {
+                        ""
+                    } else {
+                        manifestNormalized.substringBeforeLast('/', missingDelimiterValue = "") + "/"
+                    }
+                ManifestEntryInfo(entryName = manifestRaw, rootPrefix = rootPrefix)
             }
         }.getOrNull()
+
+    private data class ReadZipEntryTextResult(
+        val text: String?,
+        val error: Throwable? = null
+    )
 
     private fun readZipEntryText(
         zipFile: File,
         entryName: String
-    ): String? =
+    ): ReadZipEntryTextResult =
         runCatching {
             ZipFile(zipFile).use { zip ->
                 val entry = zip.getEntry(entryName) ?: return@use null
@@ -265,7 +289,10 @@ internal object FunctionKitPackageManager {
                     .bufferedReader(StandardCharsets.UTF_8)
                     .use { it.readText() }
             }
-        }.getOrNull()
+        }.fold(
+            onSuccess = { ReadZipEntryTextResult(text = it) },
+            onFailure = { error -> ReadZipEntryTextResult(text = null, error = error) }
+        )
 
     private fun parseKitId(manifestRaw: String): String? =
         runCatching {
