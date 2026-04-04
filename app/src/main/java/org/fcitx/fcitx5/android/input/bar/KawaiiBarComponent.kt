@@ -721,7 +721,11 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
             removeFunctionKitKitSettingsListener =
                 FunctionKitKitSettings.addOnChangeListener { key ->
                     val trimmed = key?.trim().orEmpty()
-                    if (trimmed.endsWith(".enabled") || trimmed.endsWith(".pinned")) {
+                    if (
+                        trimmed == FunctionKitKitSettings.RegistryRevisionPreferenceKey ||
+                        trimmed.endsWith(".enabled") ||
+                        trimmed.endsWith(".pinned")
+                    ) {
                         requestRefreshFunctionKitToolbarButtons()
                     }
                 }

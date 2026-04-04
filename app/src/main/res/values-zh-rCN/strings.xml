@@ -317,6 +317,14 @@
     <string name="function_kit_bindings_filter_all">全部</string>
     <string name="function_kit_bindings_filter_other">其他</string>
     <string name="function_kit_bindings_empty">此分类暂无动作。</string>
+    <string name="function_kit_bindings_search_placeholder">搜索功能件...</string>
+    <string name="function_kit_bindings_tab_recent">近期</string>
+    <string name="function_kit_bindings_tab_pinned">置顶</string>
+    <string name="function_kit_bindings_tab_library">全部库</string>
+    <string name="function_kit_bindings_open_download_center">打开下载中心</string>
+    <string name="function_kit_bindings_open_download_center_subtitle">管理和下载更多功能件</string>
+    <string name="function_kit_bindings_empty_recent">暂无近期使用。</string>
+    <string name="function_kit_bindings_empty_pinned">暂无置顶动作。</string>
     <string name="function_kit_binding_snackbar_triggered">已触发：%1$s</string>
     <string name="function_kit_binding_snackbar_open">打开</string>
     <string name="function_kit_clipboard_prompt_channel">剪贴板提示</string>

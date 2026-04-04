@@ -51,6 +51,9 @@ object AppUtil {
     fun launchMainToFunctionKitDetail(context: Context, kitId: String) =
         launchMainToDest(context, SettingsRoute.FunctionKitDetail(kitId = kitId))
 
+    fun launchMainToFunctionKitDownloadCenter(context: Context) =
+        launchMainToDest(context, SettingsRoute.FunctionKitDownloadCenter)
+
     fun launchMainToInputMethodConfig(context: Context, uniqueName: String, displayName: String) =
         launchMainToDest(context, SettingsRoute.InputMethodConfig(displayName, uniqueName))
 

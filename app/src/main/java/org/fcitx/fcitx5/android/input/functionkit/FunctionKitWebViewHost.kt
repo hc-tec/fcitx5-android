@@ -25,6 +25,7 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import org.fcitx.fcitx5.android.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -41,6 +42,7 @@ private const val DefaultBridgeName = "AndroidFunctionKitHost"
 private const val DefaultLegacyBridgeName = "AndroidFunctionKitLegacyHost"
 private const val LogTag = "FunctionKitWebViewHost"
 private const val RecentReplyProxyLimit = 64
+private const val VerboseFunctionKitHostLogs = false
 private const val DefaultContentSecurityPolicy =
     "default-src 'self'; " +
         "base-uri 'none'; " +
@@ -131,6 +133,12 @@ private val AllowedOutboundTypes =
         "catalog.sync",
         "composer.state.sync",
     )
+
+private inline fun debugLog(message: () -> String) {
+    if (BuildConfig.DEBUG && VerboseFunctionKitHostLogs) {
+        Log.d(LogTag, message())
+    }
+}
 
 class FunctionKitWebViewHost(
     private val webView: WebView,
@@ -332,18 +340,20 @@ class FunctionKitWebViewHost(
         webView.webChromeClient =
             object : WebChromeClient() {
                 override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
-                    onHostEvent(
-                        buildString {
-                            append("WebView console[")
-                            append(consoleMessage.messageLevel())
-                            append("] ")
-                            append(consoleMessage.message())
-                            append(" @")
-                            append(consoleMessage.sourceId())
-                            append(':')
-                            append(consoleMessage.lineNumber())
-                        }
-                    )
+                    if (BuildConfig.DEBUG && VerboseFunctionKitHostLogs) {
+                        onHostEvent(
+                            buildString {
+                                append("WebView console[")
+                                append(consoleMessage.messageLevel())
+                                append("] ")
+                                append(consoleMessage.message())
+                                append(" @")
+                                append(consoleMessage.sourceId())
+                                append(':')
+                                append(consoleMessage.lineNumber())
+                            }
+                        )
+                    }
                     return super.onConsoleMessage(consoleMessage)
                 }
 
@@ -446,7 +456,7 @@ class FunctionKitWebViewHost(
         val serializedEnvelope = envelope.toString()
         val messageType = envelope.optString("type")
         webView.post {
-            Log.d(LogTag, "Dispatching envelope type=$messageType via webmessage")
+            debugLog { "Dispatching envelope type=$messageType via webmessage" }
             dispatchEnvelopeViaWebMessage(serializedEnvelope)
         }
     }
@@ -497,10 +507,9 @@ class FunctionKitWebViewHost(
 
         return try {
             replyProxy.postMessage(serializedEnvelope)
-            Log.d(
-                LogTag,
+            debugLog {
                 "Dispatched envelope type=${envelope.optString("type")} via replyProxy replyTo=$replyTo"
-            )
+            }
             true
         } catch (error: Throwable) {
             synchronized(replyProxyByUiMessageId) {
@@ -540,10 +549,9 @@ class FunctionKitWebViewHost(
     ) {
         parseInboundEnvelope(rawEnvelope)?.let { envelope ->
             rememberReplyProxy(envelope, replyProxy)
-            Log.d(
-                LogTag,
+            debugLog {
                 "Inbound envelope type=${envelope.optString("type")} kitId=${envelope.optString("kitId")} surface=${envelope.optString("surface")}"
-            )
+            }
             onUiEnvelope(envelope)
         }
     }

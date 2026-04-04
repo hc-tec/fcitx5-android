@@ -10,6 +10,7 @@ import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -23,16 +24,53 @@ internal object FunctionKitIconLoader {
         }
 
         val bitmap =
-            try {
+            runCatching {
                 context.assets.open(assetPath).use { input ->
                     val bytes = input.readBytes()
                     decodeBitmap(bytes, assetPath)
                 }
-            } catch (_: Exception) {
-                null
-            }
+            }.getOrNull()
+                ?: loadUserInstalledBitmap(context, assetPath)
 
         return bitmap?.let { BitmapDrawable(context.resources, it) }
+    }
+
+    private fun loadUserInstalledBitmap(
+        context: Context,
+        assetPath: String
+    ): Bitmap? {
+        val normalized = assetPath.replace('\\', '/').trimStart('/')
+        val prefix = "function-kits/"
+        if (!normalized.startsWith(prefix)) {
+            return null
+        }
+
+        val relativeToRoot = normalized.removePrefix(prefix)
+        val kitId = relativeToRoot.substringBefore('/', missingDelimiterValue = "").trim()
+        val relative = relativeToRoot.substringAfter('/', missingDelimiterValue = "").trim()
+        if (kitId.isBlank() || relative.isBlank()) {
+            return null
+        }
+
+        val segments = relative.split('/')
+        if (segments.any { it.isBlank() || it == "." || it == ".." }) {
+            return null
+        }
+
+        val kitsRoot = FunctionKitPackageManager.kitsRootDir(context)
+        val kitRoot = File(kitsRoot, kitId)
+        val target = File(kitRoot, segments.joinToString("/"))
+        return runCatching {
+            val targetCanonical = target.canonicalPath
+            val kitRootCanonical = kitRoot.canonicalPath + File.separator
+            if (!targetCanonical.startsWith(kitRootCanonical)) {
+                return@runCatching null
+            }
+            if (!target.isFile) {
+                return@runCatching null
+            }
+            decodeBitmap(target.readBytes(), assetPath)
+        }.getOrNull()
     }
 
     private fun decodeBitmap(

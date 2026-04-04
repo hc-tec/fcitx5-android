@@ -36,6 +36,34 @@ internal data class FunctionKitBindingEntry(
     val preferredPresentation: String?
 ) {
     val stableId: String = "$kitId:$bindingId"
+    val isTextBinding: Boolean =
+        when {
+            requestedPayloads != null -> requestedPayloads.any { it in TextRequestedPayloads }
+            else -> triggers.any {
+                it == FunctionKitBindingTrigger.Selection || it == FunctionKitBindingTrigger.Clipboard
+            }
+        }
+
+    val effectiveTriggers: Set<FunctionKitBindingTrigger> =
+        if (isTextBinding) {
+            setOf(
+                FunctionKitBindingTrigger.Manual,
+                FunctionKitBindingTrigger.Selection,
+                FunctionKitBindingTrigger.Clipboard
+            )
+        } else {
+            triggers
+        }
+
+    companion object {
+        private val TextRequestedPayloads =
+            setOf(
+                "selection.text",
+                "selection.beforeCursor",
+                "selection.afterCursor",
+                "clipboard.text"
+            )
+    }
 }
 
 internal object FunctionKitBindingRegistry {
@@ -87,5 +115,5 @@ internal object FunctionKitBindingRegistry {
         context: Context,
         trigger: FunctionKitBindingTrigger
     ): List<FunctionKitBindingEntry> =
-        listAll(context).filter { trigger in it.triggers }
+        listAll(context).filter { trigger in it.effectiveTriggers }
 }

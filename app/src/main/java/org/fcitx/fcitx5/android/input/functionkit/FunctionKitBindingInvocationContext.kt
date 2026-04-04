@@ -27,13 +27,17 @@ internal object FunctionKitBindingInvocationContext {
     fun capture(
         service: FcitxInputMethodService,
         requestedPayloads: Set<String>,
-        candidateCount: Int = 0
+        candidateCount: Int = 0,
+        preeditText: String = ""
     ): CaptureResult {
-        val inputConnection = service.currentInputConnection
-        val beforeCursor = inputConnection?.getTextBeforeCursor(CursorContextChars, 0)?.toString().orEmpty()
-        val afterCursor = inputConnection?.getTextAfterCursor(CursorContextChars, 0)?.toString().orEmpty()
-        val rawSelectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
+        val inputSnapshot =
+            FunctionKitInputSnapshotReader.capture(
+                service = service,
+                cursorContextChars = CursorContextChars,
+                selectionTextMaxChars = SelectionTextMaxChars
+            )
         val selection = service.currentInputSelection
+        val includeTextContext = requestedPayloads.any { it.startsWith("selection.") }
 
         val providedPayloads = mutableSetOf<String>()
         var payloadTruncated = false
@@ -47,18 +51,25 @@ internal object FunctionKitBindingInvocationContext {
                 .put("candidateCount", candidateCount)
                 .apply {
                     if ("selection.text" in requestedPayloads) {
-                        val (selectedText, truncated) = truncateText(rawSelectedText.trim(), SelectionTextMaxChars)
+                        val (selectedText, truncated) =
+                            truncateText(inputSnapshot.selectedText, SelectionTextMaxChars)
                         put("selectedText", selectedText)
                         providedPayloads += "selection.text"
                         payloadTruncated = payloadTruncated || truncated
                     }
                     if ("selection.beforeCursor" in requestedPayloads) {
-                        put("beforeCursor", beforeCursor)
+                        put("beforeCursor", inputSnapshot.beforeCursor)
                         providedPayloads += "selection.beforeCursor"
                     }
                     if ("selection.afterCursor" in requestedPayloads) {
-                        put("afterCursor", afterCursor)
+                        put("afterCursor", inputSnapshot.afterCursor)
                         providedPayloads += "selection.afterCursor"
+                    }
+                    if (includeTextContext) {
+                        val (normalizedPreeditText, truncated) =
+                            truncateText(preeditText.trim(), SelectionTextMaxChars)
+                        put("preeditText", normalizedPreeditText)
+                        payloadTruncated = payloadTruncated || truncated
                     }
                 }
 

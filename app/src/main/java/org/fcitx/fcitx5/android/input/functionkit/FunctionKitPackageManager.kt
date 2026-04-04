@@ -198,6 +198,7 @@ internal object FunctionKitPackageManager {
                 return InstallOutcome.Error("Failed to move kit into place: ${targetDir.path}")
             }
             deleteRecursively(backupDir)
+            FunctionKitKitSettings.bumpRegistryRevision()
             return InstallOutcome.Ok(kitId = kitId, replaced = replaced)
         } catch (error: Throwable) {
             return InstallOutcome.Error("Failed to install kit: $kitId", error)
@@ -216,6 +217,7 @@ internal object FunctionKitPackageManager {
         }
         return runCatching {
             deleteRecursively(dir)
+            FunctionKitKitSettings.bumpRegistryRevision()
             true
         }.getOrDefault(false)
     }

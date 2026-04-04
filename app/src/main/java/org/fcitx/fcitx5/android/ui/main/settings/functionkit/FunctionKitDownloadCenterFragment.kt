@@ -14,6 +14,7 @@ import androidx.preference.PreferenceManager
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceScreen
+import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -77,6 +78,7 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
                                         outcome.kitId
                                     )
                                 )
+                                showInstallOpenPrompt(outcome.kitId, outcome.replaced)
                                 refresh()
                             }
                             is FunctionKitPackageManager.InstallOutcome.Error -> {
@@ -101,6 +103,29 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
 
     private fun refresh() {
         preferenceScreen?.let { renderUi(it) }
+    }
+
+    private fun showInstallOpenPrompt(
+        kitId: String,
+        replaced: Boolean
+    ) {
+        val root = view ?: return
+        val message =
+            getString(
+                if (replaced) {
+                    R.string.function_kit_download_center_installed_replaced
+                } else {
+                    R.string.function_kit_download_center_installed
+                },
+                kitId
+            )
+
+        Snackbar.make(root, message, Snackbar.LENGTH_LONG)
+            .setDuration(5_000)
+            .setAction(R.string.function_kit_binding_snackbar_open) {
+                navigateWithAnim(SettingsRoute.FunctionKitDetail(kitId = kitId))
+            }
+            .show()
     }
 
     private fun renderUi(screen: PreferenceScreen) {
@@ -307,6 +332,7 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
                                         outcome.kitId
                                     )
                                 )
+                                showInstallOpenPrompt(outcome.kitId, outcome.replaced)
                                 refresh()
                             }
                             is FunctionKitPackageManager.InstallOutcome.Error -> {
@@ -521,6 +547,7 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
                                 outcome.kitId
                             )
                         )
+                        showInstallOpenPrompt(outcome.kitId, outcome.replaced)
                         refresh()
                     }
                     is FunctionKitPackageManager.InstallOutcome.Error -> {

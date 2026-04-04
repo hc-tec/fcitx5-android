@@ -85,6 +85,14 @@ internal interface FunctionKitImeActionSendInterceptor {
     ): Boolean
 }
 
+private const val VerboseFunctionKitWindowLogs = false
+
+private inline fun debugLog(message: () -> String) {
+    if (BuildConfig.DEBUG && VerboseFunctionKitWindowLogs) {
+        Log.d("FunctionKitWindow", message())
+    }
+}
+
 class FunctionKitWindow(
     private val requestedKitId: String? = null
 ) : org.fcitx.fcitx5.android.input.wm.InputWindow.ExtendedInputWindow<FunctionKitWindow>(),
@@ -695,6 +703,7 @@ class FunctionKitWindow(
     private var pendingOpenInvocationIntent: JSONObject? = null
     private var pendingEntryHash: String? = null
     private val pendingBindingInvocations = ArrayDeque<BindingInvocation>()
+    private val recentBindingInvocations = LinkedHashMap<String, BindingInvocation>(16, 0.75f, true)
     private val pendingRuntimeMessages = ArrayDeque<RuntimeMessageDelivery>()
     private var renderSeed = 0
     private var sessionId = newSessionId()
@@ -826,6 +835,9 @@ class FunctionKitWindow(
         if (!panelInitialized) {
             return
         }
+        if (!windowAttached || !bridgeReady) {
+            return
+        }
         if (!webViewResumed) {
             return
         }
@@ -898,7 +910,18 @@ class FunctionKitWindow(
         }
         syncEmbeddedKeyboardLayout()
 
-        if (!panelInitialized) {
+        val reloadCachedPanelForPendingLaunch = shouldReloadCachedPanelForPendingLaunch()
+        if (reloadCachedPanelForPendingLaunch) {
+            debugLog {
+                "Reloading cached panel before attach kitId=$functionKitId " +
+                    "pendingBindings=${pendingBindingInvocations.size} " +
+                    "pendingRuntime=${pendingRuntimeMessages.size} " +
+                    "hasOpenInvocation=${pendingOpenInvocationIntent != null} " +
+                    "hasOpenOptions=$pendingOpenOptionsIntent " +
+                    "hasEntryHash=${pendingEntryHash != null}"
+            }
+            reloadPanel()
+        } else if (!panelInitialized) {
             val entryPath = functionKitManifest.entryHtmlAssetPath + pendingEntryHash.orEmpty()
             pendingEntryHash = null
             host.initialize(entryPath)
@@ -914,6 +937,9 @@ class FunctionKitWindow(
             label = "Android Function Kit 面板已打开 · ${FunctionKitHostDiagnostics.buildDisplayName(Const.versionName, BuildConfig.BUILD_GIT_HASH)}",
             details = buildHostDetails()
         )
+        if (reloadCachedPanelForPendingLaunch) {
+            debugLog { "Deferred pending launch delivery until bridge.ready kitId=$functionKitId" }
+        }
         flushPendingBindingInvocations()
         flushPendingUiIntents()
         flushPendingEntryHash()
@@ -1002,6 +1028,7 @@ class FunctionKitWindow(
     override fun onStartInput(info: EditorInfo, capFlags: CapabilityFlags) {
         currentPackageName = info.packageName.orEmpty()
         currentInputType = info.inputType
+        rememberCurrentInputSnapshot()
         syncEmbeddedKeyboardLayout()
         pushHostState("输入上下文已切换")
         scheduleInputObserveSync("start-input")
@@ -1010,6 +1037,7 @@ class FunctionKitWindow(
     override fun onSelectionUpdate(start: Int, end: Int) {
         currentSelectionStart = start
         currentSelectionEnd = end
+        rememberCurrentInputSnapshot()
         pushHostStateThrottled("光标或选择区已更新", throttleMs = 250)
         scheduleInputObserveSync("selection-update")
     }
@@ -1021,6 +1049,7 @@ class FunctionKitWindow(
 
     override fun onClientPreeditUpdate(data: FormattedText) {
         currentPreeditText = data.toString()
+        rememberCurrentInputSnapshot()
         if (windowAttached) {
             embeddedPreeditUi.update(
                 FcitxEvent.InputPanelEvent.Data(
@@ -1037,6 +1066,7 @@ class FunctionKitWindow(
     }
 
     override fun onInputPanelUpdate(data: FcitxEvent.InputPanelEvent.Data) {
+        rememberCurrentInputSnapshot()
         if (windowAttached) {
             embeddedPreeditUi.update(data)
             embeddedPreeditUi.root.visibility =
@@ -1069,7 +1099,7 @@ class FunctionKitWindow(
         ensureManifestStateInitialized()
         refreshGrantedPermissions(notifyUi = false)
 
-        val requestedPayloads = resolveBindingRequestedPayloads(binding.requestedPayloads, trigger)
+        val requestedPayloads = resolveBindingRequestedPayloads(binding, trigger)
         val missingPermissions = mutableSetOf<String>()
         val allowedPayloads = requestedPayloads.toMutableSet()
 
@@ -1085,7 +1115,8 @@ class FunctionKitWindow(
             FunctionKitBindingInvocationContext.capture(
                 service = service,
                 requestedPayloads = allowedPayloads,
-                candidateCount = currentCandidateCount
+                candidateCount = currentCandidateCount,
+                preeditText = currentPreeditText
             )
 
         var payloadTruncated = captureResult.payloadTruncated
@@ -1106,7 +1137,7 @@ class FunctionKitWindow(
             }
 
         val invocationId = "invk-${UUID.randomUUID()}"
-        pendingBindingInvocations.addLast(
+        val invocation =
             BindingInvocation(
                 invocationId = invocationId,
                 trigger = trigger,
@@ -1122,7 +1153,19 @@ class FunctionKitWindow(
                 capturedContext = captureResult.context,
                 clipboardText = clipboardTextForPayload
             )
-        )
+        rememberRecentBindingInvocation(invocation)
+        pendingBindingInvocations.addLast(invocation)
+        debugLog {
+            "Enqueued binding invocation kitId=$functionKitId bindingId=${binding.bindingId} " +
+                "title=${binding.title} trigger=${trigger.name.lowercase()} startHeadless=$startHeadless " +
+                "windowAttached=$windowAttached panelInitialized=$panelInitialized webViewResumed=$webViewResumed " +
+                "selectedLen=${captureResult.context.optString("selectedText").length} " +
+                "beforeLen=${captureResult.context.optString("beforeCursor").length} " +
+                "afterLen=${captureResult.context.optString("afterCursor").length} " +
+                "preeditLen=${captureResult.context.optString("preeditText").length} " +
+                "clipboardLen=${clipboardTextForPayload?.length ?: 0} " +
+                "missingPermissions=${missingPermissions.joinToString(",")}"
+        }
         if (startHeadless) {
             ensureHeadlessPanelInitialized(reason = "binding.invoke")
         }
@@ -1138,9 +1181,21 @@ class FunctionKitWindow(
     }
 
     private fun resolveBindingRequestedPayloads(
-        declaredPayloads: Set<String>?,
+        binding: FunctionKitBindingEntry,
         trigger: FunctionKitBindingTrigger
     ): Set<String> {
+        val declaredPayloads = binding.requestedPayloads
+        if (binding.isTextBinding) {
+            val payloads =
+                when {
+                    declaredPayloads != null -> declaredPayloads.toMutableSet()
+                    else -> mutableSetOf<String>()
+                }
+            payloads.addAll(BindingSelectionPayloads)
+            payloads.add("clipboard.text")
+            return payloads
+        }
+
         if (declaredPayloads != null) {
             return declaredPayloads
         }
@@ -1192,6 +1247,11 @@ class FunctionKitWindow(
         val replyToHostMessageId = envelope.optString("replyTo")
         val surface = envelope.optString("surface").ifBlank { Surface }
         val payload = envelope.optJSONObject("payload") ?: JSONObject()
+
+        if (type != "bridge.ready" && !bridgeReady) {
+            debugLog { "Ignored UI envelope before bridge.ready kitId=$functionKitId type=$type surface=$surface" }
+            return
+        }
 
         when (type) {
             "bridge.ready" -> handleBridgeReady(replyTo, surface, payload)
@@ -1296,12 +1356,55 @@ class FunctionKitWindow(
 
         while (pendingBindingInvocations.isNotEmpty()) {
             val invocation = pendingBindingInvocations.removeFirst()
+            debugLog {
+                "Flushing binding invocation kitId=$functionKitId invocationId=${invocation.invocationId} " +
+                    "bindingId=${invocation.bindingId} remaining=${pendingBindingInvocations.size}"
+            }
             host.dispatchBindingInvoke(
                 kitId = functionKitId,
                 surface = Surface,
                 payload = buildBindingInvokePayload(invocation)
             )
         }
+    }
+
+    private fun rememberRecentBindingInvocation(invocation: BindingInvocation) {
+        synchronized(recentBindingInvocations) {
+            recentBindingInvocations[invocation.invocationId] = invocation
+            while (recentBindingInvocations.size > 16) {
+                val eldestKey = recentBindingInvocations.entries.firstOrNull()?.key ?: break
+                recentBindingInvocations.remove(eldestKey)
+            }
+        }
+    }
+
+    private fun requeueRecentBindingInvocationIfNeeded(invocationId: String) {
+        if (invocationId.isBlank()) {
+            return
+        }
+        if (pendingBindingInvocations.any { it.invocationId == invocationId }) {
+            return
+        }
+        val invocation =
+            synchronized(recentBindingInvocations) {
+                recentBindingInvocations[invocationId]
+            } ?: return
+        pendingBindingInvocations.addLast(invocation)
+        debugLog {
+            "Requeued recent binding invocation kitId=$functionKitId invocationId=$invocationId " +
+                "bindingId=${invocation.bindingId} for open"
+        }
+    }
+
+    private fun shouldReloadCachedPanelForPendingLaunch(): Boolean {
+        if (!panelInitialized || webViewResumed) {
+            return false
+        }
+        return pendingBindingInvocations.isNotEmpty() ||
+            pendingRuntimeMessages.isNotEmpty() ||
+            pendingOpenInvocationIntent != null ||
+            pendingOpenOptionsIntent ||
+            pendingEntryHash != null
     }
 
     private fun flushPendingRuntimeMessages() {
@@ -1377,6 +1480,14 @@ class FunctionKitWindow(
         val modifiers = payload.optJSONArray("modifiers").toStringList()
         val reason = payload.optString("reason").ifBlank { DefaultContextRequestReason }
         val contextSnapshot = buildContextSnapshot(preferredTone, modifiers)
+        debugLog {
+            "Context request snapshot kitId=$functionKitId " +
+                "selectedLen=${contextSnapshot.optString("selectedText").length} " +
+                "beforeLen=${contextSnapshot.optString("beforeCursor").length} " +
+                "afterLen=${contextSnapshot.optString("afterCursor").length} " +
+                "preeditLen=${contextSnapshot.optString("preeditText").length} " +
+                "reason=$reason"
+        }
         val contextPayload = buildContextPayload(contextSnapshot, preferredTone, modifiers, reason)
 
         host.dispatchContextSync(
@@ -2490,6 +2601,16 @@ class FunctionKitWindow(
                                             .put("taskId", taskId)
                                 )
                                 dispatchKitsSyncSnapshot(replyTo = null, surface = surface, includeDisabled = true)
+                                FunctionKitSnackbars.showKitInstalled(
+                                    context = context,
+                                    windowManager = windowManager,
+                                    theme = theme,
+                                    kitId = outcome.kitId,
+                                    replaced = outcome.replaced
+                                ) {
+                                    val window = windowPool.require(outcome.kitId)
+                                    windowManager.view.post { windowManager.attachWindow(window) }
+                                }
                             }
                             is FunctionKitPackageManager.InstallOutcome.Error -> {
                                 taskTracker.update(
@@ -3686,7 +3807,11 @@ class FunctionKitWindow(
         }
 
     private fun currentSelectedText(): String =
-        service.currentInputConnection?.getSelectedText(0)?.toString().orEmpty()
+        FunctionKitInputSnapshotReader.capture(
+            service = service,
+            cursorContextChars = 64,
+            selectionTextMaxChars = 8 * 1024
+        ).selectedText
 
     private fun canApplyComposerToTarget(): Boolean = service.currentInputConnection != null
 
@@ -4947,6 +5072,35 @@ class FunctionKitWindow(
             currentSelectionStart = it.start
             currentSelectionEnd = it.end
         }
+        rememberCurrentInputSnapshot()
+    }
+
+    private fun rememberCurrentInputSnapshot() {
+        FunctionKitInputSnapshotReader.capture(
+            service = service,
+            cursorContextChars = 256,
+            selectionTextMaxChars = 8 * 1024
+        )
+    }
+
+    private fun buildReloadEntryPath(hash: String): String {
+        val baseEntryPath = functionKitManifest.entryHtmlAssetPath.substringBefore("#")
+        val normalizedHash =
+            hash.trim().let { value ->
+                when {
+                    value.isBlank() -> ""
+                    value.startsWith("#") -> value
+                    else -> "#$value"
+                }
+            }
+        val separator = if ('?' in baseEntryPath) "&" else "?"
+        return buildString {
+            append(baseEntryPath)
+            append(separator)
+            append("fk_reload_session=")
+            append(Uri.encode(sessionId))
+            append(normalizedHash)
+        }
     }
 
     private fun reloadPanel() {
@@ -4954,7 +5108,7 @@ class FunctionKitWindow(
         renderSeed = 0
         sessionId = newSessionId()
         bridgeReady = false
-        val entryPath = functionKitManifest.entryHtmlAssetPath + pendingEntryHash.orEmpty()
+        val entryPath = buildReloadEntryPath(pendingEntryHash.orEmpty())
         pendingEntryHash = null
         host.initialize(entryPath)
     }
@@ -5521,13 +5675,19 @@ class FunctionKitWindow(
         modifiers: List<String>,
         maxChars: Int = 64
     ): JSONObject {
-        val inputConnection = service.currentInputConnection
-        val beforeCursor = inputConnection?.getTextBeforeCursor(maxChars, 0)?.toString().orEmpty()
-        val afterCursor = inputConnection?.getTextAfterCursor(maxChars, 0)?.toString().orEmpty()
-        val selectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
+        val inputSnapshot =
+            FunctionKitInputSnapshotReader.capture(
+                service = service,
+                cursorContextChars = maxChars,
+                selectionTextMaxChars = 8 * 1024
+            )
+        val beforeCursor = inputSnapshot.beforeCursor
+        val afterCursor = inputSnapshot.afterCursor
+        val selectedText = inputSnapshot.selectedText
         val sourceMessage =
             when {
                 selectedText.isNotBlank() -> "选中文本：${selectedText.trim().take(80)}"
+                currentPreeditText.isNotBlank() -> "预编辑文本：${currentPreeditText.trim().take(80)}"
                 beforeCursor.isNotBlank() || afterCursor.isNotBlank() -> {
                     "光标上下文：${beforeCursor.takeLast(32)}│${afterCursor.take(32)}".trim()
                 }
@@ -5713,10 +5873,15 @@ class FunctionKitWindow(
         functionKitManifest.discovery.resolveSlashQuery(resolveSlashSourceText())?.toJson()
 
     private fun resolveSlashSourceText(): String {
-        val inputConnection = service.currentInputConnection
-        val beforeCursor = inputConnection?.getTextBeforeCursor(64, 0)?.toString().orEmpty()
-        val afterCursor = inputConnection?.getTextAfterCursor(64, 0)?.toString().orEmpty()
-        val selectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
+        val inputSnapshot =
+            FunctionKitInputSnapshotReader.capture(
+                service = service,
+                cursorContextChars = 64,
+                selectionTextMaxChars = 8 * 1024
+            )
+        val beforeCursor = inputSnapshot.beforeCursor
+        val afterCursor = inputSnapshot.afterCursor
+        val selectedText = inputSnapshot.selectedText
 
         return when {
             currentPreeditText.isNotBlank() -> currentPreeditText
@@ -5727,7 +5892,7 @@ class FunctionKitWindow(
     }
 
     private fun handleHostEvent(message: String) {
-        Log.d("FunctionKitWindow", "[$functionKitId] $message")
+        debugLog { "[$functionKitId] $message" }
         if (!panelInitialized) {
             return
         }

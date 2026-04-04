@@ -12,6 +12,15 @@ import org.fcitx.fcitx5.android.utils.appContext
 internal class FunctionKitKitSettingsStore(
     private val sharedPreferences: SharedPreferences
 ) {
+    fun registryRevisionEpochMs(): Long =
+        sharedPreferences.getLong(FunctionKitKitSettings.RegistryRevisionPreferenceKey, 0L)
+
+    fun bumpRegistryRevision(epochMs: Long = System.currentTimeMillis()) {
+        sharedPreferences.edit()
+            .putLong(FunctionKitKitSettings.RegistryRevisionPreferenceKey, epochMs)
+            .apply()
+    }
+
     fun isKitEnabled(kitId: String): Boolean =
         sharedPreferences.getBoolean(enabledKey(kitId), true)
 
@@ -108,6 +117,8 @@ internal class FunctionKitKitSettingsStore(
 internal object FunctionKitKitSettings {
     private const val PrefName = "function_kit_kit_settings"
 
+    const val RegistryRevisionPreferenceKey: String = "function_kit.registry_revision"
+
     private val sharedPreferences: SharedPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         val ctx = appContext.createDeviceProtectedStorageContext()
         ctx.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
@@ -133,6 +144,10 @@ internal object FunctionKitKitSettings {
     fun isKitPinned(kitId: String): Boolean = store.isKitPinned(kitId)
 
     fun setKitPinned(kitId: String, pinned: Boolean) = store.setKitPinned(kitId, pinned)
+
+    fun registryRevisionEpochMs(): Long = store.registryRevisionEpochMs()
+
+    fun bumpRegistryRevision() = store.bumpRegistryRevision()
 
     fun lastUsedAtEpochMs(kitId: String): Long = store.lastUsedAtEpochMs(kitId)
 
