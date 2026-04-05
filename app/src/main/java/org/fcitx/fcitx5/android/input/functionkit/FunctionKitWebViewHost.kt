@@ -50,10 +50,10 @@ private const val DefaultContentSecurityPolicy =
         "frame-src 'none'; " +
         "form-action 'none'; " +
         "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-        "style-src 'self' https: 'unsafe-inline'; " +
-        "img-src 'self' https: data: blob:; " +
-        "media-src 'self' https: data: blob:; " +
-        "font-src 'self' https: data:;"
+        "style-src 'self' https: http: 'unsafe-inline'; " +
+        "img-src 'self' https: http: data: blob:; " +
+        "media-src 'self' https: http: data: blob:; " +
+        "font-src 'self' https: http: data:;"
 
 private val AllowedSurfaces = setOf("inline", "panel", "editor")
 private val AllowedInboundTypes =

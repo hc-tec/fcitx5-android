@@ -42,6 +42,10 @@ internal sealed class FunctionKitBindingCardItem {
 internal class FunctionKitBindingsAdapter(
     private val theme: Theme,
     private val accentColor: Int,
+    private val cardBackgroundColor: Int,
+    private val iconSurfaceColor: Int,
+    private val primaryTextColor: Int,
+    private val secondaryTextColor: Int,
     private val onClick: (FunctionKitBindingCardItem) -> Unit,
     private val onPinToggle: (FunctionKitBindingEntry) -> Unit,
     private val isPinned: (FunctionKitBindingEntry) -> Boolean
@@ -71,12 +75,12 @@ internal class FunctionKitBindingsAdapter(
     }
 
     private fun createCardView(parent: ViewGroup): View {
-        val cornerRadius = parent.context.dp(14).toFloat()
+        val cornerRadius = parent.context.dp(16).toFloat()
         val cardBackground =
             GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 this.cornerRadius = cornerRadius
-                setColor(theme.popupBackgroundColor)
+                setColor(cardBackgroundColor)
             }
         val maskDrawable =
             GradientDrawable().apply {
@@ -88,12 +92,12 @@ internal class FunctionKitBindingsAdapter(
         val iconSlot =
             FrameLayout(parent.context).apply {
                 id = android.R.id.background
-                val iconCorner = parent.context.dp(10).toFloat()
+                val iconCorner = parent.context.dp(14).toFloat()
                 background =
                     GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         this.cornerRadius = iconCorner
-                        setColor(theme.keyBackgroundColor)
+                        setColor(iconSurfaceColor)
                     }
             }
 
@@ -110,8 +114,8 @@ internal class FunctionKitBindingsAdapter(
         val titleView =
             TextView(parent.context).apply {
                 id = android.R.id.text1
-                setTextColor(theme.keyTextColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(primaryTextColor)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 setTypeface(typeface, Typeface.BOLD)
                 includeFontPadding = false
                 maxLines = 2
@@ -119,8 +123,8 @@ internal class FunctionKitBindingsAdapter(
         val subtitleView =
             TextView(parent.context).apply {
                 id = android.R.id.text2
-                setTextColor(theme.altKeyTextColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextColor(secondaryTextColor)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 includeFontPadding = false
                 maxLines = 2
             }
@@ -158,11 +162,11 @@ internal class FunctionKitBindingsAdapter(
             LinearLayout(parent.context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(parent.context.dp(12), parent.context.dp(12), parent.context.dp(12), parent.context.dp(12))
+                setPadding(parent.context.dp(14), parent.context.dp(14), parent.context.dp(14), parent.context.dp(14))
                 addView(
                     iconSlot,
-                    LinearLayout.LayoutParams(parent.context.dp(44), parent.context.dp(44)).apply {
-                        marginEnd = parent.context.dp(12)
+                    LinearLayout.LayoutParams(parent.context.dp(58), parent.context.dp(58)).apply {
+                        marginEnd = parent.context.dp(14)
                     }
                 )
                 addView(
@@ -224,7 +228,7 @@ internal class FunctionKitBindingsAdapter(
             titleView.text = view.context.getString(android.R.string.paste)
             subtitleView.text = view.context.getString(R.string.function_kit_bindings_clipboard)
             iconView.setImageResource(R.drawable.ic_baseline_content_paste_24)
-            iconView.setColorFilter(theme.altKeyTextColor)
+            iconView.setColorFilter(secondaryTextColor)
             pinView.isVisible = false
         }
 
@@ -254,7 +258,7 @@ internal class FunctionKitBindingsAdapter(
                 iconView.setImageDrawable(icon)
             } else {
                 iconView.setImageResource(R.drawable.ic_baseline_auto_awesome_24)
-                iconView.setColorFilter(theme.altKeyTextColor)
+                iconView.setColorFilter(secondaryTextColor)
             }
 
             val pinned = isPinned(entry)
@@ -266,7 +270,7 @@ internal class FunctionKitBindingsAdapter(
                     R.drawable.ic_baseline_star_border_24
                 }
             )
-            pinView.setColorFilter(if (pinned) accentColor else theme.altKeyTextColor)
+            pinView.setColorFilter(if (pinned) accentColor else secondaryTextColor)
             pinView.setOnClickListener {
                 onPinToggle(entry)
             }
