@@ -75,7 +75,7 @@ internal class FunctionKitBindingsAdapter(
     }
 
     private fun createCardView(parent: ViewGroup): View {
-        val cornerRadius = parent.context.dp(22).toFloat()
+        val cornerRadius = parent.context.dp(18).toFloat()
         val cardBackground =
             GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -92,7 +92,7 @@ internal class FunctionKitBindingsAdapter(
         val iconSlot =
             FrameLayout(parent.context).apply {
                 id = android.R.id.background
-                val iconCorner = parent.context.dp(18).toFloat()
+                val iconCorner = parent.context.dp(16).toFloat()
                 background =
                     GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
@@ -108,14 +108,14 @@ internal class FunctionKitBindingsAdapter(
             }
         iconSlot.addView(
             iconView,
-            FrameLayout.LayoutParams(parent.context.dp(34), parent.context.dp(34), Gravity.CENTER)
+            FrameLayout.LayoutParams(parent.context.dp(28), parent.context.dp(28), Gravity.CENTER)
         )
 
         val titleView =
             TextView(parent.context).apply {
                 id = android.R.id.text1
                 setTextColor(primaryTextColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 setTypeface(typeface, Typeface.BOLD)
                 includeFontPadding = false
                 maxLines = 2
@@ -124,7 +124,7 @@ internal class FunctionKitBindingsAdapter(
             TextView(parent.context).apply {
                 id = android.R.id.text2
                 setTextColor(secondaryTextColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 includeFontPadding = false
                 maxLines = 2
             }
@@ -162,12 +162,12 @@ internal class FunctionKitBindingsAdapter(
         val contentRow =
             LinearLayout(parent.context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(parent.context.dp(18), parent.context.dp(16), parent.context.dp(16), parent.context.dp(16))
+                gravity = Gravity.TOP
+                setPadding(parent.context.dp(16), parent.context.dp(16), parent.context.dp(16), parent.context.dp(14))
                 addView(
                     iconSlot,
-                    LinearLayout.LayoutParams(parent.context.dp(72), parent.context.dp(72)).apply {
-                        marginEnd = parent.context.dp(16)
+                    LinearLayout.LayoutParams(parent.context.dp(56), parent.context.dp(56)).apply {
+                        marginEnd = parent.context.dp(14)
                     }
                 )
                 addView(
@@ -176,18 +176,15 @@ internal class FunctionKitBindingsAdapter(
                         0,
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                         1f
-                    )
-                )
-                addView(
-                    pinView,
-                    LinearLayout.LayoutParams(parent.context.dp(34), parent.context.dp(34)).apply {
-                        marginStart = parent.context.dp(10)
+                    ).apply {
+                        marginEnd = parent.context.dp(28)
                     }
                 )
             }
 
         return FrameLayout(parent.context).apply {
             background = cardBackground
+            minimumHeight = parent.context.dp(122)
             foreground =
                 RippleDrawable(
                     ColorStateList.valueOf(theme.keyPressHighlightColor),
@@ -202,6 +199,13 @@ internal class FunctionKitBindingsAdapter(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
+            )
+            addView(
+                pinView,
+                FrameLayout.LayoutParams(parent.context.dp(28), parent.context.dp(28), Gravity.END or Gravity.TOP).apply {
+                    topMargin = parent.context.dp(12)
+                    marginEnd = parent.context.dp(12)
+                }
             )
         }
     }
