@@ -13,6 +13,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.text.TextUtils
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -75,7 +76,7 @@ internal class FunctionKitBindingsAdapter(
     }
 
     private fun createCardView(parent: ViewGroup): View {
-        val cornerRadius = parent.context.dp(18).toFloat()
+        val cornerRadius = parent.context.dp(16).toFloat()
         val cardBackground =
             GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -92,7 +93,7 @@ internal class FunctionKitBindingsAdapter(
         val iconSlot =
             FrameLayout(parent.context).apply {
                 id = android.R.id.background
-                val iconCorner = parent.context.dp(16).toFloat()
+                val iconCorner = parent.context.dp(14).toFloat()
                 background =
                     GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
@@ -108,25 +109,27 @@ internal class FunctionKitBindingsAdapter(
             }
         iconSlot.addView(
             iconView,
-            FrameLayout.LayoutParams(parent.context.dp(28), parent.context.dp(28), Gravity.CENTER)
+            FrameLayout.LayoutParams(parent.context.dp(22), parent.context.dp(22), Gravity.CENTER)
         )
 
         val titleView =
             TextView(parent.context).apply {
                 id = android.R.id.text1
                 setTextColor(primaryTextColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 setTypeface(typeface, Typeface.BOLD)
                 includeFontPadding = false
                 maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
             }
         val subtitleView =
             TextView(parent.context).apply {
                 id = android.R.id.text2
                 setTextColor(secondaryTextColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 includeFontPadding = false
-                maxLines = 2
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
             }
 
         val textColumn =
@@ -162,12 +165,12 @@ internal class FunctionKitBindingsAdapter(
         val contentRow =
             LinearLayout(parent.context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.TOP
-                setPadding(parent.context.dp(16), parent.context.dp(16), parent.context.dp(16), parent.context.dp(14))
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(parent.context.dp(14), parent.context.dp(14), parent.context.dp(14), parent.context.dp(14))
                 addView(
                     iconSlot,
-                    LinearLayout.LayoutParams(parent.context.dp(56), parent.context.dp(56)).apply {
-                        marginEnd = parent.context.dp(14)
+                    LinearLayout.LayoutParams(parent.context.dp(44), parent.context.dp(44)).apply {
+                        marginEnd = parent.context.dp(12)
                     }
                 )
                 addView(
@@ -177,14 +180,14 @@ internal class FunctionKitBindingsAdapter(
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                         1f
                     ).apply {
-                        marginEnd = parent.context.dp(28)
+                        marginEnd = parent.context.dp(18)
                     }
                 )
             }
 
         return FrameLayout(parent.context).apply {
             background = cardBackground
-            minimumHeight = parent.context.dp(122)
+            minimumHeight = parent.context.dp(104)
             foreground =
                 RippleDrawable(
                     ColorStateList.valueOf(theme.keyPressHighlightColor),
@@ -202,9 +205,9 @@ internal class FunctionKitBindingsAdapter(
             )
             addView(
                 pinView,
-                FrameLayout.LayoutParams(parent.context.dp(28), parent.context.dp(28), Gravity.END or Gravity.TOP).apply {
-                    topMargin = parent.context.dp(12)
-                    marginEnd = parent.context.dp(12)
+                FrameLayout.LayoutParams(parent.context.dp(24), parent.context.dp(24), Gravity.END or Gravity.TOP).apply {
+                    topMargin = parent.context.dp(10)
+                    marginEnd = parent.context.dp(10)
                 }
             )
         }
