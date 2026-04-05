@@ -75,7 +75,7 @@ internal class FunctionKitBindingsAdapter(
     }
 
     private fun createCardView(parent: ViewGroup): View {
-        val cornerRadius = parent.context.dp(16).toFloat()
+        val cornerRadius = parent.context.dp(22).toFloat()
         val cardBackground =
             GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -92,7 +92,7 @@ internal class FunctionKitBindingsAdapter(
         val iconSlot =
             FrameLayout(parent.context).apply {
                 id = android.R.id.background
-                val iconCorner = parent.context.dp(14).toFloat()
+                val iconCorner = parent.context.dp(18).toFloat()
                 background =
                     GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
@@ -108,14 +108,14 @@ internal class FunctionKitBindingsAdapter(
             }
         iconSlot.addView(
             iconView,
-            FrameLayout.LayoutParams(parent.context.dp(26), parent.context.dp(26), Gravity.CENTER)
+            FrameLayout.LayoutParams(parent.context.dp(34), parent.context.dp(34), Gravity.CENTER)
         )
 
         val titleView =
             TextView(parent.context).apply {
                 id = android.R.id.text1
                 setTextColor(primaryTextColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
                 setTypeface(typeface, Typeface.BOLD)
                 includeFontPadding = false
                 maxLines = 2
@@ -124,7 +124,7 @@ internal class FunctionKitBindingsAdapter(
             TextView(parent.context).apply {
                 id = android.R.id.text2
                 setTextColor(secondaryTextColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 includeFontPadding = false
                 maxLines = 2
             }
@@ -145,7 +145,7 @@ internal class FunctionKitBindingsAdapter(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
                     ).apply {
-                        topMargin = parent.context.dp(2)
+                        topMargin = parent.context.dp(4)
                     }
                 )
             }
@@ -156,17 +156,18 @@ internal class FunctionKitBindingsAdapter(
                 isClickable = true
                 isFocusable = true
                 isVisible = false
+                scaleType = ImageView.ScaleType.FIT_CENTER
             }
 
         val contentRow =
             LinearLayout(parent.context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(parent.context.dp(14), parent.context.dp(14), parent.context.dp(14), parent.context.dp(14))
+                setPadding(parent.context.dp(18), parent.context.dp(16), parent.context.dp(16), parent.context.dp(16))
                 addView(
                     iconSlot,
-                    LinearLayout.LayoutParams(parent.context.dp(58), parent.context.dp(58)).apply {
-                        marginEnd = parent.context.dp(14)
+                    LinearLayout.LayoutParams(parent.context.dp(72), parent.context.dp(72)).apply {
+                        marginEnd = parent.context.dp(16)
                     }
                 )
                 addView(
@@ -176,6 +177,12 @@ internal class FunctionKitBindingsAdapter(
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                         1f
                     )
+                )
+                addView(
+                    pinView,
+                    LinearLayout.LayoutParams(parent.context.dp(34), parent.context.dp(34)).apply {
+                        marginStart = parent.context.dp(10)
+                    }
                 )
             }
 
@@ -195,13 +202,6 @@ internal class FunctionKitBindingsAdapter(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
-            )
-            addView(
-                pinView,
-                FrameLayout.LayoutParams(parent.context.dp(28), parent.context.dp(28), Gravity.END or Gravity.TOP).apply {
-                    topMargin = parent.context.dp(10)
-                    marginEnd = parent.context.dp(10)
-                }
             )
         }
     }
@@ -230,6 +230,7 @@ internal class FunctionKitBindingsAdapter(
             iconView.setImageResource(R.drawable.ic_baseline_content_paste_24)
             iconView.setColorFilter(secondaryTextColor)
             pinView.isVisible = false
+            pinView.setOnClickListener(null)
         }
 
         private fun bindDownloadCenter() {
@@ -238,6 +239,7 @@ internal class FunctionKitBindingsAdapter(
             iconView.setImageResource(R.drawable.ic_baseline_storefront_24)
             iconView.setColorFilter(accentColor)
             pinView.isVisible = false
+            pinView.setOnClickListener(null)
         }
 
         private fun bindBinding(entry: FunctionKitBindingEntry) {

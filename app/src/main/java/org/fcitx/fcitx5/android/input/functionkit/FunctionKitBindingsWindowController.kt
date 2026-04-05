@@ -75,11 +75,11 @@ internal class FunctionKitBindingsWindowController(
 
     private val weChatGreen: Int = 0xFF07C160.toInt()
 
-    private val uiBackgroundColor: Int = 0xFFF5F6F7.toInt()
+    private val uiBackgroundColor: Int = 0xFFE9ECEF.toInt()
     private val uiSurfaceColor: Int = Color.WHITE
-    private val uiSurfaceBorderColor: Int = 0xFFE5E7EB.toInt()
-    private val uiControlActiveColor: Int = 0xFFF1F2F3.toInt()
-    private val uiCardColor: Int = 0xFFF1F2F3.toInt()
+    private val uiSurfaceBorderColor: Int = 0xFFD4D7DA.toInt()
+    private val uiControlActiveColor: Int = 0xFFDDE1E4.toInt()
+    private val uiCardColor: Int = 0xFFDDE1E4.toInt()
     private val uiTextPrimaryColor: Int = 0xFF1C1C1E.toInt()
     private val uiTextSecondaryColor: Int = 0xFF8E8E93.toInt()
 
@@ -383,6 +383,9 @@ internal class FunctionKitBindingsWindowController(
                 shape = GradientDrawable.RECTANGLE
                 this.cornerRadius = cornerRadius
                 setColor(if (active) weChatGreen else uiControlActiveColor)
+                if (!active) {
+                    setStroke(context.dp(1), uiSurfaceBorderColor)
+                }
             }
         val maskDrawable =
             GradientDrawable().apply {
