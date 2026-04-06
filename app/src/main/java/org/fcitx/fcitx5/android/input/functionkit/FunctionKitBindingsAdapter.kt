@@ -111,7 +111,7 @@ internal class FunctionKitBindingsAdapter(
         val context = parent.context
         val cardBackground = roundedDrawable(context, cardBackgroundColor, cornerDp = 20, strokeColor = cardBorderColor)
         val maskDrawable = roundedDrawable(context, Color.WHITE, cornerDp = 20)
-        val iconSlotBackground = roundedDrawable(context, iconSurfaceColor, cornerDp = 16)
+        val iconSlotBackground = roundedDrawable(context, iconSurfaceColor, cornerDp = 14)
         val pinBackground = roundedDrawable(context, Color.TRANSPARENT, cornerDp = 999)
 
         val iconSlotId = View.generateViewId()
@@ -130,17 +130,17 @@ internal class FunctionKitBindingsAdapter(
             }
         iconSlot.addView(
             iconView,
-            FrameLayout.LayoutParams(context.dp(24), context.dp(24), Gravity.CENTER)
+            FrameLayout.LayoutParams(context.dp(22), context.dp(22), Gravity.CENTER)
         )
 
         val titleView =
             TextView(context).apply {
                 id = titleViewId
                 setTextColor(primaryTextColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.25f)
                 setTypeface(typeface, Typeface.BOLD)
                 includeFontPadding = false
-                maxLines = 2
+                maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             }
 
@@ -162,14 +162,13 @@ internal class FunctionKitBindingsAdapter(
                 isFocusable = true
                 isVisible = false
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setPadding(context.dp(6), context.dp(6), context.dp(6), context.dp(6))
+                setPadding(context.dp(5), context.dp(5), context.dp(5), context.dp(5))
             }
 
         val root =
             ConstraintLayout(context).apply {
                 background = cardBackground
-                minimumHeight = context.dp(86)
-                elevation = context.dp(1).toFloat()
+                minimumHeight = context.dp(78)
                 foreground =
                     RippleDrawable(
                         ColorStateList.valueOf(theme.keyPressHighlightColor),
@@ -180,20 +179,20 @@ internal class FunctionKitBindingsAdapter(
                 isFocusable = true
                 addView(
                     iconSlot,
-                    ConstraintLayout.LayoutParams(context.dp(44), context.dp(44)).apply {
+                    ConstraintLayout.LayoutParams(context.dp(40), context.dp(40)).apply {
                         startToStart = ConstraintLayout.LayoutParams.PARENT_ID
                         topToTop = ConstraintLayout.LayoutParams.PARENT_ID
-                        marginStart = context.dp(12)
-                        topMargin = context.dp(12)
+                        marginStart = context.dp(10)
+                        topMargin = context.dp(10)
                     }
                 )
                 addView(
                     pinView,
-                    ConstraintLayout.LayoutParams(context.dp(28), context.dp(28)).apply {
+                    ConstraintLayout.LayoutParams(context.dp(26), context.dp(26)).apply {
                         endToEnd = ConstraintLayout.LayoutParams.PARENT_ID
                         topToTop = ConstraintLayout.LayoutParams.PARENT_ID
-                        marginEnd = context.dp(10)
-                        topMargin = context.dp(10)
+                        marginEnd = context.dp(8)
+                        topMargin = context.dp(8)
                     }
                 )
                 addView(
@@ -202,9 +201,9 @@ internal class FunctionKitBindingsAdapter(
                         startToEnd = iconSlotId
                         endToStart = pinViewId
                         topToTop = ConstraintLayout.LayoutParams.PARENT_ID
-                        marginStart = context.dp(10)
-                        marginEnd = context.dp(6)
-                        topMargin = context.dp(12)
+                        marginStart = context.dp(8)
+                        marginEnd = context.dp(4)
+                        topMargin = context.dp(10)
                     }
                 )
                 addView(
@@ -214,9 +213,9 @@ internal class FunctionKitBindingsAdapter(
                         endToEnd = ConstraintLayout.LayoutParams.PARENT_ID
                         topToBottom = titleViewId
                         bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
-                        marginEnd = context.dp(12)
-                        topMargin = context.dp(3)
-                        bottomMargin = context.dp(12)
+                        marginEnd = context.dp(10)
+                        topMargin = context.dp(2)
+                        bottomMargin = context.dp(10)
                     }
                 )
             }
@@ -283,7 +282,7 @@ internal class FunctionKitBindingsAdapter(
                 strokeColor = cardBorderColor,
                 iconContainerColor = mutedSurfaceColor
             )
-            refs.titleView.maxLines = 2
+            refs.titleView.maxLines = 1
             refs.subtitleView.maxLines = 1
             refs.titleView.text = root.context.getString(R.string.function_kit_bindings_open_download_center)
             refs.subtitleView.text = root.context.getString(R.string.function_kit_bindings_open_download_center_subtitle)
@@ -300,7 +299,7 @@ internal class FunctionKitBindingsAdapter(
                 strokeColor = cardBorderColor,
                 iconContainerColor = mutedSurfaceColor
             )
-            refs.titleView.maxLines = 2
+            refs.titleView.maxLines = 1
             refs.subtitleView.maxLines = 1
             refs.titleView.text = entry.title
             refs.subtitleView.text = buildSubtitle(entry)

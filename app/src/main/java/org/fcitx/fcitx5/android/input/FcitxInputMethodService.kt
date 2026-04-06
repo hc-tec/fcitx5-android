@@ -65,7 +65,6 @@ import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.data.theme.ThemeManager
 import org.fcitx.fcitx5.android.input.cursor.CursorRange
 import org.fcitx.fcitx5.android.input.cursor.CursorTracker
-import org.fcitx.fcitx5.android.input.functionkit.ClipboardOverlayPromptManager
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitInputSnapshotReader
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitImeActionSendInterceptor
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitImeSendIntent
@@ -891,12 +890,6 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
         inputDeviceMgr.notifyOnStartInput(attribute)
         Timber.d("onStartInput: initialSel=${selection.current}, restarting=$restarting")
         val isNullType = attribute.isTypeNull()
-        // If we were previously summoned via an invisible focus bridge overlay, dismiss it once we
-        // have a real client editor again. Otherwise, commits may appear to "do nothing" because
-        // they were targeting the bridge InputConnection.
-        if (ImeBridgeState.isActive() && attribute.packageName != packageName) {
-            ClipboardOverlayPromptManager.dismissImeBridgeOverlayIfPresent()
-        }
         flushPendingImeBridgeCommitIfPossible(attribute)
         FunctionKitInputSnapshotReader.warmUp(this)
         // wait until InputContext created/activated

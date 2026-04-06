@@ -325,14 +325,10 @@
     <string name="function_kit_bindings_open_download_center_subtitle">安装与管理功能件</string>
     <string name="function_kit_bindings_empty_recent">暂无近期使用。</string>
     <string name="function_kit_bindings_empty_pinned">暂无置顶动作。</string>
+    <string name="function_kit_bindings_hint_library">更多动作 → 动作库</string>
     <string name="function_kit_bindings_paste_subtitle">插入剪贴板内容</string>
     <string name="function_kit_binding_snackbar_triggered">已触发：%1$s</string>
     <string name="function_kit_binding_snackbar_open">打开</string>
-    <string name="function_kit_clipboard_prompt_channel">剪贴板提示</string>
-    <string name="function_kit_clipboard_prompt_content">点击打开剪贴板动作。</string>
-    <string name="function_kit_clipboard_prompt_focus_input_hint">已复制。请点输入框打开键盘后使用剪贴板动作。</string>
-    <string name="function_kit_clipboard_prompt_overlay_permission_missing_hint">未授予「显示在其他应用上层」权限，已降级为通知提示。</string>
-    <string name="function_kit_clipboard_prompt_unavailable_hint">剪贴板提示不可用。请启用通知或授予「显示在其他应用上层」权限。</string>
     <string name="function_kit_settings_summary">管理已安装功能件及其运行时权限</string>
     <string name="function_kit_download_center">下载中心</string>
     <string name="function_kit_download_center_summary">从 zip 包安装或卸载功能件</string>

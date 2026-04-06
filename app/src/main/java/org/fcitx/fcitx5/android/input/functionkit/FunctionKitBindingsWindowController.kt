@@ -6,7 +6,9 @@ package org.fcitx.fcitx5.android.input.functionkit
 
 import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
@@ -16,6 +18,7 @@ import android.text.Spanned
 import android.text.TextUtils
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.ReplacementSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -53,8 +56,55 @@ import splitties.views.horizontalPadding
 import kotlin.math.abs
 
 private const val DownloadCenterKitId = "kit-store"
-private const val SearchCursorChar = "│"
-private const val CursorBlinkIntervalMs = 530L
+private const val SearchCursorPlaceholder = "\u200B"
+
+private class SearchCursorSpan(
+    private val color: Int,
+    private val thicknessPx: Int
+) : ReplacementSpan() {
+    override fun getSize(
+        paint: Paint,
+        text: CharSequence,
+        start: Int,
+        end: Int,
+        fm: Paint.FontMetricsInt?
+    ): Int = 0
+
+    override fun draw(
+        canvas: Canvas,
+        text: CharSequence,
+        start: Int,
+        end: Int,
+        x: Float,
+        top: Int,
+        y: Int,
+        bottom: Int,
+        paint: Paint
+    ) {
+        if (Color.alpha(color) == 0) {
+            return
+        }
+
+        val oldColor = paint.color
+        val oldStyle = paint.style
+
+        paint.color = color
+        paint.style = Paint.Style.FILL
+
+        val lineHeight = bottom - top
+        val verticalPaddingPx = (lineHeight * 0.2f).toInt().coerceAtLeast(0)
+        canvas.drawRect(
+            x,
+            (top + verticalPaddingPx).toFloat(),
+            x + thicknessPx.toFloat(),
+            (bottom - verticalPaddingPx).toFloat(),
+            paint
+        )
+
+        paint.color = oldColor
+        paint.style = oldStyle
+    }
+}
 
 internal class FunctionKitBindingsWindowController(
     private val context: Context,
@@ -82,6 +132,8 @@ internal class FunctionKitBindingsWindowController(
 
     private val weChatGreen: Int = 0xFF129C67.toInt()
     private val uiSelectionColor: Int = (weChatGreen and 0x00FFFFFF) or 0x33000000
+    private val cursorThicknessPx: Int =
+        (context.resources.displayMetrics.density * 0.75f).toInt().coerceAtLeast(1)
 
     private val uiBackgroundColor: Int = 0xFFF3F5F7.toInt()
     private val uiSurfaceColor: Int = Color.WHITE
@@ -112,20 +164,6 @@ internal class FunctionKitBindingsWindowController(
     private var embeddedKeyboardView: View? = null
     private var embeddedKeyboardWindow: KeyboardWindow? = null
     private var embeddedExpandedCandidateHeightPx: Int = 0
-    private var cursorVisible: Boolean = false
-
-    private val cursorBlinkRunnable =
-        object : Runnable {
-            override fun run() {
-                if (!windowAttached || !searchFocused) {
-                    cursorVisible = false
-                    return
-                }
-                cursorVisible = !cursorVisible
-                updateSearchBarUi(rebuildRows = false)
-                windowManager.view.postDelayed(this, CursorBlinkIntervalMs)
-            }
-        }
 
     private var removeBindingSettingsListener: (() -> Unit)? = null
 
@@ -352,14 +390,6 @@ internal class FunctionKitBindingsWindowController(
             return
         }
         searchFocused = focused
-        if (focused) {
-            cursorVisible = true
-            windowManager.view.removeCallbacks(cursorBlinkRunnable)
-            windowManager.view.postDelayed(cursorBlinkRunnable, CursorBlinkIntervalMs)
-        } else {
-            cursorVisible = false
-            windowManager.view.removeCallbacks(cursorBlinkRunnable)
-        }
         updateSearchBarUi(rebuildRows = false)
         syncEmbeddedKeyboardLayout()
     }
@@ -370,18 +400,24 @@ internal class FunctionKitBindingsWindowController(
         val query = rawText.trim()
         val placeholder = context.getString(R.string.function_kit_bindings_search_placeholder)
         if (searchFocused) {
+            val selectionStart = normalizedSearch.selectionStart.coerceIn(0, rawText.length)
+            val selectionEnd = normalizedSearch.selectionEnd.coerceIn(0, rawText.length)
+            val hasSelection = selectionStart != selectionEnd
+            val showCaret = !hasSelection
+            val cursorSpan =
+                SearchCursorSpan(
+                    color = if (showCaret) weChatGreen else Color.TRANSPARENT,
+                    thicknessPx = cursorThicknessPx
+                )
             val sb = SpannableStringBuilder()
             if (query.isBlank()) {
-                if (cursorVisible) {
-                    val start = sb.length
-                    sb.append(SearchCursorChar)
-                    sb.setSpan(
-                        ForegroundColorSpan(weChatGreen),
-                        start,
-                        sb.length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
+                sb.append(SearchCursorPlaceholder)
+                sb.setSpan(
+                    cursorSpan,
+                    0,
+                    sb.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
                 val hintStart = sb.length
                 sb.append(placeholder)
                 sb.setSpan(
@@ -392,9 +428,7 @@ internal class FunctionKitBindingsWindowController(
                 )
             } else {
                 sb.append(rawText)
-                val selectionStart = normalizedSearch.selectionStart.coerceIn(0, rawText.length)
-                val selectionEnd = normalizedSearch.selectionEnd.coerceIn(0, rawText.length)
-                if (selectionStart != selectionEnd) {
+                if (hasSelection) {
                     sb.setSpan(
                         BackgroundColorSpan(uiSelectionColor),
                         selectionStart,
@@ -402,16 +436,14 @@ internal class FunctionKitBindingsWindowController(
                         Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
                     )
                 }
-                if (cursorVisible) {
-                    val caretIndex = selectionEnd
-                    sb.insert(caretIndex, SearchCursorChar)
-                    sb.setSpan(
-                        ForegroundColorSpan(weChatGreen),
-                        caretIndex,
-                        caretIndex + SearchCursorChar.length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
+                val caretIndex = selectionEnd
+                sb.insert(caretIndex, SearchCursorPlaceholder)
+                sb.setSpan(
+                    cursorSpan,
+                    caretIndex,
+                    caretIndex + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
             }
             searchTextView.text = sb
             searchTextView.setTextColor(uiTextPrimaryColor)
@@ -520,11 +552,11 @@ internal class FunctionKitBindingsWindowController(
             TextView(context).apply {
                 text = label
                 setTextColor(if (active) weChatGreen else uiTextSecondaryColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 includeFontPadding = false
                 maxLines = 1
-                setPadding(context.dp(12), context.dp(8), context.dp(12), context.dp(8))
+                setPadding(context.dp(10), context.dp(6), context.dp(10), context.dp(6))
                 background = backgroundDrawable
                 foreground =
                     RippleDrawable(
@@ -544,7 +576,7 @@ internal class FunctionKitBindingsWindowController(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                marginEnd = context.dp(8)
+                marginEnd = context.dp(6)
             }
         )
     }
@@ -588,7 +620,6 @@ internal class FunctionKitBindingsWindowController(
         val textColor = if (active) uiTextPrimaryColor else uiTextSecondaryColor
         icon.setColorFilter(iconColor)
         label.setTextColor(textColor)
-        button.elevation = if (active) context.dp(1).toFloat() else 0f
     }
 
     private fun rebuildRows() {
@@ -613,7 +644,9 @@ internal class FunctionKitBindingsWindowController(
         adapter.items = items
 
         val empty = filtered.isEmpty()
-        emptyHint.isVisible = empty
+        val suggestLibrary = !empty && activeTab != Tab.Library && filtered.size < 3
+        emptyHint.isVisible = empty || suggestLibrary
+        emptyHint.setOnClickListener(null)
         if (empty) {
             emptyHint.text =
                 when (activeTab) {
@@ -621,6 +654,18 @@ internal class FunctionKitBindingsWindowController(
                     Tab.Pinned -> context.getString(R.string.function_kit_bindings_empty_pinned)
                     Tab.Library -> context.getString(R.string.function_kit_bindings_empty)
                 }
+            emptyHint.isClickable = false
+        } else if (suggestLibrary) {
+            emptyHint.text = context.getString(R.string.function_kit_bindings_hint_library)
+            emptyHint.isClickable = true
+            emptyHint.setOnClickListener {
+                activeTab = Tab.Library
+                selectedCategoryId = null
+                setSearchFocused(false)
+                rebuildUi()
+            }
+        } else {
+            emptyHint.isClickable = false
         }
     }
 
@@ -636,14 +681,13 @@ internal class FunctionKitBindingsWindowController(
             setImageResource(R.drawable.ic_baseline_arrow_back_24)
             setColorFilter(uiTextPrimaryColor)
             background = roundedDrawable(uiSurfaceColor, cornerDp = 999, strokeColor = uiSurfaceBorderColor)
-            elevation = context.dp(1).toFloat()
             foreground =
                 RippleDrawable(
                     ColorStateList.valueOf(theme.keyPressHighlightColor),
                     null,
                     pillMask(cornerDp = 999)
                 )
-            setPadding(context.dp(6), context.dp(6), context.dp(6), context.dp(6))
+            setPadding(context.dp(5), context.dp(5), context.dp(5), context.dp(5))
             setOnClickListener {
                 windowManager.attachWindow(KeyboardWindow)
             }
@@ -659,7 +703,7 @@ internal class FunctionKitBindingsWindowController(
 
     private val searchTextView: TextView by lazy {
         TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.25f)
             includeFontPadding = false
             setTextColor(uiTextSecondaryColor)
             maxLines = 1
@@ -679,7 +723,7 @@ internal class FunctionKitBindingsWindowController(
                     null,
                     pillMask(cornerDp = 999)
                 )
-            setPadding(context.dp(4), context.dp(4), context.dp(4), context.dp(4))
+            setPadding(context.dp(3), context.dp(3), context.dp(3), context.dp(3))
             setOnClickListener {
                 searchDraft = ComposerDraftBufferState()
                 updateSearchBarUi()
@@ -697,17 +741,16 @@ internal class FunctionKitBindingsWindowController(
 
         FrameLayout(context).apply {
             background = backgroundDrawable
-            elevation = context.dp(1).toFloat()
             foreground =
                 RippleDrawable(
                     ColorStateList.valueOf(theme.keyPressHighlightColor),
                     null,
                     pillMask(cornerDp = 14)
                 )
-            setPadding(context.dp(12), context.dp(8), context.dp(12), context.dp(8))
+            setPadding(context.dp(12), context.dp(6), context.dp(12), context.dp(6))
             addView(
                 searchIconView,
-                FrameLayout.LayoutParams(context.dp(18), context.dp(18), Gravity.START or Gravity.CENTER_VERTICAL)
+                FrameLayout.LayoutParams(context.dp(16), context.dp(16), Gravity.START or Gravity.CENTER_VERTICAL)
             )
             addView(
                 searchTextView,
@@ -716,13 +759,13 @@ internal class FunctionKitBindingsWindowController(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     Gravity.CENTER_VERTICAL
                 ).apply {
-                    marginStart = context.dp(26)
-                    marginEnd = context.dp(30)
+                    marginStart = context.dp(24)
+                    marginEnd = context.dp(28)
                 }
             )
             addView(
                 clearSearchButton,
-                FrameLayout.LayoutParams(context.dp(24), context.dp(24), Gravity.END or Gravity.CENTER_VERTICAL)
+                FrameLayout.LayoutParams(context.dp(22), context.dp(22), Gravity.END or Gravity.CENTER_VERTICAL)
             )
             setOnClickListener {
                 setSearchFocused(true)
@@ -735,16 +778,16 @@ internal class FunctionKitBindingsWindowController(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(uiBackgroundColor)
-            setPadding(context.dp(8), context.dp(2), context.dp(8), context.dp(2))
+            setPadding(context.dp(12), context.dp(0), context.dp(12), context.dp(0))
             addView(
                 backButton,
-                LinearLayout.LayoutParams(context.dp(36), context.dp(36))
+                LinearLayout.LayoutParams(context.dp(34), context.dp(34))
             )
             addView(
                 searchField,
                 LinearLayout.LayoutParams(
                     0,
-                    context.dp(36),
+                    context.dp(34),
                     1f
                 ).apply {
                     marginStart = context.dp(8)
@@ -1012,14 +1055,18 @@ internal class FunctionKitBindingsWindowController(
             includeFontPadding = false
             gravity = Gravity.CENTER
             background = roundedDrawable(uiSurfaceColor, cornerDp = 18, strokeColor = uiSurfaceBorderColor)
-            elevation = context.dp(1).toFloat()
-            setPadding(context.dp(16), context.dp(14), context.dp(16), context.dp(14))
+            foreground =
+                RippleDrawable(
+                    ColorStateList.valueOf(theme.keyPressHighlightColor),
+                    null,
+                    pillMask(cornerDp = 18)
+                )
+            setPadding(context.dp(16), context.dp(12), context.dp(16), context.dp(12))
             isVisible = false
         }
     }
 
     private class GridSpacingDecoration(
-        private val spanCount: Int,
         private val spacingPx: Int
     ) : RecyclerView.ItemDecoration() {
         override fun getItemOffsets(
@@ -1031,6 +1078,7 @@ internal class FunctionKitBindingsWindowController(
             val layoutParams = view.layoutParams as? GridLayoutManager.LayoutParams
             val spanSize = layoutParams?.spanSize ?: 1
             val spanIndex = layoutParams?.spanIndex ?: 0
+            val spanCount = (parent.layoutManager as? GridLayoutManager)?.spanCount ?: 1
             val half = spacingPx / 2
             if (spanSize >= spanCount) {
                 outRect.left = 0
@@ -1061,8 +1109,20 @@ internal class FunctionKitBindingsWindowController(
             layoutManager = gridLayoutManager
             adapter = this@FunctionKitBindingsWindowController.adapter
             clipToPadding = false
-            setPadding(context.dp(16), context.dp(4), context.dp(16), context.dp(16))
-            addItemDecoration(GridSpacingDecoration(spanCount = 2, spacingPx = context.dp(12)))
+            setPadding(context.dp(12), context.dp(2), context.dp(12), context.dp(12))
+            addItemDecoration(GridSpacingDecoration(spacingPx = context.dp(8)))
+            addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+                val widthPx = right - left
+                if (widthPx <= 0) return@addOnLayoutChangeListener
+                if (widthPx == oldRight - oldLeft) return@addOnLayoutChangeListener
+
+                val density = resources.displayMetrics.density.coerceAtLeast(1f)
+                val widthDp = widthPx / density
+                val targetSpanCount = if (widthDp < 340f) 1 else 2
+                if (gridLayoutManager.spanCount != targetSpanCount) {
+                    gridLayoutManager.spanCount = targetSpanCount
+                }
+            }
         }
     }
 
@@ -1075,10 +1135,10 @@ internal class FunctionKitBindingsWindowController(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    marginStart = context.dp(16)
+                    marginStart = context.dp(12)
                     topMargin = context.dp(2)
-                    marginEnd = context.dp(16)
-                    bottomMargin = context.dp(12)
+                    marginEnd = context.dp(12)
+                    bottomMargin = context.dp(10)
                 }
             )
             addView(
@@ -1096,13 +1156,12 @@ internal class FunctionKitBindingsWindowController(
         LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = roundedDrawable(uiSurfaceColor, cornerDp = 20, strokeColor = uiSurfaceBorderColor)
-            elevation = context.dp(1).toFloat()
-            setPadding(context.dp(12), context.dp(10), context.dp(12), context.dp(8))
+            setPadding(context.dp(12), context.dp(8), context.dp(12), context.dp(6))
             addView(
                 tabRow,
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    context.dp(38)
+                    context.dp(34)
                 )
             )
             addView(
@@ -1162,7 +1221,7 @@ internal class FunctionKitBindingsWindowController(
                     null,
                     pillMask(cornerDp = 999)
                 )
-            setPadding(context.dp(12), context.dp(7), context.dp(12), context.dp(7))
+            setPadding(context.dp(10), context.dp(6), context.dp(10), context.dp(6))
             val icon =
                 ImageView(context).apply {
                     id = android.R.id.icon
@@ -1174,7 +1233,7 @@ internal class FunctionKitBindingsWindowController(
                     id = android.R.id.text1
                     text = context.getString(labelRes)
                     setTextColor(uiTextSecondaryColor)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                     includeFontPadding = false
                 }
@@ -1188,12 +1247,12 @@ internal class FunctionKitBindingsWindowController(
         LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             background = roundedDrawable(uiSurfaceMutedColor, cornerDp = 999)
-            setPadding(context.dp(3), context.dp(3), context.dp(3), context.dp(3))
-            minimumHeight = context.dp(38)
+            setPadding(context.dp(2), context.dp(2), context.dp(2), context.dp(2))
+            minimumHeight = context.dp(34)
             addView(recentTabButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
             addView(pinnedTabButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-                marginStart = context.dp(4)
-                marginEnd = context.dp(4)
+                marginStart = context.dp(3)
+                marginEnd = context.dp(3)
             })
             addView(libraryTabButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
@@ -1202,7 +1261,7 @@ internal class FunctionKitBindingsWindowController(
     private val categoryRow: LinearLayout by lazy {
         LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(context.dp(0), context.dp(8), context.dp(0), context.dp(2))
+            setPadding(context.dp(0), context.dp(6), context.dp(0), context.dp(0))
         }
     }
 
@@ -1226,12 +1285,12 @@ internal class FunctionKitBindingsWindowController(
         LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(context.dp(16), context.dp(6), context.dp(16), context.dp(0))
+            setPadding(context.dp(12), context.dp(4), context.dp(12), context.dp(0))
             addView(
                 sheetHandle,
                 LinearLayout.LayoutParams(
-                    context.dp(38),
-                    context.dp(4)
+                    context.dp(34),
+                    context.dp(3)
                 )
             )
             addView(
@@ -1240,7 +1299,7 @@ internal class FunctionKitBindingsWindowController(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    topMargin = context.dp(8)
+                    topMargin = context.dp(6)
                 }
             )
         }

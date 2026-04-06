@@ -325,14 +325,10 @@
     <string name="function_kit_bindings_open_download_center_subtitle">Install &amp; manage kits</string>
     <string name="function_kit_bindings_empty_recent">No recent actions.</string>
     <string name="function_kit_bindings_empty_pinned">No pinned actions.</string>
+    <string name="function_kit_bindings_hint_library">More actions → Library</string>
     <string name="function_kit_bindings_paste_subtitle">Insert clipboard text</string>
     <string name="function_kit_binding_snackbar_triggered">Triggered: %1$s</string>
     <string name="function_kit_binding_snackbar_open">Open</string>
-    <string name="function_kit_clipboard_prompt_channel">Clipboard prompt</string>
-    <string name="function_kit_clipboard_prompt_content">Tap to open clipboard actions.</string>
-    <string name="function_kit_clipboard_prompt_focus_input_hint">Copied. Tap an input field to open the keyboard and use clipboard actions.</string>
-    <string name="function_kit_clipboard_prompt_overlay_permission_missing_hint">Overlay permission is missing. Falling back to notification.</string>
-    <string name="function_kit_clipboard_prompt_unavailable_hint">Clipboard prompt is unavailable. Enable notifications or allow drawing over other apps.</string>
     <string name="function_kit_settings_summary">Manage installed Function Kits and their runtime permissions</string>
     <string name="function_kit_download_center">Download Center</string>
     <string name="function_kit_download_center_summary">Install or uninstall Function Kits from zip packages</string>
