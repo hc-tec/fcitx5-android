@@ -14,6 +14,7 @@ import android.content.Context
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextUtils
+import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
@@ -80,6 +81,7 @@ internal class FunctionKitBindingsWindowController(
         }
 
     private val weChatGreen: Int = 0xFF129C67.toInt()
+    private val uiSelectionColor: Int = (weChatGreen and 0x00FFFFFF) or 0x33000000
 
     private val uiBackgroundColor: Int = 0xFFF3F5F7.toInt()
     private val uiSurfaceColor: Int = Color.WHITE
@@ -363,22 +365,53 @@ internal class FunctionKitBindingsWindowController(
     }
 
     private fun updateSearchBarUi(rebuildRows: Boolean = true) {
-        val query = currentSearchQuery()
+        val normalizedSearch = FunctionKitComposerDraftBuffer.normalize(searchDraft)
+        val rawText = normalizedSearch.text
+        val query = rawText.trim()
         val placeholder = context.getString(R.string.function_kit_bindings_search_placeholder)
         if (searchFocused) {
             val sb = SpannableStringBuilder()
-            if (query.isNotBlank()) {
-                sb.append(query)
-            }
-            if (cursorVisible) {
-                val start = sb.length
-                sb.append(SearchCursorChar)
+            if (query.isBlank()) {
+                if (cursorVisible) {
+                    val start = sb.length
+                    sb.append(SearchCursorChar)
+                    sb.setSpan(
+                        ForegroundColorSpan(weChatGreen),
+                        start,
+                        sb.length,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                val hintStart = sb.length
+                sb.append(placeholder)
                 sb.setSpan(
-                    ForegroundColorSpan(weChatGreen),
-                    start,
+                    ForegroundColorSpan(uiTextSecondaryColor),
+                    hintStart,
                     sb.length,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
+            } else {
+                sb.append(rawText)
+                val selectionStart = normalizedSearch.selectionStart.coerceIn(0, rawText.length)
+                val selectionEnd = normalizedSearch.selectionEnd.coerceIn(0, rawText.length)
+                if (selectionStart != selectionEnd) {
+                    sb.setSpan(
+                        BackgroundColorSpan(uiSelectionColor),
+                        selectionStart,
+                        selectionEnd,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                if (cursorVisible) {
+                    val caretIndex = selectionEnd
+                    sb.insert(caretIndex, SearchCursorChar)
+                    sb.setSpan(
+                        ForegroundColorSpan(weChatGreen),
+                        caretIndex,
+                        caretIndex + SearchCursorChar.length,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
             }
             searchTextView.text = sb
             searchTextView.setTextColor(uiTextPrimaryColor)
