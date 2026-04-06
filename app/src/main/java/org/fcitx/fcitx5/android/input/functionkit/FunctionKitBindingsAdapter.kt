@@ -194,8 +194,10 @@ internal class FunctionKitBindingsAdapter(
                     ConstraintLayout.LayoutParams(context.dp(40), context.dp(40)).apply {
                         startToStart = ConstraintLayout.LayoutParams.PARENT_ID
                         topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+                        bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
                         marginStart = context.dp(10)
                         topMargin = context.dp(10)
+                        bottomMargin = context.dp(10)
                     }
                 )
                 addView(
@@ -213,6 +215,9 @@ internal class FunctionKitBindingsAdapter(
                         startToEnd = iconSlotId
                         endToStart = pinViewId
                         topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+                        bottomToTop = subtitleViewId
+                        verticalChainStyle = ConstraintLayout.LayoutParams.CHAIN_PACKED
+                        verticalBias = 0.5f
                         marginStart = context.dp(8)
                         marginEnd = context.dp(4)
                         topMargin = context.dp(10)
@@ -222,7 +227,7 @@ internal class FunctionKitBindingsAdapter(
                     subtitleView,
                     ConstraintLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                         startToStart = titleViewId
-                        endToEnd = ConstraintLayout.LayoutParams.PARENT_ID
+                        endToStart = pinViewId
                         topToBottom = titleViewId
                         bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
                         marginEnd = context.dp(10)
