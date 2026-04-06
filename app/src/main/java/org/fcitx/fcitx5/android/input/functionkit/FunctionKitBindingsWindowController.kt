@@ -99,6 +99,7 @@ internal class FunctionKitBindingsWindowController(
     private var windowManagerHeightBeforeAttach: Int? = null
     private var embeddedKeyboardView: View? = null
     private var embeddedKeyboardWindow: KeyboardWindow? = null
+    private var embeddedExpandedCandidateHeightPx: Int = 0
 
     private var removeBindingSettingsListener: (() -> Unit)? = null
 
@@ -108,7 +109,7 @@ internal class FunctionKitBindingsWindowController(
     fun onCreateBarExtension(): View = barExtension
 
     fun onCreateView(): View {
-        val baseHeight = windowManager.view.layoutParams?.height ?: 0
+        val baseHeight = resolveKeyboardBaseHeightPx()
         panelPeekHeightPx = resolvePanelPeekHeightPx(baseHeight)
         return rootView
     }
@@ -116,7 +117,7 @@ internal class FunctionKitBindingsWindowController(
     fun onAttached() {
         windowAttached = true
 
-        val baseHeight = windowManager.view.layoutParams?.height ?: 0
+        val baseHeight = resolveKeyboardBaseHeightPx()
         if (baseHeight > 0) {
             windowManagerHeightBeforeAttach = baseHeight
         } else if (windowManagerHeightBeforeAttach == null) {
@@ -156,6 +157,7 @@ internal class FunctionKitBindingsWindowController(
     fun onDetached() {
         windowAttached = false
         setSearchFocused(false)
+        setEmbeddedExpandedCandidateHeight(0)
 
         removeBindingSettingsListener?.invoke()
         removeBindingSettingsListener = null
@@ -625,7 +627,7 @@ internal class FunctionKitBindingsWindowController(
                 panelPeekHeightPx + baseHeight
             } else {
                 panelPeekHeightPx
-            }
+            }.coerceAtMost(resolveWindowHeightCapPx())
         windowManager.view.layoutParams?.let { params ->
             if (params.height != desiredHeight && desiredHeight > 0) {
                 params.height = desiredHeight
@@ -635,14 +637,29 @@ internal class FunctionKitBindingsWindowController(
     }
 
     private fun resolvePanelPeekHeightPx(baseHeightPx: Int): Int {
-        val preferred = context.dp(360)
-        val minHeight = context.dp(220)
-        if (baseHeightPx <= 0) {
-            return preferred
-        }
-        val maxHeight = (baseHeightPx * 0.86f).toInt().coerceAtLeast(minHeight)
-        return preferred.coerceIn(minHeight, maxHeight)
+        val orientation = context.resources.configuration.orientation
+        val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
+        val screenHeightPx = context.resources.displayMetrics.heightPixels
+        val heightReduction = context.dp(50)
+        val preferred = if (isLandscape) context.dp(270) else context.dp(346)
+        val minHeight = if (isLandscape) context.dp(182) else context.dp(206)
+        val maxHeight =
+            (screenHeightPx * if (isLandscape) 0.7f else 0.54f)
+                .toInt()
+                .coerceAtLeast(minHeight)
+        val boostedBaseHeight =
+            if (baseHeightPx > 0) {
+                ((baseHeightPx * 1.08f).toInt() - heightReduction).coerceAtLeast(minHeight)
+            } else {
+                preferred
+            }
+        return maxOf(preferred, boostedBaseHeight).coerceIn(minHeight, maxHeight)
     }
+
+    private fun resolveWindowHeightCapPx(): Int =
+        (context.resources.displayMetrics.heightPixels * 0.96f)
+            .toInt()
+            .coerceAtLeast(panelPeekHeightPx)
 
     private fun resolveKeyboardHeightFromPrefsPx(): Int {
         val keyboardPrefs = AppPrefs.getInstance().keyboard
@@ -653,6 +670,14 @@ internal class FunctionKitBindingsWindowController(
             }
         val percent = percentPref.getValue()
         return context.resources.displayMetrics.heightPixels * percent / 100
+    }
+
+    private fun resolveKeyboardBaseHeightPx(): Int {
+        val prefHeight = resolveKeyboardHeightFromPrefsPx()
+        if (prefHeight > 0) {
+            return prefHeight
+        }
+        return windowManager.view.layoutParams?.height ?: 0
     }
 
     private val embeddedCandidateDockHeightPx by lazy { context.dp(KawaiiBarComponent.HEIGHT) }
@@ -681,6 +706,7 @@ internal class FunctionKitBindingsWindowController(
 
         val showCandidates = dockActive && currentCandidateCount > 0
         val showPreedit = dockActive && embeddedPreeditUi.visible
+        val expandedHeightPx = if (dockActive) embeddedExpandedCandidateHeightPx else 0
 
         val candidateHeightPx = if (showCandidates) embeddedCandidateDockHeightPx else 0
         val preeditHeightPx =
@@ -699,7 +725,7 @@ internal class FunctionKitBindingsWindowController(
                 0
             }
 
-        val dockHeightPx = preeditHeightPx + candidateHeightPx
+        val dockHeightPx = preeditHeightPx + candidateHeightPx + expandedHeightPx
         val shouldShowDock = dockActive && dockHeightPx > 0
 
         embeddedDockContainer.isVisible = shouldShowDock
@@ -717,10 +743,26 @@ internal class FunctionKitBindingsWindowController(
             height = candidateHeightPx
         }
 
+        embeddedExpandedCandidateDockContainer.isVisible = expandedHeightPx > 0
+        embeddedExpandedCandidateDockContainer.updateLayoutParams<LinearLayout.LayoutParams> {
+            height = expandedHeightPx
+        }
+
         val panelHeightPx = (panelPeekHeightPx - dockHeightPx).coerceAtLeast(0)
         panelContainer.updateLayoutParams<LinearLayout.LayoutParams> {
             height = panelHeightPx
         }
+    }
+
+    fun getEmbeddedExpandedCandidateContainer(): ViewGroup = embeddedExpandedCandidateDockContainer
+
+    fun setEmbeddedExpandedCandidateHeight(heightPx: Int) {
+        val normalizedHeight = heightPx.coerceAtLeast(0)
+        if (embeddedExpandedCandidateHeightPx == normalizedHeight) {
+            return
+        }
+        embeddedExpandedCandidateHeightPx = normalizedHeight
+        syncEmbeddedCandidateDock(shouldShowEmbeddedKeyboard())
     }
 
     private fun normalizePresentation(value: String?): String =
@@ -1109,6 +1151,13 @@ internal class FunctionKitBindingsWindowController(
         }
     }
 
+    private val embeddedExpandedCandidateDockContainer: FrameLayout by lazy {
+        FrameLayout(context).apply {
+            setBackgroundColor(theme.barColor)
+            isVisible = false
+        }
+    }
+
     private val embeddedDockContainer: LinearLayout by lazy {
         LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -1123,6 +1172,13 @@ internal class FunctionKitBindingsWindowController(
             )
             addView(
                 embeddedCandidateDockContainer,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0
+                )
+            )
+            addView(
+                embeddedExpandedCandidateDockContainer,
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     0
