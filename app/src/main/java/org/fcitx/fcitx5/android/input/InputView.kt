@@ -338,6 +338,12 @@ class InputView(
         if (focusChangeResetKeyboard || !restarting) {
             windowManager.attachWindow(KeyboardWindow)
         }
+        // Some devices may reset child view layout params when the IME is hidden/shown, resulting
+        // in a shorter keyboard height on subsequent activations. Re-apply the configured keyboard
+        // sizing whenever the plain keyboard window is active.
+        if (windowManager.isAttached(keyboardWindow)) {
+            updateKeyboardSize()
+        }
     }
 
     override fun onStartHandleFcitxEvent() {
