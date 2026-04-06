@@ -332,6 +332,14 @@ class FunctionKitWindow(
         return context.resources.displayMetrics.heightPixels * percent / 100
     }
 
+    private fun resolveKeyboardBaseHeightPx(): Int {
+        val prefHeight = resolveKeyboardHeightFromPrefsPx()
+        if (prefHeight > 0) {
+            return prefHeight
+        }
+        return windowManager.view.layoutParams?.height ?: 0
+    }
+
     private fun shouldShowEmbeddedKeyboard(): Boolean =
         embeddedKeyboardPinned || (composerState.open && composerState.focused)
 
@@ -867,7 +875,7 @@ class FunctionKitWindow(
 
     override fun onCreateView(): View {
         ensureManifestStateInitialized()
-        val baseHeight = windowManager.view.layoutParams?.height ?: 0
+        val baseHeight = resolveKeyboardBaseHeightPx()
         panelPeekHeightPx = resolvePanelPeekHeightPx(baseHeight)
         return rootView
     }
@@ -875,7 +883,7 @@ class FunctionKitWindow(
     override fun onAttached() {
         windowAttached = true
         ensureManifestStateInitialized()
-        val baseHeight = windowManager.view.layoutParams?.height ?: 0
+        val baseHeight = resolveKeyboardBaseHeightPx()
         if (baseHeight > 0) {
             windowManagerHeightBeforeAttach = baseHeight
         } else if (windowManagerHeightBeforeAttach == null) {

@@ -65,6 +65,11 @@ class TitleUi(override val ctx: Context, theme: Theme) : Ui {
         titleText.text = title
     }
 
+    fun setShowTitle(showTitle: Boolean) {
+        backButton.isVisible = showTitle
+        titleText.isVisible = showTitle
+    }
+
     fun addExtension(view: View, showTitle: Boolean) {
         if (extension != null) {
             throw IllegalStateException("TitleBar extension is already present")

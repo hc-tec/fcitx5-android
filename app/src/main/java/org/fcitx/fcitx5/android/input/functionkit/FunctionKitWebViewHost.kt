@@ -10,6 +10,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Message
+import android.util.Base64
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
@@ -28,9 +29,13 @@ import androidx.webkit.WebViewFeature
 import org.fcitx.fcitx5.android.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLConnection
 import java.time.OffsetDateTime
 import java.util.LinkedHashMap
 import java.util.UUID
@@ -412,6 +417,9 @@ class FunctionKitWebViewHost(
                             body = "missing-resource"
                         )
                     if (isAllowedLocalUri(uri)) {
+                        interceptExternalResourceProxy(uri, request)?.let { response ->
+                            return response
+                        }
                         return assetLoader.shouldInterceptRequest(uri)
                             ?.let { response -> applyHtmlSecurityHeaders(uri, response) }
                             ?: createTextResponse(
@@ -1283,6 +1291,174 @@ class FunctionKitWebViewHost(
             mapOf("Cache-Control" to "no-store"),
             data
         )
+    }
+
+    private fun interceptExternalResourceProxy(
+        uri: Uri,
+        request: WebResourceRequest
+    ): WebResourceResponse? {
+        val path = uri.encodedPath ?: return null
+        val prefix = "${config.normalizedAssetPathPrefix}__external__/"
+        if (!path.startsWith(prefix)) {
+            return null
+        }
+        if (!config.allowExternalResources || request.isForMainFrame) {
+            return createTextResponse(
+                statusCode = 403,
+                reasonPhrase = "Forbidden",
+                body = "blocked"
+            )
+        }
+        val method = request.method.trim().uppercase()
+        if (method != "GET") {
+            return createTextResponse(
+                statusCode = 405,
+                reasonPhrase = "Method Not Allowed",
+                body = "method-not-allowed"
+            )
+        }
+
+        val token = path.removePrefix(prefix).trim()
+        if (token.isBlank()) {
+            return createTextResponse(
+                statusCode = 404,
+                reasonPhrase = "Not Found",
+                body = "missing-resource"
+            )
+        }
+
+        val targetUrl =
+            decodeBase64Url(token)
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: return createTextResponse(
+                    statusCode = 400,
+                    reasonPhrase = "Bad Request",
+                    body = "invalid-external-resource-token"
+                )
+
+        val scheme = Uri.parse(targetUrl).scheme?.lowercase().orEmpty()
+        if (scheme != "http" && scheme != "https") {
+            return createTextResponse(
+                statusCode = 400,
+                reasonPhrase = "Bad Request",
+                body = "invalid-external-resource-url"
+            )
+        }
+
+        return fetchExternalResource(targetUrl)
+    }
+
+    private fun decodeBase64Url(value: String): String? {
+        val normalized = value.trim().takeIf { it.isNotBlank() } ?: return null
+        val padded =
+            when (normalized.length % 4) {
+                0 -> normalized
+                2 -> "$normalized=="
+                3 -> "$normalized="
+                else -> return null
+            }
+        return runCatching {
+            val bytes = Base64.decode(padded, Base64.URL_SAFE or Base64.NO_WRAP)
+            String(bytes, StandardCharsets.UTF_8)
+        }.getOrNull()
+    }
+
+    private fun fetchExternalResource(url: String): WebResourceResponse {
+        val maxBytes = 4 * 1024 * 1024
+        return try {
+            val connection = (URL(url).openConnection() as HttpURLConnection)
+            try {
+                connection.instanceFollowRedirects = true
+                connection.connectTimeout = 7_000
+                connection.readTimeout = 7_000
+                connection.useCaches = false
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("Accept", "*/*")
+                connection.setRequestProperty("Accept-Encoding", "identity")
+                runCatching {
+                    connection.setRequestProperty("User-Agent", webView.settings.userAgentString)
+                }
+
+                val statusCode = connection.responseCode
+                val reasonPhrase = connection.responseMessage ?: "OK"
+                val mimeType =
+                    connection.contentType
+                        ?.substringBefore(';')
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: URLConnection.guessContentTypeFromName(url)
+                        ?: "application/octet-stream"
+
+                val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
+                val bodyBytes = readStreamUpTo(stream, maxBytes)
+
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+                    WebResourceResponse(
+                        mimeType,
+                        StandardCharsets.UTF_8.name(),
+                        ByteArrayInputStream(bodyBytes)
+                    )
+                } else {
+                    WebResourceResponse(
+                        mimeType,
+                        StandardCharsets.UTF_8.name(),
+                        statusCode,
+                        reasonPhrase,
+                        mapOf(
+                            "Cache-Control" to "no-store",
+                            "X-Content-Type-Options" to "nosniff"
+                        ),
+                        ByteArrayInputStream(bodyBytes)
+                    )
+                }
+            } finally {
+                connection.disconnect()
+            }
+        } catch (error: ExternalResourceTooLargeException) {
+            createTextResponse(
+                statusCode = 413,
+                reasonPhrase = "Payload Too Large",
+                body = "external-resource-too-large"
+            )
+        } catch (error: Throwable) {
+            onHostEvent("External resource proxy failed url=$url error=${error.message}")
+            createTextResponse(
+                statusCode = 502,
+                reasonPhrase = "Bad Gateway",
+                body = "external-resource-proxy-failed"
+            )
+        }
+    }
+
+    private class ExternalResourceTooLargeException(
+        message: String
+    ) : RuntimeException(message)
+
+    private fun readStreamUpTo(
+        stream: java.io.InputStream?,
+        maxBytes: Int
+    ): ByteArray {
+        if (stream == null) {
+            return ByteArray(0)
+        }
+        stream.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var total = 0
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) {
+                    break
+                }
+                total += read
+                if (total > maxBytes) {
+                    throw ExternalResourceTooLargeException("Resource is too large (${total} bytes)")
+                }
+                output.write(buffer, 0, read)
+            }
+            return output.toByteArray()
+        }
     }
 
     private fun isAllowedLocalUri(uri: Uri?): Boolean {
