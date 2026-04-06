@@ -636,7 +636,15 @@ internal class FunctionKitBindingsWindowController(
         }
 
         items += FunctionKitBindingCardItem.OpenDownloadCenter
-        val filtered = filterBindings()
+        val downloadCenterTitle = context.getString(R.string.function_kit_bindings_open_download_center)
+        val filtered =
+            filterBindings()
+                .filterNot { entry ->
+                    entry.kitId == DownloadCenterKitId &&
+                        (entry.title == downloadCenterTitle ||
+                            entry.title.contains("下载中心") ||
+                            entry.title.contains("Download Center", ignoreCase = true))
+                }
         filtered.forEach { entry ->
             items += FunctionKitBindingCardItem.Binding(entry)
         }
@@ -1119,6 +1127,8 @@ internal class FunctionKitBindingsWindowController(
                 val density = resources.displayMetrics.density.coerceAtLeast(1f)
                 val widthDp = widthPx / density
                 val targetSpanCount = if (widthDp < 340f) 1 else 2
+                this@FunctionKitBindingsWindowController.adapter.titleMaxLines =
+                    if (targetSpanCount == 1) 2 else 1
                 if (gridLayoutManager.spanCount != targetSpanCount) {
                     gridLayoutManager.spanCount = targetSpanCount
                 }

@@ -7,12 +7,14 @@ package org.fcitx.fcitx5.android.input.functionkit
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.TouchDelegate
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -71,6 +73,16 @@ internal class FunctionKitBindingsAdapter(
     var items: List<FunctionKitBindingCardItem> = emptyList()
         set(value) {
             field = value
+            notifyDataSetChanged()
+        }
+
+    var titleMaxLines: Int = 1
+        set(value) {
+            val next = value.coerceAtLeast(1)
+            if (field == next) {
+                return
+            }
+            field = next
             notifyDataSetChanged()
         }
 
@@ -237,6 +249,19 @@ internal class FunctionKitBindingsAdapter(
         private val refs: CardViewRefs
     ) : RecyclerView.ViewHolder(root) {
 
+        init {
+            root.post {
+                val extra = root.context.dp(10)
+                val rect = Rect()
+                refs.pinView.getHitRect(rect)
+                rect.top = (rect.top - extra).coerceAtLeast(0)
+                rect.bottom += extra
+                rect.left = (rect.left - extra).coerceAtLeast(0)
+                rect.right += extra
+                root.touchDelegate = TouchDelegate(rect, refs.pinView)
+            }
+        }
+
         fun bind(item: FunctionKitBindingCardItem) {
             when (item) {
                 is FunctionKitBindingCardItem.Binding -> bindBinding(item.entry)
@@ -282,7 +307,7 @@ internal class FunctionKitBindingsAdapter(
                 strokeColor = cardBorderColor,
                 iconContainerColor = mutedSurfaceColor
             )
-            refs.titleView.maxLines = 1
+            refs.titleView.maxLines = titleMaxLines.coerceAtMost(2)
             refs.subtitleView.maxLines = 1
             refs.titleView.text = root.context.getString(R.string.function_kit_bindings_open_download_center)
             refs.subtitleView.text = root.context.getString(R.string.function_kit_bindings_open_download_center_subtitle)
@@ -299,7 +324,7 @@ internal class FunctionKitBindingsAdapter(
                 strokeColor = cardBorderColor,
                 iconContainerColor = mutedSurfaceColor
             )
-            refs.titleView.maxLines = 1
+            refs.titleView.maxLines = titleMaxLines.coerceAtMost(2)
             refs.subtitleView.maxLines = 1
             refs.titleView.text = entry.title
             refs.subtitleView.text = buildSubtitle(entry)
@@ -323,7 +348,7 @@ internal class FunctionKitBindingsAdapter(
 
             val pinned = isPinned(entry)
             refs.pinView.isVisible = true
-            refs.pinBackground.setColor(if (pinned) accentSoftColor else mutedSurfaceColor)
+            refs.pinBackground.setColor(if (pinned) accentSoftColor else Color.TRANSPARENT)
             refs.pinView.setImageResource(
                 if (pinned) {
                     R.drawable.ic_baseline_star_24
