@@ -322,10 +322,10 @@
     <string name="function_kit_bindings_tab_pinned">置顶</string>
     <string name="function_kit_bindings_tab_library">动作库</string>
     <string name="function_kit_bindings_open_download_center">打开下载中心</string>
-    <string name="function_kit_bindings_open_download_center_subtitle">安装、管理并发现更多功能件</string>
+    <string name="function_kit_bindings_open_download_center_subtitle">安装与管理功能件</string>
     <string name="function_kit_bindings_empty_recent">暂无近期使用。</string>
     <string name="function_kit_bindings_empty_pinned">暂无置顶动作。</string>
-    <string name="function_kit_bindings_paste_subtitle">将最近一次复制的内容直接插入当前输入框。</string>
+    <string name="function_kit_bindings_paste_subtitle">插入剪贴板内容</string>
     <string name="function_kit_binding_snackbar_triggered">已触发：%1$s</string>
     <string name="function_kit_binding_snackbar_open">打开</string>
     <string name="function_kit_clipboard_prompt_channel">剪贴板提示</string>

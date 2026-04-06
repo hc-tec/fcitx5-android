@@ -11,6 +11,10 @@ import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.content.Context
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextUtils
+import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -48,6 +52,8 @@ import splitties.views.horizontalPadding
 import kotlin.math.abs
 
 private const val DownloadCenterKitId = "kit-store"
+private const val SearchCursorChar = "│"
+private const val CursorBlinkIntervalMs = 530L
 
 internal class FunctionKitBindingsWindowController(
     private val context: Context,
@@ -104,6 +110,20 @@ internal class FunctionKitBindingsWindowController(
     private var embeddedKeyboardView: View? = null
     private var embeddedKeyboardWindow: KeyboardWindow? = null
     private var embeddedExpandedCandidateHeightPx: Int = 0
+    private var cursorVisible: Boolean = false
+
+    private val cursorBlinkRunnable =
+        object : Runnable {
+            override fun run() {
+                if (!windowAttached || !searchFocused) {
+                    cursorVisible = false
+                    return
+                }
+                cursorVisible = !cursorVisible
+                updateSearchBarUi(rebuildRows = false)
+                windowManager.view.postDelayed(this, CursorBlinkIntervalMs)
+            }
+        }
 
     private var removeBindingSettingsListener: (() -> Unit)? = null
 
@@ -330,6 +350,14 @@ internal class FunctionKitBindingsWindowController(
             return
         }
         searchFocused = focused
+        if (focused) {
+            cursorVisible = true
+            windowManager.view.removeCallbacks(cursorBlinkRunnable)
+            windowManager.view.postDelayed(cursorBlinkRunnable, CursorBlinkIntervalMs)
+        } else {
+            cursorVisible = false
+            windowManager.view.removeCallbacks(cursorBlinkRunnable)
+        }
         updateSearchBarUi(rebuildRows = false)
         syncEmbeddedKeyboardLayout()
     }
@@ -337,12 +365,30 @@ internal class FunctionKitBindingsWindowController(
     private fun updateSearchBarUi(rebuildRows: Boolean = true) {
         val query = currentSearchQuery()
         val placeholder = context.getString(R.string.function_kit_bindings_search_placeholder)
-        val showPlaceholder = query.isBlank()
-
-        searchTextView.text = if (showPlaceholder) placeholder else query
-        searchTextView.setTextColor(
-            if (showPlaceholder) uiTextSecondaryColor else uiTextPrimaryColor
-        )
+        if (searchFocused) {
+            val sb = SpannableStringBuilder()
+            if (query.isNotBlank()) {
+                sb.append(query)
+            }
+            if (cursorVisible) {
+                val start = sb.length
+                sb.append(SearchCursorChar)
+                sb.setSpan(
+                    ForegroundColorSpan(weChatGreen),
+                    start,
+                    sb.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            searchTextView.text = sb
+            searchTextView.setTextColor(uiTextPrimaryColor)
+        } else {
+            val showPlaceholder = query.isBlank()
+            searchTextView.text = if (showPlaceholder) placeholder else query
+            searchTextView.setTextColor(
+                if (showPlaceholder) uiTextSecondaryColor else uiTextPrimaryColor
+            )
+        }
         clearSearchButton.isVisible = query.isNotBlank()
         val borderColor = if (searchFocused) weChatGreen else uiSurfaceBorderColor
         val fieldColor = if (searchFocused) uiAccentSoftColor else uiSurfaceColor
@@ -564,7 +610,7 @@ internal class FunctionKitBindingsWindowController(
                     null,
                     pillMask(cornerDp = 999)
                 )
-            setPadding(context.dp(10), context.dp(10), context.dp(10), context.dp(10))
+            setPadding(context.dp(6), context.dp(6), context.dp(6), context.dp(6))
             setOnClickListener {
                 windowManager.attachWindow(KeyboardWindow)
             }
@@ -584,6 +630,7 @@ internal class FunctionKitBindingsWindowController(
             includeFontPadding = false
             setTextColor(uiTextSecondaryColor)
             maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }
     }
 
@@ -599,7 +646,7 @@ internal class FunctionKitBindingsWindowController(
                     null,
                     pillMask(cornerDp = 999)
                 )
-            setPadding(context.dp(5), context.dp(5), context.dp(5), context.dp(5))
+            setPadding(context.dp(4), context.dp(4), context.dp(4), context.dp(4))
             setOnClickListener {
                 searchDraft = ComposerDraftBufferState()
                 updateSearchBarUi()
@@ -611,7 +658,7 @@ internal class FunctionKitBindingsWindowController(
         val backgroundDrawable =
             roundedDrawable(
                 color = uiSurfaceColor,
-                cornerDp = 999,
+                cornerDp = 14,
                 strokeColor = uiSurfaceBorderColor
             )
 
@@ -622,9 +669,9 @@ internal class FunctionKitBindingsWindowController(
                 RippleDrawable(
                     ColorStateList.valueOf(theme.keyPressHighlightColor),
                     null,
-                    pillMask(cornerDp = 999)
+                    pillMask(cornerDp = 14)
                 )
-            setPadding(context.dp(14), context.dp(10), context.dp(14), context.dp(10))
+            setPadding(context.dp(12), context.dp(8), context.dp(12), context.dp(8))
             addView(
                 searchIconView,
                 FrameLayout.LayoutParams(context.dp(18), context.dp(18), Gravity.START or Gravity.CENTER_VERTICAL)
@@ -637,12 +684,12 @@ internal class FunctionKitBindingsWindowController(
                     Gravity.CENTER_VERTICAL
                 ).apply {
                     marginStart = context.dp(26)
-                    marginEnd = context.dp(26)
+                    marginEnd = context.dp(30)
                 }
             )
             addView(
                 clearSearchButton,
-                FrameLayout.LayoutParams(context.dp(28), context.dp(28), Gravity.END or Gravity.CENTER_VERTICAL)
+                FrameLayout.LayoutParams(context.dp(24), context.dp(24), Gravity.END or Gravity.CENTER_VERTICAL)
             )
             setOnClickListener {
                 setSearchFocused(true)
@@ -655,19 +702,19 @@ internal class FunctionKitBindingsWindowController(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(uiBackgroundColor)
-            setPadding(context.dp(12), context.dp(8), context.dp(14), context.dp(6))
+            setPadding(context.dp(8), context.dp(2), context.dp(8), context.dp(2))
             addView(
                 backButton,
-                LinearLayout.LayoutParams(context.dp(42), context.dp(42))
+                LinearLayout.LayoutParams(context.dp(36), context.dp(36))
             )
             addView(
                 searchField,
                 LinearLayout.LayoutParams(
                     0,
-                    context.dp(44),
+                    context.dp(36),
                     1f
                 ).apply {
-                    marginStart = context.dp(10)
+                    marginStart = context.dp(8)
                 }
             )
         }
@@ -1017,12 +1064,12 @@ internal class FunctionKitBindingsWindowController(
             orientation = LinearLayout.VERTICAL
             background = roundedDrawable(uiSurfaceColor, cornerDp = 20, strokeColor = uiSurfaceBorderColor)
             elevation = context.dp(1).toFloat()
-            setPadding(context.dp(12), context.dp(12), context.dp(12), context.dp(10))
+            setPadding(context.dp(12), context.dp(10), context.dp(12), context.dp(8))
             addView(
                 tabRow,
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    context.dp(42)
+                    context.dp(38)
                 )
             )
             addView(
@@ -1082,7 +1129,7 @@ internal class FunctionKitBindingsWindowController(
                     null,
                     pillMask(cornerDp = 999)
                 )
-            setPadding(context.dp(12), context.dp(9), context.dp(12), context.dp(9))
+            setPadding(context.dp(12), context.dp(7), context.dp(12), context.dp(7))
             val icon =
                 ImageView(context).apply {
                     id = android.R.id.icon
@@ -1108,8 +1155,8 @@ internal class FunctionKitBindingsWindowController(
         LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             background = roundedDrawable(uiSurfaceMutedColor, cornerDp = 999)
-            setPadding(context.dp(4), context.dp(4), context.dp(4), context.dp(4))
-            minimumHeight = context.dp(42)
+            setPadding(context.dp(3), context.dp(3), context.dp(3), context.dp(3))
+            minimumHeight = context.dp(38)
             addView(recentTabButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
             addView(pinnedTabButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
                 marginStart = context.dp(4)
@@ -1122,7 +1169,7 @@ internal class FunctionKitBindingsWindowController(
     private val categoryRow: LinearLayout by lazy {
         LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(context.dp(0), context.dp(10), context.dp(0), context.dp(2))
+            setPadding(context.dp(0), context.dp(8), context.dp(0), context.dp(2))
         }
     }
 
@@ -1146,7 +1193,7 @@ internal class FunctionKitBindingsWindowController(
         LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(context.dp(16), context.dp(10), context.dp(16), context.dp(0))
+            setPadding(context.dp(16), context.dp(6), context.dp(16), context.dp(0))
             addView(
                 sheetHandle,
                 LinearLayout.LayoutParams(
@@ -1160,7 +1207,7 @@ internal class FunctionKitBindingsWindowController(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    topMargin = context.dp(12)
+                    topMargin = context.dp(8)
                 }
             )
         }
