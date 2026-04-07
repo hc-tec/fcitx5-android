@@ -101,6 +101,8 @@ class FunctionKitWindow(
     FunctionKitImeActionSendInterceptor,
     ImeWindowHiddenListener {
 
+    override val type = FunctionKitWindow::class
+
     private val windowKey: String =
         requestedKitId
             ?.trim()

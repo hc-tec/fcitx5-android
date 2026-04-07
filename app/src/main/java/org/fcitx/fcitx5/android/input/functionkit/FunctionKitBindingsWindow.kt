@@ -25,6 +25,8 @@ internal class FunctionKitBindingsWindow(
     InputBroadcastReceiver,
     FcitxInputMethodService.LocalInputTarget {
 
+    override val type = FunctionKitBindingsWindow::class
+
     private val theme: Theme by manager.theme()
     private val service: FcitxInputMethodService by manager.inputMethodService()
     private val windowManager: InputWindowManager by manager.must()
