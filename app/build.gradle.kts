@@ -194,20 +194,47 @@ fun Project.resolveDebugAiBootstrapConfig(): DebugAiBootstrapConfig {
     )
 }
 
-val functionKitWorkspaceRoot =
-    System.getenv("FUNCTION_KIT_WORKSPACE_ROOT")?.let(::file)
-        ?: rootDir.resolve("../../../")
-val functionKitRuntimeSdkDir = functionKitWorkspaceRoot.resolve("function-kit-runtime-sdk")
-val functionKitCatalogDir = functionKitWorkspaceRoot.resolve("function-kits")
+fun Project.resolveFunctionKitWorkspaceRoot(): File? {
+    val env = System.getenv("FUNCTION_KIT_WORKSPACE_ROOT")?.trim()
+    if (!env.isNullOrBlank()) {
+        return file(env)
+    }
+
+    val candidates =
+        listOf(
+            // Allow vendored workspace inside this repo, if the maintainer prefers submodules/subtrees.
+            rootDir,
+            // Recommended workspace layout:
+            // <workspace>/fcitx5-android
+            // <workspace>/function-kits
+            // <workspace>/function-kit-runtime-sdk
+            rootDir.resolve(".."),
+            // Backward compatible with the original monorepo layout we use in research workspace:
+            // <workspace>/TODO/ime-research/repos/fcitx5-android  -> workspace is <workspace>/TODO
+            rootDir.resolve("../../../")
+        )
+            .map { it.absoluteFile }
+            .distinct()
+
+    val requiredChildren = listOf("function-kits", "function-kit-runtime-sdk")
+    return candidates.firstOrNull { dir -> requiredChildren.all { dir.resolve(it).isDirectory } }
+        ?: candidates.firstOrNull { it.isDirectory }
+}
+
+val functionKitWorkspaceRoot = resolveFunctionKitWorkspaceRoot()
+val functionKitRuntimeSdkDir = functionKitWorkspaceRoot?.resolve("function-kit-runtime-sdk")
+val functionKitCatalogDir = functionKitWorkspaceRoot?.resolve("function-kits")
 // Only bundle curated kits into the APK. Others should be installed via Download Center (zip) for real-world flows.
 val functionKitExcludedIds = setOf("bridge-debugger")
 val functionKitDirectories =
-    functionKitCatalogDir.listFiles()
+    functionKitCatalogDir
+        ?.listFiles()
         ?.filter { it.isDirectory && it.resolve("manifest.json").isFile && it.name !in functionKitExcludedIds }
         .orEmpty()
         .sortedBy { it.name }
 val functionKitAssetsDir = layout.buildDirectory.dir("generated/function-kit-assets")
 val functionKitTestAssetsDir = layout.buildDirectory.dir("generated/function-kit-test-assets")
+val functionKitFallbackAssetsDir = layout.buildDirectory.dir("generated/function-kit-fallback-assets")
 val debugAiBootstrapConfig = resolveDebugAiBootstrapConfig()
 val effectiveDebugAiBootstrapConfig = debugAiBootstrapConfig.takeIf { it.enabled } ?: DebugAiBootstrapConfig()
 val debugShortCommitHash = buildCommitHash.trim().takeIf { it.isNotBlank() }?.take(7).orEmpty()
@@ -217,21 +244,95 @@ val syncFunctionKitAssets by tasks.registering(Sync::class) {
     group = "function-kit"
     description = "Sync browser Function Kit runtime assets into the Android app bundle."
     into(functionKitAssetsDir)
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
     doFirst {
-        check(functionKitRuntimeSdkDir.resolve("dist").isDirectory) {
-            "Missing Function Kit runtime bundle directory: ${functionKitRuntimeSdkDir.resolve("dist")}"
-        }
-        check(functionKitDirectories.isNotEmpty()) {
-            "Missing Function Kit directories under: $functionKitCatalogDir"
+        val fallbackRoot = functionKitFallbackAssetsDir.get().asFile
+        val placeholderManifest =
+            fallbackRoot.resolve("function-kits/chat-auto-reply/manifest.json")
+        placeholderManifest.parentFile.mkdirs()
+        placeholderManifest.writeText(
+            // Keep this placeholder kit extremely small: it is only used when the Function Kit
+            // workspace is not available (e.g. CI, first-time contributors, standalone clones).
+            // Real kits will override this asset path when present.
+            """
+            {
+              "id": "chat-auto-reply",
+              "name": "Chat Auto Reply (Placeholder)",
+              "version": "0.0.0",
+              "description": "Placeholder kit bundled by the host build. Clone function-kits workspace or set FUNCTION_KIT_WORKSPACE_ROOT to enable real kits.",
+              "entry": { "bundle": { "html": "ui/app/index.html" } },
+              "runtimePermissions": []
+            }
+            """.trimIndent() + "\n"
+        )
+
+        val placeholderEntryHtml =
+            fallbackRoot.resolve("function-kits/chat-auto-reply/ui/app/index.html")
+        placeholderEntryHtml.parentFile.mkdirs()
+        placeholderEntryHtml.writeText(
+            """
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>Function Kit (Placeholder)</title>
+                <style>
+                  :root { color-scheme: light dark; }
+                  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; }
+                  .card { border: 1px solid rgba(127,127,127,.35); border-radius: 12px; padding: 12px; }
+                  h1 { font-size: 16px; margin: 0 0 8px; }
+                  p { font-size: 13px; line-height: 1.45; margin: 0 0 8px; opacity: .9; }
+                  code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+                  ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+                </style>
+              </head>
+              <body>
+                <div class="card">
+                  <h1>Function Kit assets are not bundled</h1>
+                  <p>This is a placeholder kit packaged by the Android host build.</p>
+                  <p>To develop or use real Function Kits, provide the workspace and rebuild:</p>
+                  <ul>
+                    <li>Clone <code>function-kits</code> and <code>function-kit-runtime-sdk</code> next to this repo, or</li>
+                    <li>Set <code>FUNCTION_KIT_WORKSPACE_ROOT</code> to the workspace root that contains both.</li>
+                  </ul>
+                </div>
+              </body>
+            </html>
+            """.trimIndent() + "\n"
+        )
+
+        val runtimeDistDir = functionKitRuntimeSdkDir?.resolve("dist")
+        val hasRuntimeDist = runtimeDistDir?.isDirectory == true
+        val hasCatalog = functionKitCatalogDir?.isDirectory == true
+        val hasAnyKits = functionKitDirectories.isNotEmpty()
+        if (!hasRuntimeDist || !hasCatalog || !hasAnyKits) {
+            logger.warn(
+                buildString {
+                    appendLine("Function Kit workspace not detected; bundling placeholder kit only.")
+                    appendLine("To include real kits/runtime in the APK, provide a workspace containing:")
+                    appendLine("  - function-kits/")
+                    appendLine("  - function-kit-runtime-sdk/")
+                    appendLine("Fix one of:")
+                    appendLine("  - set env FUNCTION_KIT_WORKSPACE_ROOT=<workspaceRoot>")
+                    appendLine("  - clone the repos next to this repo (../function-kits, ../function-kit-runtime-sdk)")
+                    appendLine("Detected: rootDir=$rootDir, FUNCTION_KIT_WORKSPACE_ROOT=${System.getenv("FUNCTION_KIT_WORKSPACE_ROOT") ?: "(unset)"}")
+                }
+            )
         }
     }
-    from(functionKitRuntimeSdkDir.resolve("dist")) {
-        into("function-kit-runtime-sdk/dist")
+    from(functionKitFallbackAssetsDir)
+
+    val runtimeDistDir = functionKitRuntimeSdkDir?.resolve("dist")
+    if (runtimeDistDir?.isDirectory == true) {
+        from(runtimeDistDir) {
+            into("function-kit-runtime-sdk/dist")
+        }
     }
     // Shared UI assets (no manifest.json, so it is not included in [functionKitDirectories]).
     // Note: avoid leading underscore in directory name because Android packaging may ignore it for assets.
-    val sharedDir = functionKitCatalogDir.resolve("shared")
-    if (sharedDir.isDirectory) {
+    val sharedDir = functionKitCatalogDir?.resolve("shared")
+    if (sharedDir?.isDirectory == true) {
         from(sharedDir) {
             into("function-kits/shared")
             exclude("README.md")
@@ -256,11 +357,6 @@ val syncFunctionKitTestAssets by tasks.registering(Sync::class) {
     group = "function-kit"
     description = "Sync browser Function Kit test fixtures into the Android test assets."
     into(functionKitTestAssetsDir)
-    doFirst {
-        check(functionKitDirectories.isNotEmpty()) {
-            "Missing Function Kit directories under: $functionKitCatalogDir"
-        }
-    }
     functionKitDirectories.forEach { kitDir ->
         val fixturesDir = kitDir.resolve("tests/fixtures")
         if (fixturesDir.isDirectory) {

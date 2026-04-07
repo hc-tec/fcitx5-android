@@ -88,6 +88,11 @@ Discuss on Telegram: [@fcitx5_android_group](https://t.me/fcitx5_android_group) 
 - [KDE/extra-cmake-modules](https://github.com/KDE/extra-cmake-modules)
 - GNU Gettext >= 0.20 (for `msgfmt` binary; or install `appstream` if you really have to use gettext <= 0.19.)
 
+### Function Kits (workspace)
+
+This repo includes a Function Kit host/runtime integration that can bundle curated kits into the APK.
+See `docs/FUNCTION_KITS.md` for the recommended workspace layout and `FUNCTION_KIT_WORKSPACE_ROOT` setup.
+
 ### How to set up development environment
 
 <details>
