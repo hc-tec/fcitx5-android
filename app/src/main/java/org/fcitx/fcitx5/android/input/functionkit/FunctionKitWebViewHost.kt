@@ -275,11 +275,6 @@ class FunctionKitWebViewHost(
                 return null
             }
 
-            val target = File(installRootDir, normalized)
-            if (target.isFile) {
-                return internalStorageHandler.handle("/$normalized")
-            }
-
             // Support "install key"-based packages stored under `function-kits/_packages/...`
             // while keeping the virtual asset path stable: `function-kits/<kitId>/...`.
             if (segments.size >= 2) {
@@ -295,6 +290,12 @@ class FunctionKitWebViewHost(
                         }
                     }
                 }
+            }
+
+            // Legacy behavior: direct internal storage file resolution under installRootDir.
+            val target = File(installRootDir, normalized)
+            if (target.isFile) {
+                return internalStorageHandler.handle("/$normalized")
             }
 
             return fallback.handle("/function-kits/$normalized")

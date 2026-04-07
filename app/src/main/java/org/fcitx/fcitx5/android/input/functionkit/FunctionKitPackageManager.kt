@@ -327,12 +327,12 @@ internal object FunctionKitPackageManager {
             }.getOrNull()
         }
 
-        resolveIn(File(kitsRoot, normalizedKitId))?.let { return it }
-
         val activeKey = FunctionKitKitSettings.activeInstallKey(normalizedKitId)
         if (!activeKey.isNullOrBlank()) {
             resolveIn(resolvePackageDirectory(context, activeKey))?.let { return it }
         }
+
+        resolveIn(File(kitsRoot, normalizedKitId))?.let { return it }
 
         val fallbackKey = findAnyInstallKeyForKitId(context, normalizedKitId)
         if (!fallbackKey.isNullOrBlank()) {
