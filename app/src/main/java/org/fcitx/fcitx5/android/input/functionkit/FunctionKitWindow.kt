@@ -4473,6 +4473,11 @@ class FunctionKitWindow(
                     )
 
                 try {
+                    val installKey =
+                        source.optString("installKey").trim().ifBlank {
+                            "url:${sha256HexString(url)}"
+                        }
+
                     val expectedSha = source.optString("sha256").trim()
                     if (expectedSha.isNotBlank()) {
                         val actual = sha256Hex(tempZip)
@@ -4489,7 +4494,7 @@ class FunctionKitWindow(
                         }
                     }
 
-                    FunctionKitPackageManager.installFromZipFile(context, tempZip)
+                    FunctionKitPackageManager.installFromZipFile(context, tempZip, installKey = installKey)
                 } finally {
                     runCatching { tempZip.delete() }
                 }
@@ -4521,6 +4526,7 @@ class FunctionKitWindow(
                     JSONObject()
                         .put("kind", "url")
                         .put("url", resolvedZipUrl)
+                        .put("installKey", "catalog:${sha256HexString(catalogUrl)}:$kitId")
                         .apply {
                             source.optString("sha256").trim().takeIf { it.isNotBlank() }?.let { put("sha256", it) }
                             source.optLong("maxBytes").takeIf { it > 0 }?.let { put("maxBytes", it) }
@@ -4791,6 +4797,16 @@ class FunctionKitWindow(
             }
         }
         val bytes = digest.digest()
+        return buildString(bytes.size * 2) {
+            bytes.forEach { byte ->
+                append(byte.toInt().and(0xff).toString(16).padStart(2, '0'))
+            }
+        }
+    }
+
+    private fun sha256HexString(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val bytes = digest.digest(value.trim().toByteArray(StandardCharsets.UTF_8))
         return buildString(bytes.size * 2) {
             bytes.forEach { byte ->
                 append(byte.toInt().and(0xff).toString(16).padStart(2, '0'))

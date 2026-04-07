@@ -10,7 +10,6 @@ import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -57,18 +56,14 @@ internal object FunctionKitIconLoader {
             return null
         }
 
-        val kitsRoot = FunctionKitPackageManager.kitsRootDir(context)
-        val kitRoot = File(kitsRoot, kitId)
-        val target = File(kitRoot, segments.joinToString("/"))
+        val target =
+            FunctionKitPackageManager.resolveUserInstalledFile(
+                context = context,
+                kitId = kitId,
+                relativePath = segments.joinToString("/")
+            ) ?: return null
+
         return runCatching {
-            val targetCanonical = target.canonicalPath
-            val kitRootCanonical = kitRoot.canonicalPath + File.separator
-            if (!targetCanonical.startsWith(kitRootCanonical)) {
-                return@runCatching null
-            }
-            if (!target.isFile) {
-                return@runCatching null
-            }
             decodeBitmap(target.readBytes(), assetPath)
         }.getOrNull()
     }

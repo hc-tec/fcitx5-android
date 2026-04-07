@@ -316,7 +316,8 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
                     }
                     val outcome =
                         withContext(NonCancellable + Dispatchers.IO) {
-                            FunctionKitPackageManager.installFromZipFile(context, tempZip)
+                            val installKey = "url:${sha256HexString(rawUrl)}"
+                            FunctionKitPackageManager.installFromZipFile(context, tempZip, installKey = installKey)
                         }
                     runCatching { tempZip.delete() }
                     withContext(Dispatchers.Main) {
@@ -530,7 +531,9 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
 
             val outcome =
                 withContext(NonCancellable + Dispatchers.IO) {
-                    FunctionKitPackageManager.installFromZipFile(context, tempZip)
+                    val sourceId = catalogUrl?.trim().orEmpty().ifBlank { zipUrl }
+                    val installKey = "catalog:${sha256HexString(sourceId)}:${pkg.kitId}"
+                    FunctionKitPackageManager.installFromZipFile(context, tempZip, installKey = installKey)
                 }
             runCatching { tempZip.delete() }
 
@@ -638,6 +641,16 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
             }
         }
         val bytes = digest.digest()
+        return buildString(bytes.size * 2) {
+            bytes.forEach { byte ->
+                append(byte.toInt().and(0xff).toString(16).padStart(2, '0'))
+            }
+        }
+    }
+
+    private fun sha256HexString(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val bytes = digest.digest(value.trim().toByteArray(Charsets.UTF_8))
         return buildString(bytes.size * 2) {
             bytes.forEach { byte ->
                 append(byte.toInt().and(0xff).toString(16).padStart(2, '0'))

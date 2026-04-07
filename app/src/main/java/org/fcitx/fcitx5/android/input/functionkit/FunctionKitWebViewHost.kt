@@ -256,7 +256,7 @@ class FunctionKitWebViewHost(
     }
 
     private class FunctionKitInstalledFirstPathHandler(
-        context: Context,
+        private val context: Context,
         private val installRootDir: File,
         private val fallback: WebViewAssetLoader.PathHandler
     ) : WebViewAssetLoader.PathHandler {
@@ -278,6 +278,23 @@ class FunctionKitWebViewHost(
             val target = File(installRootDir, normalized)
             if (target.isFile) {
                 return internalStorageHandler.handle("/$normalized")
+            }
+
+            // Support "install key"-based packages stored under `function-kits/_packages/...`
+            // while keeping the virtual asset path stable: `function-kits/<kitId>/...`.
+            if (segments.size >= 2) {
+                val kitId = segments.firstOrNull().orEmpty().trim()
+                val relative = segments.drop(1).joinToString("/").trim()
+                if (kitId.isNotBlank() && relative.isNotBlank()) {
+                    val resolved = FunctionKitPackageManager.resolveUserInstalledFile(context, kitId, relative)
+                    if (resolved != null && resolved.isFile) {
+                        val relativeToRoot =
+                            runCatching { resolved.relativeTo(installRootDir).path.replace('\\', '/') }.getOrNull()
+                        if (!relativeToRoot.isNullOrBlank()) {
+                            return internalStorageHandler.handle("/$relativeToRoot")
+                        }
+                    }
+                }
             }
 
             return fallback.handle("/function-kits/$normalized")

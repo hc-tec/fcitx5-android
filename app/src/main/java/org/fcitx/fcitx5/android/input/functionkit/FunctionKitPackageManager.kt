@@ -13,18 +13,28 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.zip.ZipFile
 
 internal object FunctionKitPackageManager {
     private const val ManifestFileName = "manifest.json"
     private const val KitDirectoryName = "function-kits"
+    private const val PackagesDirectoryName = "_packages"
     private const val TempDirectoryName = "function-kits-tmp"
+    private const val PackageMetaFileName = "_install.json"
 
     private const val MaxZipEntries = 4096
     private const val MaxZipBytes = 64L * 1024L * 1024L
 
     private val KitIdRegex = Regex("^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
+
+    private data class PackageMeta(
+        val installKey: String,
+        val kitId: String,
+        val version: String?,
+        val installedAtEpochMs: Long?
+    )
 
     sealed class InstallOutcome {
         data class Ok(val kitId: String, val replaced: Boolean) : InstallOutcome()
@@ -34,19 +44,37 @@ internal object FunctionKitPackageManager {
     fun isUserInstalled(
         context: Context,
         kitId: String
-    ): Boolean =
-        resolveKitDirectory(context, kitId).resolve(ManifestFileName).isFile
+    ): Boolean {
+        val legacy = resolveKitDirectory(context, kitId).resolve(ManifestFileName).isFile
+        if (legacy) {
+            return true
+        }
+        val activeKey = FunctionKitKitSettings.activeInstallKey(kitId)
+        if (!activeKey.isNullOrBlank()) {
+            val pkgManifest = resolvePackageDirectory(context, activeKey).resolve(ManifestFileName)
+            if (pkgManifest.isFile) {
+                return true
+            }
+        }
+        return findAnyInstallKeyForKitId(context, kitId) != null
+    }
 
     fun listUserInstalledKitIds(context: Context): List<String> {
         val root = kitsRootDir(context)
-        if (!root.isDirectory) {
-            return emptyList()
-        }
-        return root.listFiles()
+        val legacy =
+            root.listFiles()
             ?.filter { it.isDirectory && it.resolve(ManifestFileName).isFile }
             ?.map { it.name }
-            ?.sorted()
             .orEmpty()
+
+        val fromPackages =
+            listPackages(context)
+                .map(PackageMeta::kitId)
+
+        return (legacy + fromPackages)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
     }
 
     fun listUserInstalledManifests(context: Context): List<FunctionKitManifest> =
@@ -58,30 +86,31 @@ internal object FunctionKitPackageManager {
         context: Context,
         kitId: String
     ): FunctionKitManifest? {
-        val manifestFile = resolveKitDirectory(context, kitId).resolve(ManifestFileName)
-        if (!manifestFile.isFile) {
+        if (kitId.isBlank()) {
             return null
         }
-        return runCatching {
-            val raw =
-                manifestFile.inputStream()
-                    .bufferedReader(StandardCharsets.UTF_8)
-                    .use { it.readText() }
-            val root = JSONObject(raw)
-            FunctionKitManifest.parse(
-                root = root,
-                assetPath = virtualManifestPath(kitId),
-                fallbackId = kitId,
-                fallbackEntryHtmlAssetPath = "function-kits/$kitId/ui/app/index.html",
-                fallbackRuntimePermissions = emptySet(),
-                isUserInstalled = true
-            )
-        }.getOrNull()
+
+        val activeKey = FunctionKitKitSettings.activeInstallKey(kitId)
+        if (!activeKey.isNullOrBlank()) {
+            loadManifestFromPackageInstallKey(context, kitId, activeKey)?.let { return it }
+            FunctionKitKitSettings.setActiveInstallKey(kitId, null)
+        }
+
+        loadManifestFromLegacyDirectory(context, kitId)?.let { return it }
+
+        val fallbackKey = findAnyInstallKeyForKitId(context, kitId)
+        if (!fallbackKey.isNullOrBlank()) {
+            FunctionKitKitSettings.setActiveInstallKey(kitId, fallbackKey)
+            loadManifestFromPackageInstallKey(context, kitId, fallbackKey)?.let { return it }
+        }
+
+        return null
     }
 
     fun installFromZipUri(
         context: Context,
-        uri: Uri
+        uri: Uri,
+        installKey: String? = null
     ): InstallOutcome {
         val ctx = resolveStorageContext(context)
         val tempDir = File(ctx.cacheDir, TempDirectoryName).apply { mkdirs() }
@@ -92,7 +121,7 @@ internal object FunctionKitPackageManager {
                     input.copyTo(output)
                 }
             } ?: return InstallOutcome.Error("Failed to open zip content: $uri")
-            return installFromZipFile(context, tempFile)
+            return installFromZipFile(context, tempFile, installKey = installKey)
         } catch (error: Throwable) {
             return InstallOutcome.Error("Failed to install kit from zip: $uri", error)
         } finally {
@@ -102,13 +131,15 @@ internal object FunctionKitPackageManager {
 
     fun installFromZipFile(
         context: Context,
-        zipFile: File
+        zipFile: File,
+        installKey: String? = null
     ): InstallOutcome {
         if (!zipFile.isFile) {
             return InstallOutcome.Error("Zip file does not exist: ${zipFile.path}")
         }
         val ctx = resolveStorageContext(context)
         val kitsRoot = kitsRootDir(context).apply { mkdirs() }
+        val packagesRoot = packagesRootDir(context).apply { mkdirs() }
         val stagingRoot = File(ctx.cacheDir, TempDirectoryName).apply { mkdirs() }
         val stagingDir = File(stagingRoot, "kit-staging-${UUID.randomUUID()}")
         val manifestEntryInfo = findManifestEntry(zipFile) ?: return InstallOutcome.Error("manifest.json not found in zip")
@@ -130,7 +161,14 @@ internal object FunctionKitPackageManager {
             return InstallOutcome.Error("Invalid kit id: $kitId")
         }
 
-        val replaced = resolveKitDirectory(context, kitId).isDirectory
+        val normalizedInstallKey = installKey?.trim()?.takeIf { it.isNotBlank() }
+        val targetDir =
+            if (normalizedInstallKey == null) {
+                resolveKitDirectory(context, kitId)
+            } else {
+                resolvePackageDirectory(context, normalizedInstallKey)
+            }
+        val replaced = targetDir.isDirectory
         runCatching { deleteRecursively(stagingDir) }
         stagingDir.mkdirs()
 
@@ -187,8 +225,8 @@ internal object FunctionKitPackageManager {
                 return InstallOutcome.Error("Kit id mismatch: $kitId (zip) vs $stagedKitId (staged)")
             }
 
-            val targetDir = resolveKitDirectory(context, kitId)
-            val backupDir = File(kitsRoot, ".backup-$kitId-${UUID.randomUUID()}")
+            val backupRoot = if (normalizedInstallKey == null) kitsRoot else packagesRoot
+            val backupDir = File(backupRoot, ".backup-${targetDir.name}-${UUID.randomUUID()}")
             if (targetDir.exists()) {
                 if (!targetDir.renameTo(backupDir)) {
                     deleteRecursively(targetDir)
@@ -198,6 +236,16 @@ internal object FunctionKitPackageManager {
                 return InstallOutcome.Error("Failed to move kit into place: ${targetDir.path}")
             }
             deleteRecursively(backupDir)
+
+            if (normalizedInstallKey != null) {
+                writePackageMeta(
+                    dir = targetDir,
+                    installKey = normalizedInstallKey,
+                    kitId = kitId,
+                    version = JSONObject(stagedManifestRaw).optString("version").trim().ifBlank { null }
+                )
+                FunctionKitKitSettings.setActiveInstallKey(kitId, normalizedInstallKey)
+            }
             FunctionKitKitSettings.bumpRegistryRevision()
             return InstallOutcome.Ok(kitId = kitId, replaced = replaced)
         } catch (error: Throwable) {
@@ -211,12 +259,16 @@ internal object FunctionKitPackageManager {
         context: Context,
         kitId: String
     ): Boolean {
-        val dir = resolveKitDirectory(context, kitId)
-        if (!dir.exists()) {
-            return true
-        }
         return runCatching {
-            deleteRecursively(dir)
+            deleteRecursively(resolveKitDirectory(context, kitId))
+
+            listPackages(context)
+                .filter { meta -> meta.kitId == kitId }
+                .forEach { meta ->
+                    deleteRecursively(resolvePackageDirectory(context, meta.installKey))
+                }
+
+            FunctionKitKitSettings.setActiveInstallKey(kitId, null)
             FunctionKitKitSettings.bumpRegistryRevision()
             true
         }.getOrDefault(false)
@@ -234,6 +286,62 @@ internal object FunctionKitPackageManager {
     }
 
     fun storageContext(context: Context): Context = resolveStorageContext(context)
+
+    private fun packagesRootDir(context: Context): File = File(kitsRootDir(context), PackagesDirectoryName)
+
+    private fun resolvePackageDirectory(
+        context: Context,
+        installKey: String
+    ): File = File(packagesRootDir(context), sha256Hex(installKey.trim()))
+
+    internal fun resolveUserInstalledFile(
+        context: Context,
+        kitId: String,
+        relativePath: String
+    ): File? {
+        val normalizedKitId = kitId.trim()
+        if (normalizedKitId.isBlank()) {
+            return null
+        }
+
+        val normalizedRelative = relativePath.replace('\\', '/').trimStart('/').trim()
+        if (normalizedRelative.isBlank()) {
+            return null
+        }
+        val segments = normalizedRelative.split('/')
+        if (segments.any { it.isBlank() || it == "." || it == ".." }) {
+            return null
+        }
+
+        val kitsRoot = kitsRootDir(context)
+
+        fun resolveIn(root: File): File? {
+            val target = File(root, segments.joinToString("/"))
+            return runCatching {
+                val targetCanonical = target.canonicalPath
+                val rootCanonical = root.canonicalPath + File.separator
+                if (!targetCanonical.startsWith(rootCanonical)) {
+                    return@runCatching null
+                }
+                target.takeIf { it.isFile }
+            }.getOrNull()
+        }
+
+        resolveIn(File(kitsRoot, normalizedKitId))?.let { return it }
+
+        val activeKey = FunctionKitKitSettings.activeInstallKey(normalizedKitId)
+        if (!activeKey.isNullOrBlank()) {
+            resolveIn(resolvePackageDirectory(context, activeKey))?.let { return it }
+        }
+
+        val fallbackKey = findAnyInstallKeyForKitId(context, normalizedKitId)
+        if (!fallbackKey.isNullOrBlank()) {
+            FunctionKitKitSettings.setActiveInstallKey(normalizedKitId, fallbackKey)
+            resolveIn(resolvePackageDirectory(context, fallbackKey))?.let { return it }
+        }
+
+        return null
+    }
 
     private fun resolveStorageContext(context: Context): Context {
         val app = context.applicationContext
@@ -303,6 +411,130 @@ internal object FunctionKitPackageManager {
         }.getOrNull()
 
     private fun virtualManifestPath(kitId: String): String = "function-kits/$kitId/$ManifestFileName"
+
+    private fun sha256Hex(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val bytes = digest.digest(value.toByteArray(StandardCharsets.UTF_8))
+        return buildString(bytes.size * 2) {
+            bytes.forEach { byte ->
+                append(byte.toInt().and(0xff).toString(16).padStart(2, '0'))
+            }
+        }
+    }
+
+    private fun writePackageMeta(
+        dir: File,
+        installKey: String,
+        kitId: String,
+        version: String?
+    ) {
+        val meta =
+            JSONObject()
+                .put("installKey", installKey.trim())
+                .put("kitId", kitId.trim())
+                .put("version", version?.trim())
+                .put("installedAtEpochMs", System.currentTimeMillis())
+
+        val file = File(dir, PackageMetaFileName)
+        file.outputStream().use { output ->
+            output.write(meta.toString().toByteArray(StandardCharsets.UTF_8))
+        }
+    }
+
+    private fun listPackages(context: Context): List<PackageMeta> {
+        val root = packagesRootDir(context)
+        if (!root.isDirectory) {
+            return emptyList()
+        }
+        return root.listFiles()
+            ?.asSequence()
+            ?.filter { it.isDirectory }
+            ?.mapNotNull { dir ->
+                val metaFile = File(dir, PackageMetaFileName)
+                if (!metaFile.isFile) {
+                    return@mapNotNull null
+                }
+                runCatching {
+                    val raw =
+                        metaFile.inputStream()
+                            .bufferedReader(StandardCharsets.UTF_8)
+                            .use { it.readText() }
+                    val json = JSONObject(raw)
+                    val installKey = json.optString("installKey").trim()
+                    val kitId = json.optString("kitId").trim()
+                    if (installKey.isBlank() || kitId.isBlank()) {
+                        return@runCatching null
+                    }
+                    PackageMeta(
+                        installKey = installKey,
+                        kitId = kitId,
+                        version = json.optString("version").trim().ifBlank { null },
+                        installedAtEpochMs = json.optLong("installedAtEpochMs").takeIf { it > 0 }
+                    )
+                }.getOrNull()
+            }
+            ?.toList()
+            .orEmpty()
+    }
+
+    private fun findAnyInstallKeyForKitId(
+        context: Context,
+        kitId: String
+    ): String? =
+        listPackages(context)
+            .filter { meta -> meta.kitId == kitId }
+            .maxWithOrNull(compareBy<PackageMeta>({ it.installedAtEpochMs ?: 0L }, { it.installKey }))
+            ?.installKey
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+    private fun loadManifestFromLegacyDirectory(
+        context: Context,
+        kitId: String
+    ): FunctionKitManifest? {
+        val manifestFile = resolveKitDirectory(context, kitId).resolve(ManifestFileName)
+        if (!manifestFile.isFile) {
+            return null
+        }
+        return loadManifestFromFile(context, kitId, manifestFile)
+    }
+
+    private fun loadManifestFromPackageInstallKey(
+        context: Context,
+        kitId: String,
+        installKey: String
+    ): FunctionKitManifest? {
+        val manifestFile = resolvePackageDirectory(context, installKey).resolve(ManifestFileName)
+        if (!manifestFile.isFile) {
+            return null
+        }
+        return loadManifestFromFile(context, kitId, manifestFile)
+    }
+
+    private fun loadManifestFromFile(
+        context: Context,
+        kitId: String,
+        manifestFile: File
+    ): FunctionKitManifest? =
+        runCatching {
+            val raw =
+                manifestFile.inputStream()
+                    .bufferedReader(StandardCharsets.UTF_8)
+                    .use { it.readText() }
+            val root = JSONObject(raw)
+            val parsedKitId = root.optString("id").trim()
+            if (parsedKitId.isBlank() || parsedKitId != kitId) {
+                return@runCatching null
+            }
+            FunctionKitManifest.parse(
+                root = root,
+                assetPath = virtualManifestPath(kitId),
+                fallbackId = kitId,
+                fallbackEntryHtmlAssetPath = "function-kits/$kitId/ui/app/index.html",
+                fallbackRuntimePermissions = emptySet(),
+                isUserInstalled = true
+            )
+        }.getOrNull()
 
     private fun stripPrefix(path: String, prefix: String): String? {
         val normalized = path.trimStart('/')

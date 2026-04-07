@@ -41,6 +41,26 @@ internal class FunctionKitKitSettingsStore(
         sharedPreferences.edit().putBoolean(pinnedKey(kitId), pinned).apply()
     }
 
+    fun activeInstallKey(kitId: String): String? =
+        sharedPreferences.getString(activeInstallKeyKey(kitId), null)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+    fun setActiveInstallKey(
+        kitId: String,
+        installKey: String?
+    ) {
+        val key = activeInstallKeyKey(kitId)
+        val normalized = installKey?.trim().orEmpty()
+        sharedPreferences.edit().apply {
+            if (normalized.isBlank()) {
+                remove(key)
+            } else {
+                putString(key, normalized)
+            }
+        }.apply()
+    }
+
     fun lastUsedAtEpochMs(kitId: String): Long =
         sharedPreferences.getLong(lastUsedAtKey(kitId), 0L)
 
@@ -92,6 +112,7 @@ internal class FunctionKitKitSettingsStore(
         sharedPreferences.edit().apply {
             remove(enabledKey(kitId))
             remove(pinnedKey(kitId))
+            remove(activeInstallKeyKey(kitId))
             remove(lastUsedAtKey(kitId))
             val prefix = "${kitKeyPrefix(kitId)}.perm."
             sharedPreferences.all.keys.filter { it.startsWith(prefix) }.forEach { remove(it) }
@@ -101,6 +122,8 @@ internal class FunctionKitKitSettingsStore(
     private fun enabledKey(kitId: String): String = "${kitKeyPrefix(kitId)}.enabled"
 
     private fun pinnedKey(kitId: String): String = "${kitKeyPrefix(kitId)}.pinned"
+
+    private fun activeInstallKeyKey(kitId: String): String = "${kitKeyPrefix(kitId)}.active_install_key"
 
     private fun lastUsedAtKey(kitId: String): String = "${kitKeyPrefix(kitId)}.last_used_at_epoch_ms"
 
@@ -144,6 +167,10 @@ internal object FunctionKitKitSettings {
     fun isKitPinned(kitId: String): Boolean = store.isKitPinned(kitId)
 
     fun setKitPinned(kitId: String, pinned: Boolean) = store.setKitPinned(kitId, pinned)
+
+    fun activeInstallKey(kitId: String): String? = store.activeInstallKey(kitId)
+
+    fun setActiveInstallKey(kitId: String, installKey: String?) = store.setActiveInstallKey(kitId, installKey)
 
     fun registryRevisionEpochMs(): Long = store.registryRevisionEpochMs()
 
