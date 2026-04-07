@@ -255,6 +255,107 @@ internal object FunctionKitPackageManager {
         }
     }
 
+    fun installFromTgzFile(
+        context: Context,
+        tgzFile: File,
+        installKey: String? = null
+    ): InstallOutcome {
+        if (!tgzFile.isFile) {
+            return InstallOutcome.Error("Tgz file does not exist: ${tgzFile.path}")
+        }
+
+        val ctx = resolveStorageContext(context)
+        val kitsRoot = kitsRootDir(context).apply { mkdirs() }
+        val packagesRoot = packagesRootDir(context).apply { mkdirs() }
+        val stagingRoot = File(ctx.cacheDir, TempDirectoryName).apply { mkdirs() }
+        val stagingDir = File(stagingRoot, "kit-staging-${UUID.randomUUID()}")
+
+        runCatching { deleteRecursively(stagingDir) }
+        stagingDir.mkdirs()
+
+        try {
+            val manifestRaw =
+                FunctionKitTgz.extractUtf8TextFileOrNull(
+                    tgzFile = tgzFile,
+                    pathInTgz = "package/$ManifestFileName",
+                    maxBytes = 1024 * 1024
+                ) ?: return InstallOutcome.Error("$ManifestFileName not found in tgz")
+
+            val kitId = parseKitId(manifestRaw) ?: return InstallOutcome.Error("Missing kit id in $ManifestFileName")
+            if (!KitIdRegex.matches(kitId)) {
+                return InstallOutcome.Error("Invalid kit id: $kitId")
+            }
+
+            val normalizedInstallKey = installKey?.trim()?.takeIf { it.isNotBlank() }
+            val targetDir =
+                if (normalizedInstallKey == null) {
+                    resolveKitDirectory(context, kitId)
+                } else {
+                    resolvePackageDirectory(context, normalizedInstallKey)
+                }
+            val replaced = targetDir.isDirectory
+
+            val stats =
+                FunctionKitTgz.extractNpmPackageToDir(
+                    tgzFile = tgzFile,
+                    outDir = stagingDir,
+                    maxEntries = MaxZipEntries,
+                    maxBytes = MaxZipBytes
+                )
+
+            val stagedManifest = File(stagingDir, ManifestFileName)
+            if (!stagedManifest.isFile) {
+                return InstallOutcome.Error("Tgz did not contain $ManifestFileName at expected location")
+            }
+
+            val stagedManifestRaw =
+                stagedManifest.inputStream()
+                    .bufferedReader(StandardCharsets.UTF_8)
+                    .use { it.readText() }
+            val stagedKitId = parseKitId(stagedManifestRaw) ?: return InstallOutcome.Error("Staged manifest missing kit id")
+            if (stagedKitId != kitId) {
+                return InstallOutcome.Error("Kit id mismatch: $kitId (tgz) vs $stagedKitId (staged)")
+            }
+
+            val backupRoot = if (normalizedInstallKey == null) kitsRoot else packagesRoot
+            val backupDir = File(backupRoot, ".backup-${targetDir.name}-${UUID.randomUUID()}")
+            if (targetDir.exists()) {
+                if (!targetDir.renameTo(backupDir)) {
+                    deleteRecursively(targetDir)
+                }
+            }
+            if (!stagingDir.renameTo(targetDir)) {
+                return InstallOutcome.Error("Failed to move kit into place: ${targetDir.path}")
+            }
+            deleteRecursively(backupDir)
+
+            if (normalizedInstallKey != null) {
+                writePackageMeta(
+                    dir = targetDir,
+                    installKey = normalizedInstallKey,
+                    kitId = kitId,
+                    version = JSONObject(stagedManifestRaw).optString("version").trim().ifBlank { null }
+                )
+                FunctionKitKitSettings.setActiveInstallKey(kitId, normalizedInstallKey)
+            }
+
+            Timber.i(
+                "Installed kit from tgz (kitId=%s, replaced=%s, entries=%s, bytes=%s)",
+                kitId,
+                replaced,
+                stats.extractedEntries,
+                stats.extractedBytes
+            )
+
+            FunctionKitKitSettings.bumpRegistryRevision()
+            return InstallOutcome.Ok(kitId = kitId, replaced = replaced)
+        } catch (error: Throwable) {
+            return InstallOutcome.Error("Failed to install kit from tgz", error)
+        } finally {
+            runCatching { deleteRecursively(stagingDir) }
+        }
+    }
+
     fun uninstall(
         context: Context,
         kitId: String

@@ -4478,6 +4478,7 @@ class FunctionKitWindow(
                             "url:${sha256HexString(url)}"
                         }
 
+                    val expectedIntegrity = source.optString("integrity").trim()
                     val expectedSha = source.optString("sha256").trim()
                     if (expectedSha.isNotBlank()) {
                         val actual = sha256Hex(tempZip)
@@ -4494,7 +4495,23 @@ class FunctionKitWindow(
                         }
                     }
 
-                    FunctionKitPackageManager.installFromZipFile(context, tempZip, installKey = installKey)
+                    if (expectedIntegrity.isNotBlank() && !equalsIntegrity(expectedIntegrity, sriIntegrityForFile(tempZip, expectedIntegrity))) {
+                        throw RemoteInferenceException(
+                            code = "kits_install_integrity_mismatch",
+                            message = "Kit package integrity mismatch.",
+                            retryable = false,
+                            details =
+                                JSONObject()
+                                    .put("expectedIntegrity", expectedIntegrity)
+                        )
+                    }
+
+                    val isTgz = isTgzUrl(url)
+                    if (isTgz) {
+                        FunctionKitPackageManager.installFromTgzFile(context, tempZip, installKey = installKey)
+                    } else {
+                        FunctionKitPackageManager.installFromZipFile(context, tempZip, installKey = installKey)
+                    }
                 } finally {
                     runCatching { tempZip.delete() }
                 }
@@ -4563,9 +4580,14 @@ class FunctionKitWindow(
     }
 
     private fun fetchCatalogPackages(catalogUrl: String): List<JSONObject> {
+        val source = catalogUrl.trim()
+        if (source.startsWith("npm:", ignoreCase = true)) {
+            return fetchCatalogPackagesFromNpmSource(source)
+        }
+
         val connection =
             try {
-                val url = URL(catalogUrl)
+                val url = URL(source)
                 require(url.protocol == "http" || url.protocol == "https") {
                     "Unsupported URL scheme: ${url.protocol}"
                 }
@@ -4575,7 +4597,7 @@ class FunctionKitWindow(
                     code = "catalog_invalid_url",
                     message = "catalog.refresh only supports absolute http/https URLs.",
                     retryable = false,
-                    details = error.message ?: catalogUrl
+                    details = error.message ?: source
                 )
             }
 
@@ -4604,7 +4626,7 @@ class FunctionKitWindow(
                         statusCode = status,
                         details =
                             JSONObject()
-                                .put("url", catalogUrl)
+                                .put("url", source)
                                 .put("body", errorBody)
                     )
                 }
@@ -4616,7 +4638,7 @@ class FunctionKitWindow(
                             code = "catalog_invalid_json",
                             message = "Invalid catalog JSON: ${error.message ?: "parse error"}",
                             retryable = false,
-                            details = JSONObject().put("url", catalogUrl)
+                            details = JSONObject().put("url", source)
                         )
                     }
 
@@ -4625,27 +4647,13 @@ class FunctionKitWindow(
                     code = "catalog_missing_packages",
                     message = "Missing packages[]",
                     retryable = false,
-                    details = JSONObject().put("url", catalogUrl)
+                    details = JSONObject().put("url", source)
                 )
 
             val packages = mutableListOf<JSONObject>()
             for (index in 0 until packagesNode.length()) {
                 val item = packagesNode.optJSONObject(index) ?: continue
-                val kitId = item.optString("kitId").trim()
-                if (kitId.isBlank()) {
-                    continue
-                }
-                val normalized =
-                    JSONObject(item.toString())
-                        .put("kitId", kitId)
-                        .put("catalogUrl", catalogUrl)
-
-                val zipUrl = item.optString("zipUrl").trim().takeIf { it.isNotBlank() }
-                resolveZipUrl(catalogUrl = catalogUrl, kitId = kitId, zipUrl = zipUrl)?.let { resolved ->
-                    normalized.put("resolvedZipUrl", resolved)
-                }
-
-                packages += normalized
+                normalizeCatalogPackageItem(item, source)?.let(packages::add)
             }
 
             return packages
@@ -4656,25 +4664,608 @@ class FunctionKitWindow(
                 code = "catalog_timeout",
                 message = "catalog.refresh timed out.",
                 retryable = true,
-                details = JSONObject().put("url", catalogUrl)
+                details = JSONObject().put("url", source)
             )
         } catch (error: IOException) {
             throw RemoteInferenceException(
                 code = "catalog_io_error",
                 message = "catalog.refresh failed: ${error.message ?: "I/O error"}",
                 retryable = true,
-                details = JSONObject().put("url", catalogUrl)
+                details = JSONObject().put("url", source)
             )
         } catch (error: Throwable) {
             throw RemoteInferenceException(
                 code = "catalog_unexpected_error",
                 message = "catalog.refresh crashed: ${error.message ?: "Unexpected error"}",
                 retryable = false,
-                details = JSONObject().put("url", catalogUrl).put("kind", error.javaClass.name)
+                details = JSONObject().put("url", source).put("kind", error.javaClass.name)
             )
         } finally {
             runCatching { connection.disconnect() }
         }
+    }
+
+    private data class NpmResolvedDist(
+        val registry: String,
+        val packageName: String,
+        val version: String,
+        val tarballUrl: String,
+        val integrity: String
+    )
+
+    private fun fetchCatalogPackagesFromNpmSource(source: String): List<JSONObject> {
+        val trimmed = source.trim()
+        val specWithQuery = trimmed.substringAfter("npm:", missingDelimiterValue = "").trim()
+        if (specWithQuery.isBlank()) {
+            throw RemoteInferenceException(
+                code = "catalog_npm_invalid_source",
+                message = "npm: source must be npm:<packageName[@version]>",
+                retryable = false,
+                details = JSONObject().put("source", source)
+            )
+        }
+
+        val specPart = specWithQuery.substringBefore('?').trim()
+        val queryPart = specWithQuery.substringAfter('?', missingDelimiterValue = "").trim()
+
+        val registryOverride =
+            runCatching {
+                Uri.parse("https://keyflow.local/?$queryPart").getQueryParameter("registry")
+            }.getOrNull()
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+
+        val (packageName, requestedVersionOrTag) = parseNpmPackageSpec(specPart)
+        val resolved = resolveNpmDistFromRegistries(packageName, requestedVersionOrTag, registryOverride)
+
+        val downloadUrls =
+            listOfNotNull(
+                resolved.tarballUrl,
+                rewriteUrlHost(resolved.tarballUrl, NpmRegistryNpmMirror),
+                rewriteUrlHost(resolved.tarballUrl, NpmRegistryNpmJs)
+            ).distinct()
+
+        val maxBytes = MaxCatalogNpmTgzBytes
+        var tempTgz: File? = null
+        var downloadError: String? = null
+        for (downloadUrl in downloadUrls) {
+            val download = downloadToTempZip(urlString = downloadUrl, maxBytes = maxBytes)
+            val file = download.file
+            if (file != null) {
+                tempTgz = file
+                downloadError = null
+                break
+            }
+            downloadError = download.errorMessage ?: "download failed"
+        }
+
+        val tgzFile =
+            tempTgz
+                ?: throw RemoteInferenceException(
+                    code = "catalog_npm_tarball_download_failed",
+                    message = "Failed to download npm catalog package: ${downloadError ?: resolved.tarballUrl}",
+                    retryable = true,
+                    details =
+                        JSONObject()
+                            .put("source", source)
+                            .put("packageName", packageName)
+                            .put("version", resolved.version)
+                )
+
+        try {
+            val expectedIntegrity = resolved.integrity.trim()
+            if (expectedIntegrity.isBlank()) {
+                throw RemoteInferenceException(
+                    code = "catalog_npm_missing_integrity",
+                    message = "NPM tarball missing dist.integrity.",
+                    retryable = false,
+                    details =
+                        JSONObject()
+                            .put("packageName", packageName)
+                            .put("version", resolved.version)
+                            .put("registry", resolved.registry)
+                )
+            }
+
+            val actualIntegrity = sriIntegrityForFile(tgzFile, expectedIntegrity)
+            if (!equalsIntegrity(expectedIntegrity, actualIntegrity)) {
+                throw RemoteInferenceException(
+                    code = "catalog_npm_integrity_mismatch",
+                    message = "NPM tarball integrity mismatch.",
+                    retryable = false,
+                    details =
+                        JSONObject()
+                            .put("packageName", packageName)
+                            .put("version", resolved.version)
+                            .put("expectedIntegrity", expectedIntegrity)
+                            .put("actualIntegrity", actualIntegrity)
+                )
+            }
+
+            val catalogJson =
+                runCatching {
+                    FunctionKitTgz.extractUtf8TextFileOrNull(
+                        tgzFile = tgzFile,
+                        pathInTgz = "package/catalog.json",
+                        maxBytes = MaxCatalogIndexBytes
+                    )
+                }.getOrNull()
+                    ?: throw RemoteInferenceException(
+                        code = "catalog_npm_missing_catalog_json",
+                        message = "npm catalog package does not contain package/catalog.json.",
+                        retryable = false,
+                        details =
+                            JSONObject()
+                                .put("packageName", packageName)
+                                .put("version", resolved.version)
+                    )
+
+            val root =
+                runCatching { JSONObject(catalogJson) }
+                    .getOrElse { error ->
+                        throw RemoteInferenceException(
+                            code = "catalog_npm_invalid_json",
+                            message = "Invalid npm catalog JSON: ${error.message ?: "parse error"}",
+                            retryable = false,
+                            details = JSONObject().put("packageName", packageName).put("version", resolved.version)
+                        )
+                    }
+
+            val packagesNode =
+                root.optJSONArray("packages")
+                    ?: throw RemoteInferenceException(
+                        code = "catalog_missing_packages",
+                        message = "Missing packages[]",
+                        retryable = false,
+                        details =
+                            JSONObject()
+                                .put("source", source)
+                                .put("packageName", packageName)
+                                .put("version", resolved.version)
+                    )
+
+            val packages = mutableListOf<JSONObject>()
+            for (index in 0 until packagesNode.length()) {
+                val item = packagesNode.optJSONObject(index) ?: continue
+                normalizeCatalogPackageItem(item, source)?.let(packages::add)
+            }
+
+            return packages
+        } finally {
+            runCatching { tgzFile.delete() }
+        }
+    }
+
+    private fun parseNpmPackageSpec(spec: String): Pair<String, String?> {
+        val raw = spec.trim()
+        if (raw.isBlank()) {
+            throw RemoteInferenceException(
+                code = "catalog_npm_invalid_source",
+                message = "npm: source missing package name.",
+                retryable = false
+            )
+        }
+
+        val atIndex =
+            if (raw.startsWith("@")) {
+                raw.lastIndexOf('@').takeIf { it > 0 } ?: -1
+            } else {
+                raw.indexOf('@')
+            }
+
+        val name = if (atIndex > 0) raw.substring(0, atIndex) else raw
+        val version = if (atIndex > 0) raw.substring(atIndex + 1).trim().takeIf { it.isNotBlank() } else null
+
+        if (name.isBlank()) {
+            throw RemoteInferenceException(
+                code = "catalog_npm_invalid_source",
+                message = "npm: package name is blank.",
+                retryable = false,
+                details = JSONObject().put("spec", spec)
+            )
+        }
+
+        return name to version
+    }
+
+    private fun resolveNpmDistFromRegistries(
+        packageName: String,
+        requestedVersionOrTag: String?,
+        registryOverride: String?
+    ): NpmResolvedDist {
+        val registries =
+            buildList {
+                registryOverride?.let { override ->
+                    normalizeRegistryUrl(override)?.let(::add)
+                }
+                add(NpmRegistryNpmJs)
+                add(NpmRegistryNpmMirror)
+            }.distinct()
+
+        var lastError: Throwable? = null
+        registries.forEach { registry ->
+            try {
+                return resolveNpmDist(registry, packageName, requestedVersionOrTag)
+            } catch (error: Throwable) {
+                lastError = error
+            }
+        }
+
+        val details =
+            JSONObject()
+                .put("packageName", packageName)
+                .put("requestedVersion", requestedVersionOrTag)
+                .put("registryOverride", registryOverride)
+                .put("registries", JSONArray(registries))
+                .put("lastError", lastError?.message ?: lastError?.javaClass?.name)
+
+        throw RemoteInferenceException(
+            code = "catalog_npm_resolve_failed",
+            message = "Failed to resolve npm package metadata.",
+            retryable = true,
+            details = details
+        )
+    }
+
+    private fun resolveNpmDist(
+        registry: String,
+        packageName: String,
+        requestedVersionOrTag: String?
+    ): NpmResolvedDist {
+        val normalizedRegistry =
+            normalizeRegistryUrl(registry)
+                ?: throw RemoteInferenceException(
+                    code = "catalog_npm_invalid_registry",
+                    message = "Invalid npm registry URL: $registry",
+                    retryable = false
+                )
+
+        val encodedName = encodeNpmPackageName(packageName)
+        val urlString = normalizedRegistry + encodedName
+
+        val connection =
+            try {
+                val url = URL(urlString)
+                require(url.protocol == "http" || url.protocol == "https") {
+                    "Unsupported URL scheme: ${url.protocol}"
+                }
+                url.openConnection() as HttpURLConnection
+            } catch (error: Exception) {
+                throw RemoteInferenceException(
+                    code = "catalog_npm_invalid_registry",
+                    message = "Invalid npm registry URL: $normalizedRegistry",
+                    retryable = false,
+                    details = error.message ?: urlString
+                )
+            }
+
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 30_000
+            connection.instanceFollowRedirects = true
+            connection.useCaches = false
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connect()
+
+            val status = connection.responseCode
+            val body =
+                if (status in 200..299) {
+                    connection.inputStream.use { readUtf8Limited(it, MaxNpmMetaBytes) }
+                } else {
+                    val errorBody =
+                        runCatching {
+                            connection.errorStream?.use { readUtf8Limited(it, MaxNpmMetaBytes) }
+                        }.getOrNull()
+                    throw RemoteInferenceException(
+                        code = "catalog_npm_http_error",
+                        message = "HTTP $status",
+                        retryable = true,
+                        statusCode = status,
+                        details =
+                            JSONObject()
+                                .put("url", urlString)
+                                .put("body", errorBody)
+                    )
+                }
+
+            val root =
+                runCatching { JSONObject(body) }
+                    .getOrElse { error ->
+                        throw RemoteInferenceException(
+                            code = "catalog_npm_invalid_json",
+                            message = "Invalid npm metadata JSON: ${error.message ?: "parse error"}",
+                            retryable = true,
+                            details = JSONObject().put("url", urlString)
+                        )
+                    }
+
+            val distTags = root.optJSONObject("dist-tags")
+            val versions = root.optJSONObject("versions")
+                ?: throw RemoteInferenceException(
+                    code = "catalog_npm_missing_versions",
+                    message = "NPM metadata missing versions.",
+                    retryable = true,
+                    details = JSONObject().put("url", urlString)
+                )
+
+            val resolvedVersion =
+                when {
+                    requestedVersionOrTag.isNullOrBlank() -> distTags?.optString("latest")?.trim().orEmpty()
+                    distTags?.has(requestedVersionOrTag) == true -> distTags.optString(requestedVersionOrTag).trim()
+                    else -> requestedVersionOrTag.trim()
+                }.ifBlank {
+                    throw RemoteInferenceException(
+                        code = "catalog_npm_missing_version",
+                        message = "Failed to resolve npm version (missing dist-tag latest).",
+                        retryable = true,
+                        details =
+                            JSONObject()
+                                .put("url", urlString)
+                                .put("requestedVersion", requestedVersionOrTag)
+                    )
+                }
+
+            val versionMeta = versions.optJSONObject(resolvedVersion)
+                ?: throw RemoteInferenceException(
+                    code = "catalog_npm_version_not_found",
+                    message = "NPM version not found: $resolvedVersion",
+                    retryable = false,
+                    details =
+                        JSONObject()
+                            .put("packageName", packageName)
+                            .put("version", resolvedVersion)
+                            .put("url", urlString)
+                )
+
+            val dist = versionMeta.optJSONObject("dist")
+                ?: throw RemoteInferenceException(
+                    code = "catalog_npm_missing_dist",
+                    message = "NPM metadata missing dist object.",
+                    retryable = true,
+                    details = JSONObject().put("packageName", packageName).put("version", resolvedVersion)
+                )
+
+            val tarballUrl = dist.optString("tarball").trim()
+            if (tarballUrl.isBlank()) {
+                throw RemoteInferenceException(
+                    code = "catalog_npm_missing_tarball",
+                    message = "NPM metadata missing dist.tarball.",
+                    retryable = true,
+                    details = JSONObject().put("packageName", packageName).put("version", resolvedVersion)
+                )
+            }
+
+            val integrity = dist.optString("integrity").trim()
+            return NpmResolvedDist(
+                registry = normalizedRegistry,
+                packageName = packageName,
+                version = resolvedVersion,
+                tarballUrl = tarballUrl,
+                integrity = integrity
+            )
+        } catch (error: RemoteInferenceException) {
+            throw error
+        } catch (error: SocketTimeoutException) {
+            throw RemoteInferenceException(
+                code = "catalog_npm_timeout",
+                message = "npm registry timed out.",
+                retryable = true,
+                details = JSONObject().put("url", urlString)
+            )
+        } catch (error: IOException) {
+            throw RemoteInferenceException(
+                code = "catalog_npm_io_error",
+                message = "npm registry failed: ${error.message ?: "I/O error"}",
+                retryable = true,
+                details = JSONObject().put("url", urlString)
+            )
+        } catch (error: Throwable) {
+            throw RemoteInferenceException(
+                code = "catalog_npm_unexpected_error",
+                message = "npm registry crashed: ${error.message ?: "Unexpected error"}",
+                retryable = false,
+                details = JSONObject().put("url", urlString).put("kind", error.javaClass.name)
+            )
+        } finally {
+            runCatching { connection.disconnect() }
+        }
+    }
+
+    private fun normalizeRegistryUrl(value: String): String? {
+        val raw = value.trim()
+        if (raw.isBlank()) {
+            return null
+        }
+        val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") {
+            return null
+        }
+        val normalized = raw.trimEnd('/') + "/"
+        return normalized
+    }
+
+    private fun encodeNpmPackageName(packageName: String): String {
+        val name = packageName.trim()
+        if (name.startsWith("@")) {
+            val parts = name.split("/", limit = 2)
+            if (parts.size != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+                throw RemoteInferenceException(
+                    code = "catalog_npm_invalid_source",
+                    message = "Invalid scoped npm package name: $name",
+                    retryable = false
+                )
+            }
+            return parts[0] + "%2F" + parts[1]
+        }
+        return name
+    }
+
+    private fun rewriteUrlHost(
+        url: String,
+        registry: String
+    ): String? {
+        val base = runCatching { Uri.parse(registry) }.getOrNull() ?: return null
+        val scheme = base.scheme?.takeIf { it.isNotBlank() } ?: return null
+        val authority = base.authority?.takeIf { it.isNotBlank() } ?: return null
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return null
+        return uri.buildUpon().scheme(scheme).authority(authority).build().toString()
+    }
+
+    private fun normalizeCatalogPackageItem(
+        item: JSONObject,
+        source: String
+    ): JSONObject? {
+        val kitId =
+            item.optString("kitId").trim().ifBlank {
+                item.optString("id").trim()
+            }
+        if (kitId.isBlank()) {
+            return null
+        }
+
+        val dist = item.optJSONObject("dist")
+        val npm = item.optJSONObject("npm")
+
+        val name =
+            item.optString("name").trim().ifBlank {
+                item.optString("displayName").trim()
+            }
+
+        val version =
+            item.optString("version").trim().ifBlank {
+                npm?.optString("version")?.trim().orEmpty()
+            }
+
+        val description = item.optString("description").trim().ifBlank { null }
+        val tag = item.optString("tag").trim().ifBlank { null }
+
+        val sizeBytes =
+            item.optLong("sizeBytes")
+                .takeIf { it > 0 }
+                ?: dist?.optLong("sizeBytes")?.takeIf { it > 0 }
+
+        val sha256 =
+            item.optString("sha256").trim()
+                .ifBlank { dist?.optString("sha256")?.trim().orEmpty() }
+                .ifBlank { null }
+
+        val integrity =
+            item.optString("integrity").trim()
+                .ifBlank { dist?.optString("integrity")?.trim().orEmpty() }
+                .ifBlank { null }
+
+        val zipUrlRaw =
+            item.optString("zipUrl").trim()
+                .ifBlank { item.optString("url").trim() }
+                .ifBlank { dist?.optString("tarball")?.trim().orEmpty() }
+                .ifBlank { null }
+
+        val zipUrl =
+            when {
+                !zipUrlRaw.isNullOrBlank() -> {
+                    if (zipUrlRaw.startsWith("http://") || zipUrlRaw.startsWith("https://")) {
+                        zipUrlRaw
+                    } else if (source.startsWith("http://") || source.startsWith("https://")) {
+                        resolveZipUrl(catalogUrl = source, kitId = kitId, zipUrl = zipUrlRaw)
+                    } else {
+                        null
+                    }
+                }
+                source.startsWith("http://") || source.startsWith("https://") -> {
+                    resolveZipUrl(catalogUrl = source, kitId = kitId, zipUrl = null)
+                }
+                else -> {
+                    val npmName = npm?.optString("name")?.trim().orEmpty()
+                    val npmVersion = npm?.optString("version")?.trim().orEmpty().ifBlank { version }
+                    val fallbackRegistry = parseNpmRegistryOverrideFromSource(source) ?: NpmRegistryNpmJs
+                    buildNpmTarballUrl(fallbackRegistry, npmName, npmVersion)
+                }
+            }
+
+        if (zipUrl.isNullOrBlank()) {
+            return null
+        }
+
+        val installKey =
+            item.optString("installKey").trim().ifBlank {
+                val npmName = npm?.optString("name")?.trim().orEmpty()
+                val npmVersion = npm?.optString("version")?.trim().orEmpty().ifBlank { version }
+                if (npmName.isNotBlank() && npmVersion.isNotBlank()) {
+                    "npm:$npmName@$npmVersion"
+                } else {
+                    ""
+                }
+            }.trim().ifBlank { null }
+
+        val normalized = JSONObject().put("kitId", kitId).put("zipUrl", zipUrl)
+        if (!name.isNullOrBlank()) {
+            normalized.put("name", name)
+        }
+        if (version.isNotBlank()) {
+            normalized.put("version", version)
+        }
+        if (description != null) {
+            normalized.put("description", description)
+        }
+        if (tag != null) {
+            normalized.put("tag", tag)
+        }
+        if (sizeBytes != null) {
+            normalized.put("sizeBytes", sizeBytes)
+        }
+        if (sha256 != null) {
+            normalized.put("sha256", sha256)
+        }
+        if (integrity != null) {
+            normalized.put("integrity", integrity)
+        }
+        if (installKey != null) {
+            normalized.put("installKey", installKey)
+        }
+        if (npm != null) {
+            normalized.put("npm", npm)
+        }
+        if (dist != null) {
+            normalized.put("dist", dist)
+        }
+        return normalized
+    }
+
+    private fun parseNpmRegistryOverrideFromSource(source: String): String? {
+        if (!source.startsWith("npm:", ignoreCase = true) || !source.contains('?')) {
+            return null
+        }
+        val query = source.substringAfter('?', missingDelimiterValue = "").trim()
+        if (query.isBlank()) {
+            return null
+        }
+        val registry =
+            runCatching { Uri.parse("https://keyflow.local/?$query").getQueryParameter("registry") }
+                .getOrNull()
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: return null
+        return normalizeRegistryUrl(registry)
+    }
+
+    private fun buildNpmTarballUrl(
+        registry: String,
+        packageName: String,
+        version: String
+    ): String? {
+        val base = normalizeRegistryUrl(registry) ?: return null
+        val normalizedName = packageName.trim().trimStart('/')
+        val normalizedVersion = version.trim()
+        if (normalizedName.isBlank() || normalizedVersion.isBlank()) {
+            return null
+        }
+        val baseName = normalizedName.substringAfterLast('/').trim()
+        if (baseName.isBlank()) {
+            return null
+        }
+        return base.trimEnd('/') + "/" + normalizedName + "/-/" + baseName + "-" + normalizedVersion + ".tgz"
     }
 
     private fun readUtf8Limited(
@@ -4821,6 +5412,89 @@ class FunctionKitWindow(
             return false
         }
         return trimmedExpected.equals(trimmedActual, ignoreCase = true)
+    }
+
+    private fun isTgzUrl(url: String): Boolean {
+        val normalized = url.trim().lowercase()
+        val path = normalized.substringBefore('?').substringBefore('#')
+        return path.endsWith(".tgz") || path.endsWith(".tar.gz")
+    }
+
+    private data class SriHash(
+        val algorithm: String,
+        val digestBase64: String
+    ) {
+        fun key(): String = "${algorithm.lowercase()}-$digestBase64"
+    }
+
+    private fun parseSriHashes(integrity: String): List<SriHash> {
+        val trimmed = integrity.trim()
+        if (trimmed.isBlank()) {
+            return emptyList()
+        }
+        return trimmed
+            .split(Regex("\\s+"))
+            .mapNotNull { token ->
+                val idx = token.indexOf('-')
+                if (idx <= 0 || idx >= token.length - 1) {
+                    return@mapNotNull null
+                }
+                val algo = token.substring(0, idx).trim().lowercase()
+                val digest = token.substring(idx + 1).trim()
+                if (algo.isBlank() || digest.isBlank()) {
+                    return@mapNotNull null
+                }
+                SriHash(algorithm = algo, digestBase64 = digest)
+            }
+    }
+
+    private fun equalsIntegrity(
+        expectedIntegrity: String,
+        actualIntegrity: String
+    ): Boolean {
+        val expected = parseSriHashes(expectedIntegrity)
+        val actual = parseSriHashes(actualIntegrity)
+        if (expected.isEmpty() || actual.isEmpty()) {
+            return false
+        }
+        val expectedKeys = expected.mapTo(HashSet()) { it.key() }
+        return actual.any { it.key() in expectedKeys }
+    }
+
+    private fun sriIntegrityForFile(
+        file: File,
+        expectedIntegrity: String
+    ): String {
+        val expected = parseSriHashes(expectedIntegrity)
+        val algorithmCandidates = expected.map { it.algorithm.trim().lowercase() }.filter { it.isNotBlank() }
+        val algorithm =
+            listOf("sha512", "sha384", "sha256", "sha1")
+                .firstOrNull { preferred -> preferred in algorithmCandidates }
+                ?: algorithmCandidates.firstOrNull()
+                ?: throw IllegalArgumentException("Missing integrity algorithm.")
+
+        val digestAlgorithm =
+            when (algorithm) {
+                "sha512" -> "SHA-512"
+                "sha384" -> "SHA-384"
+                "sha256" -> "SHA-256"
+                "sha1" -> "SHA-1"
+                else -> throw IllegalArgumentException("Unsupported integrity algorithm: $algorithm")
+            }
+
+        val digest = MessageDigest.getInstance(digestAlgorithm)
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) {
+                    break
+                }
+                digest.update(buffer, 0, read)
+            }
+        }
+        val hash = Base64.encodeToString(digest.digest(), Base64.NO_WRAP)
+        return "${algorithm.lowercase()}-$hash"
     }
 
     private fun executeNetworkFetch(
@@ -6019,6 +6693,10 @@ class FunctionKitWindow(
         private const val MaxInlineImageBytes = 2 * 1024 * 1024
         private const val MaxStoreZipBytes = 96L * 1024L * 1024L
         private const val MaxCatalogIndexBytes = 2L * 1024L * 1024L
+        private const val MaxNpmMetaBytes = 4L * 1024L * 1024L
+        private const val MaxCatalogNpmTgzBytes = 8L * 1024L * 1024L
+        private const val NpmRegistryNpmJs = "https://registry.npmjs.org/"
+        private const val NpmRegistryNpmMirror = "https://registry.npmmirror.com/"
         private const val LocalDemoAgentId = "android-local-demo"
         private const val RemoteHostAgentId = "android-remote-host"
         private const val BindingClipboardTextMaxChars = 8 * 1024

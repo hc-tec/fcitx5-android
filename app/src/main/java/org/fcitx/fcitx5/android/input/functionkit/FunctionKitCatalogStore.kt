@@ -15,6 +15,7 @@ internal object FunctionKitCatalogStore {
     private const val PrefName = "function_kit_catalog"
     private const val KeySourcesJson = "sources_json"
     private const val LegacyKeyCatalogUrl = "function_kit_download_center.catalog_url"
+    private const val DefaultCatalogSource = "npm:@keyflow2/keyflow-kit-catalog"
 
     data class Source(
         val url: String,
@@ -30,9 +31,8 @@ internal object FunctionKitCatalogStore {
         val ctx = context.applicationContext
         val prefs = sharedPreferences()
         val stored = prefs.getString(KeySourcesJson, null)
-        val parsed = parseSources(stored)
-        if (parsed.isNotEmpty()) {
-            return parsed
+        if (stored != null) {
+            return parseSources(stored)
         }
 
         val legacy = loadLegacyCatalogUrl(ctx)
@@ -42,7 +42,7 @@ internal object FunctionKitCatalogStore {
             return migrated
         }
 
-        return emptyList()
+        return listOf(Source(url = DefaultCatalogSource, enabled = true))
     }
 
     fun saveSources(sources: List<Source>) {
