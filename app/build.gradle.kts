@@ -260,6 +260,8 @@ fun registerFunctionKitAssetsTask(
     duplicatesStrategy = DuplicatesStrategy.INCLUDE
     doFirst {
         val fallbackRoot = fallbackDir.get().asFile
+        fallbackRoot.deleteRecursively()
+        fallbackRoot.mkdirs()
         val placeholderKitId =
             bundledDirectories.firstOrNull()?.name
                 ?: if (variantLabel == "release") "kit-store" else "chat-auto-reply"
@@ -267,66 +269,66 @@ fun registerFunctionKitAssetsTask(
             placeholderKitId
                 .split('-')
                 .joinToString(" ") { part -> part.replaceFirstChar(Char::titlecase) }
-        val placeholderManifest =
-            fallbackRoot.resolve("function-kits/$placeholderKitId/manifest.json")
-        placeholderManifest.parentFile.mkdirs()
-        placeholderManifest.writeText(
-            // Keep this placeholder kit extremely small: it is only used when the Function Kit
-            // workspace is not available (e.g. CI, first-time contributors, standalone clones).
-            // Real kits will override this asset path when present.
-            """
-            {
-              "id": "$placeholderKitId",
-              "name": "$placeholderKitName (Placeholder)",
-              "version": "0.0.0",
-              "description": "Placeholder kit bundled by the host build. Clone function-kits workspace or set FUNCTION_KIT_WORKSPACE_ROOT to enable real kits.",
-              "entry": { "bundle": { "html": "ui/app/index.html" } },
-              "runtimePermissions": []
-            }
-            """.trimIndent() + "\n"
-        )
-
-        val placeholderEntryHtml =
-            fallbackRoot.resolve("function-kits/$placeholderKitId/ui/app/index.html")
-        placeholderEntryHtml.parentFile.mkdirs()
-        placeholderEntryHtml.writeText(
-            """
-            <!doctype html>
-            <html lang="en">
-              <head>
-                <meta charset="utf-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1" />
-                <title>Function Kit (Placeholder)</title>
-                <style>
-                  :root { color-scheme: light dark; }
-                  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; }
-                  .card { border: 1px solid rgba(127,127,127,.35); border-radius: 12px; padding: 12px; }
-                  h1 { font-size: 16px; margin: 0 0 8px; }
-                  p { font-size: 13px; line-height: 1.45; margin: 0 0 8px; opacity: .9; }
-                  code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-                  ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
-                </style>
-              </head>
-              <body>
-                <div class="card">
-                  <h1>Function Kit assets are not bundled</h1>
-                  <p>This is a placeholder kit packaged by the Android host build.</p>
-                  <p>To develop or use real Function Kits, provide the workspace and rebuild:</p>
-                  <ul>
-                    <li>Clone <code>function-kits</code> and <code>function-kit-runtime-sdk</code> next to this repo, or</li>
-                    <li>Set <code>FUNCTION_KIT_WORKSPACE_ROOT</code> to the workspace root that contains both.</li>
-                  </ul>
-                </div>
-              </body>
-            </html>
-            """.trimIndent() + "\n"
-        )
-
         val runtimeDistDir = functionKitRuntimeSdkDir?.resolve("dist")
         val hasRuntimeDist = runtimeDistDir?.isDirectory == true
         val hasCatalog = functionKitCatalogDir?.isDirectory == true
         val hasAnyKits = bundledDirectories.isNotEmpty()
-        if (!hasRuntimeDist || !hasCatalog || !hasAnyKits) {
+        val needsPlaceholder = !hasRuntimeDist || !hasCatalog || !hasAnyKits
+        if (needsPlaceholder) {
+            val placeholderManifest =
+                fallbackRoot.resolve("function-kits/$placeholderKitId/manifest.json")
+            placeholderManifest.parentFile.mkdirs()
+            placeholderManifest.writeText(
+                // Keep this placeholder kit extremely small: it is only used when the Function Kit
+                // workspace is not available (e.g. CI, first-time contributors, standalone clones).
+                // Real kits will override this asset path when present.
+                """
+                {
+                  "id": "$placeholderKitId",
+                  "name": "$placeholderKitName (Placeholder)",
+                  "version": "0.0.0",
+                  "description": "Placeholder kit bundled by the host build. Clone function-kits workspace or set FUNCTION_KIT_WORKSPACE_ROOT to enable real kits.",
+                  "entry": { "bundle": { "html": "ui/app/index.html" } },
+                  "runtimePermissions": []
+                }
+                """.trimIndent() + "\n"
+            )
+
+            val placeholderEntryHtml =
+                fallbackRoot.resolve("function-kits/$placeholderKitId/ui/app/index.html")
+            placeholderEntryHtml.parentFile.mkdirs()
+            placeholderEntryHtml.writeText(
+                """
+                <!doctype html>
+                <html lang="en">
+                  <head>
+                    <meta charset="utf-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1" />
+                    <title>Function Kit (Placeholder)</title>
+                    <style>
+                      :root { color-scheme: light dark; }
+                      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; }
+                      .card { border: 1px solid rgba(127,127,127,.35); border-radius: 12px; padding: 12px; }
+                      h1 { font-size: 16px; margin: 0 0 8px; }
+                      p { font-size: 13px; line-height: 1.45; margin: 0 0 8px; opacity: .9; }
+                      code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+                      ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+                    </style>
+                  </head>
+                  <body>
+                    <div class="card">
+                      <h1>Function Kit assets are not bundled</h1>
+                      <p>This is a placeholder kit packaged by the Android host build.</p>
+                      <p>To develop or use real Function Kits, provide the workspace and rebuild:</p>
+                      <ul>
+                        <li>Clone <code>function-kits</code> and <code>function-kit-runtime-sdk</code> next to this repo, or</li>
+                        <li>Set <code>FUNCTION_KIT_WORKSPACE_ROOT</code> to the workspace root that contains both.</li>
+                      </ul>
+                    </div>
+                  </body>
+                </html>
+                """.trimIndent() + "\n"
+            )
             logger.warn(
                 buildString {
                     appendLine("Function Kit workspace not detected for $variantLabel; bundling placeholder kit only.")
