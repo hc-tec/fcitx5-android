@@ -42,7 +42,11 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
     private data class CatalogPackage(
         val kitId: String,
         val name: String?,
+        val description: String?,
         val version: String?,
+        val tag: String?,
+        val tags: List<String>,
+        val categories: List<String>,
         val sizeBytes: Long?,
         val sha256: String?,
         val zipUrl: String?
@@ -174,8 +178,21 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
 
         catalogPackages.forEach { pkg ->
             val title = pkg.name?.takeIf { it.isNotBlank() } ?: pkg.kitId
+            val displayTags = catalogDisplayTags(pkg)
             val summary =
                 buildString {
+                    pkg.description?.takeIf { it.isNotBlank() }?.let { description ->
+                        append(description)
+                    }
+                    if (displayTags.isNotEmpty()) {
+                        if (isNotEmpty()) {
+                            append('\n')
+                        }
+                        append(displayTags.joinToString(" · "))
+                    }
+                    if (isNotEmpty()) {
+                        append('\n')
+                    }
                     append("id=")
                     append(pkg.kitId)
                     pkg.version?.takeIf { it.isNotBlank() }?.let { version ->
@@ -462,10 +479,18 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
                 if (kitId.isBlank()) {
                     continue
                 }
+                val dist = item.optJSONObject("dist")
                 val name = item.optString("name").trim().ifBlank { null }
+                val description = item.optString("description").trim().ifBlank { null }
                 val version = item.optString("version").trim().ifBlank { null }
-                val sizeBytes = item.optLong("sizeBytes").takeIf { it > 0 }
-                val sha256 = item.optString("sha256").trim().ifBlank { null }
+                val tag = item.optString("tag").trim().ifBlank { null }
+                val tags = item.optJSONArray("tags").toTrimmedStringList()
+                val categories = item.optJSONArray("categories").toTrimmedStringList()
+                val sizeBytes =
+                    item.optLong("sizeBytes").takeIf { it > 0 }
+                        ?: dist?.optLong("sizeBytes")?.takeIf { it > 0 }
+                val sha256 =
+                    item.optString("sha256").trim().ifBlank { dist?.optString("sha256")?.trim().orEmpty() }.ifBlank { null }
                 val zipUrlRaw = item.optString("zipUrl").trim().ifBlank { null }
                 val zipUrl =
                     zipUrlRaw?.let { resolveUrl(baseForRelative, it) }
@@ -475,7 +500,11 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
                     CatalogPackage(
                         kitId = kitId,
                         name = name,
+                        description = description,
                         version = version,
+                        tag = tag,
+                        tags = tags,
+                        categories = categories,
                         sizeBytes = sizeBytes,
                         sha256 = sha256,
                         zipUrl = zipUrl
@@ -678,6 +707,80 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
             value >= kb -> String.format("%.1fKB", value / kb)
             else -> "${bytes}B"
         }
+    }
+
+    private fun JSONArray?.toTrimmedStringList(): List<String> {
+        if (this == null) {
+            return emptyList()
+        }
+        return buildList {
+            for (index in 0 until length()) {
+                val value = optString(index).trim()
+                if (value.isNotBlank()) {
+                    add(value)
+                }
+            }
+        }.distinctBy { it.lowercase() }
+    }
+
+    private fun catalogDisplayTags(pkg: CatalogPackage): List<String> {
+        val raw =
+            buildList {
+                addAll(pkg.tags)
+                addAll(pkg.categories)
+                pkg.tag?.let(::add)
+            }
+        return raw.map(::catalogTagLabel).filter { it.isNotBlank() }.distinct().take(3)
+    }
+
+    private fun catalogTagLabel(value: String): String {
+        val raw = value.trim()
+        if (raw.isBlank()) {
+            return ""
+        }
+        return when (raw.lowercase()) {
+            "ai" -> "AI"
+            "chat" -> "聊天"
+            "clipboard" -> "剪贴板"
+            "download" -> "下载"
+            "file", "files" -> "文件"
+            "image" -> "图片"
+            "install" -> "安装"
+            "local" -> "本地"
+            "network" -> "联网"
+            "ocr" -> "识图"
+            "paste" -> "粘贴"
+            "productivity" -> "效率"
+            "reply" -> "回复"
+            "rewrite" -> "改写"
+            "snippet" -> "短语"
+            "store" -> "商店"
+            "summarize" -> "总结"
+            "system" -> "系统"
+            "template" -> "模板"
+            "tone" -> "语气"
+            "tool", "tools" -> "工具"
+            "translate", "translation" -> "翻译"
+            "upload" -> "上传"
+            "wechat" -> "微信"
+            "writing" -> "写作"
+            else -> humanizeCatalogTag(raw)
+        }
+    }
+
+    private fun humanizeCatalogTag(value: String): String {
+        if (value.any { it.code > 127 }) {
+            return value
+        }
+        return value.split('.', '_', '-')
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { part ->
+                if (part.length <= 3) {
+                    part.uppercase()
+                } else {
+                    part.replaceFirstChar { ch -> ch.titlecase() }
+                }
+            }
     }
 
     private companion object {

@@ -5140,6 +5140,24 @@ class FunctionKitWindow(
 
         val description = item.optString("description").trim().ifBlank { null }
         val tag = item.optString("tag").trim().ifBlank { null }
+        val tags =
+            item.optJSONArray("tags")
+                .toStringList()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+        val categories =
+            item.optJSONArray("categories")
+                .toStringList()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+        val runtimePermissions =
+            item.optJSONArray("runtimePermissions")
+                .toStringList()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
 
         val sizeBytes =
             item.optLong("sizeBytes")
@@ -5211,6 +5229,15 @@ class FunctionKitWindow(
         }
         if (tag != null) {
             normalized.put("tag", tag)
+        }
+        if (tags.isNotEmpty()) {
+            normalized.put("tags", JSONArray(tags))
+        }
+        if (categories.isNotEmpty()) {
+            normalized.put("categories", JSONArray(categories))
+        }
+        if (runtimePermissions.isNotEmpty()) {
+            normalized.put("runtimePermissions", JSONArray(runtimePermissions))
         }
         if (sizeBytes != null) {
             normalized.put("sizeBytes", sizeBytes)
