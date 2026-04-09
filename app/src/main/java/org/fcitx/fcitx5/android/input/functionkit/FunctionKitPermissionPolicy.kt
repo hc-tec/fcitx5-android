@@ -9,6 +9,7 @@ import org.fcitx.fcitx5.android.utils.appContext
 
 internal object FunctionKitPermissionPolicy {
     private val PrivilegedKitIds = setOf("kit-store")
+    private val PrivilegedPermissions = setOf("kits.manage", "files.download")
 
     fun isEnabled(permission: String, prefs: AppPrefs.FunctionKit): Boolean =
         when (permission) {
@@ -35,6 +36,21 @@ internal object FunctionKitPermissionPolicy {
             else -> false
         }
 
+    fun defaultEnabled(
+        permission: String,
+        prefs: AppPrefs.FunctionKit,
+        kitId: String?
+    ): Boolean {
+        if (kitId.isNullOrBlank()) {
+            return isEnabled(permission, prefs)
+        }
+        return when (permission) {
+            in PrivilegedPermissions ->
+                kitId in PrivilegedKitIds && !FunctionKitPackageManager.isUserInstalled(appContext, kitId)
+            else -> isEnabled(permission, prefs)
+        }
+    }
+
     fun isEnabled(
         permission: String,
         prefs: AppPrefs.FunctionKit,
@@ -47,13 +63,8 @@ internal object FunctionKitPermissionPolicy {
             return false
         }
         val override = FunctionKitKitSettings.getPermissionOverride(kitId, permission)
-        val defaultEnabled =
-            when (permission) {
-                "kits.manage", "files.download" ->
-                    kitId in PrivilegedKitIds && !FunctionKitPackageManager.isUserInstalled(appContext, kitId)
-                else -> isEnabled(permission, prefs)
-            }
-        val baseEnabled = override ?: defaultEnabled
+        val defaultValueEnabled = defaultEnabled(permission, prefs, kitId)
+        val baseEnabled = override ?: defaultValueEnabled
         // Some capabilities still depend on host-level routing/config, so per-kit overrides should
         // not bypass those constraints.
         return when (permission) {

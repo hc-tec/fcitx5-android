@@ -524,19 +524,7 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
             )
         } else {
             supportedPermissions.forEach { permission ->
-                permissionsCategory.addPreference(
-                    Preference(context).apply {
-                        setup(
-                            title = getString(permissionLabel(permission)),
-                            summary = buildPermissionSummary(permission)
-                        )
-                        isIconSpaceReserved = false
-                        setOnPreferenceClickListener {
-                            showPermissionDialog(permission)
-                            true
-                        }
-                    }
-                )
+                permissionsCategory.addPreference(createPermissionPreference(context, permission))
             }
 
             permissionsCategory.addPreference(
@@ -603,62 +591,64 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
             .show()
     }
 
-    private fun showPermissionDialog(permission: String) {
-        val context = requireContext()
-        val override = FunctionKitKitSettings.getPermissionOverride(kit.id, permission)
-        val globalEnabled = FunctionKitPermissionPolicy.isEnabled(permission, functionKitPrefs)
-
-        val labels =
-            arrayOf(
-                getString(R.string.function_kit_manager_permission_inherit),
-                getString(R.string.function_kit_manager_permission_allow),
-                getString(R.string.function_kit_manager_permission_deny)
+    private fun createPermissionPreference(
+        context: android.content.Context,
+        permission: String
+    ): MySwitchPreference {
+        val defaultEnabled = FunctionKitPermissionPolicy.defaultEnabled(permission, functionKitPrefs, kit.id)
+        val effectiveEnabled = FunctionKitPermissionPolicy.isEnabled(permission, functionKitPrefs, kit.id)
+        return MySwitchPreference(context).apply {
+            key = "function_kit_detail_permission_${kit.id}_$permission"
+            setup(
+                title = getString(permissionLabel(permission)),
+                summary = buildPermissionSummary(permission)
             )
-        val initialSelection =
-            when (override) {
-                null -> 0
-                true -> 1
-                false -> 2
-            }
-
-        AlertDialog.Builder(context)
-            .setTitle(getString(permissionLabel(permission)))
-            .setMessage(
-                getString(
-                    R.string.function_kit_manager_permission_dialog_summary,
-                    if (globalEnabled) getString(R.string.function_kit_manager_enabled)
-                    else getString(R.string.function_kit_manager_disabled)
-                )
-            )
-            .setSingleChoiceItems(labels, initialSelection) { dialog, which ->
-                when (which) {
-                    0 -> FunctionKitKitSettings.setPermissionOverride(kit.id, permission, null)
-                    1 -> FunctionKitKitSettings.setPermissionOverride(kit.id, permission, true)
-                    2 -> FunctionKitKitSettings.setPermissionOverride(kit.id, permission, false)
-                }
-                dialog.dismiss()
+            isPersistent = false
+            isIconSpaceReserved = false
+            isChecked = effectiveEnabled
+            onResetRequested = {
+                FunctionKitKitSettings.setPermissionOverride(kit.id, permission, null)
                 refresh()
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            setOnPreferenceChangeListener { _, newValue ->
+                val enabled = newValue as Boolean
+                val overrideValue =
+                    if (enabled == defaultEnabled) {
+                        null
+                    } else {
+                        enabled
+                    }
+                FunctionKitKitSettings.setPermissionOverride(kit.id, permission, overrideValue)
+                refresh()
+                true
+            }
+        }
     }
 
     private fun buildPermissionSummary(permission: String): String {
         val override = FunctionKitKitSettings.getPermissionOverride(kit.id, permission)
         val globalEnabled = FunctionKitPermissionPolicy.isEnabled(permission, functionKitPrefs)
+        val defaultEnabled = FunctionKitPermissionPolicy.defaultEnabled(permission, functionKitPrefs, kit.id)
         val effectiveEnabled =
             FunctionKitPermissionPolicy.isEnabled(permission, functionKitPrefs, kit.id)
 
         val source =
             when (override) {
                 null ->
-                    getString(
-                        if (globalEnabled) {
-                            R.string.function_kit_manager_permission_source_global_allow
-                        } else {
-                            R.string.function_kit_manager_permission_source_global_deny
-                        }
-                    )
+                    when {
+                        defaultEnabled != globalEnabled ->
+                            getString(
+                                if (defaultEnabled) {
+                                    R.string.function_kit_manager_permission_source_bundled_allow
+                                } else {
+                                    R.string.function_kit_manager_permission_source_bundled_deny
+                                }
+                            )
+                        globalEnabled ->
+                            getString(R.string.function_kit_manager_permission_source_global_allow)
+                        else ->
+                            getString(R.string.function_kit_manager_permission_source_global_deny)
+                    }
                 true -> getString(R.string.function_kit_manager_permission_source_kit_allow)
                 false -> getString(R.string.function_kit_manager_permission_source_kit_deny)
             }
@@ -671,7 +661,11 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
                     R.string.function_kit_manager_disabled
                 }
             )
-        return "$statusLabel · $source"
+        return getString(
+            R.string.function_kit_manager_permission_toggle_summary,
+            statusLabel,
+            source
+        )
     }
 
     private fun permissionLabel(permission: String): Int =
@@ -687,15 +681,17 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
             "storage.read" -> R.string.function_kit_permission_storage_read
             "storage.write" -> R.string.function_kit_permission_storage_write
             "files.pick" -> R.string.function_kit_permission_files_pick
+            "files.download" -> R.string.function_kit_permission_files_download
             "panel.state.write" -> R.string.function_kit_permission_panel_state_write
             "runtime.message.send" -> R.string.function_kit_permission_runtime_message_send
             "runtime.message.receive" -> R.string.function_kit_permission_runtime_message_receive
             "network.fetch" -> R.string.function_kit_permission_network_fetch
             "ai.request" -> R.string.function_kit_permission_ai_chat
-            "ai.agent.list" -> R.string.function_kit_permission_ai_agent_access
-            "ai.agent.run" -> R.string.function_kit_permission_ai_agent_access
+            "ai.agent.list" -> R.string.function_kit_permission_ai_agent_list
+            "ai.agent.run" -> R.string.function_kit_permission_ai_agent_run
+            "kits.manage" -> R.string.function_kit_permission_kits_manage
             else -> android.R.string.untitled
-    }
+        }
 
     private fun resolveBindingCategories(binding: FunctionKitManifest.Binding): List<String> =
         binding.categories

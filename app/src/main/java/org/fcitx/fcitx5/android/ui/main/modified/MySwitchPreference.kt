@@ -11,6 +11,8 @@ import androidx.preference.SwitchPreference
 import org.fcitx.fcitx5.android.R
 
 class MySwitchPreference(context: Context) : SwitchPreference(context) {
+    var onResetRequested: (() -> Unit)? = null
+
     override fun onBindViewHolder(holder: PreferenceViewHolder) {
         super.onBindViewHolder(holder)
         holder.itemView.setOnLongClickListener {
@@ -18,7 +20,9 @@ class MySwitchPreference(context: Context) : SwitchPreference(context) {
                 .setTitle(title ?: "Preference")
                 .setMessage(R.string.whether_reset_switch_preference)
                 .setNegativeButton(android.R.string.cancel) { _, _ -> }
-                .setPositiveButton(R.string.reset) { _, _ -> restore() }
+                .setPositiveButton(R.string.reset) { _, _ ->
+                    onResetRequested?.invoke() ?: restore()
+                }
                 .show()
             true
         }
