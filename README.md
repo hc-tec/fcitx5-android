@@ -2,6 +2,12 @@
 
 [Fcitx5](https://github.com/fcitx/fcitx5) input method framework and engines ported to Android.
 
+This fork is the Android host repository used by `keyflow`.
+
+- keyflow workspace / docs: `https://github.com/hc-tec/keyflow`
+- current Android host source: `https://github.com/hc-tec/fcitx5-android`
+- upstream project: `https://github.com/fcitx5-android/fcitx5-android`
+
 ## Download
 
 [<img src="https://github.com/rubenpgrady/get-it-on-github/raw/refs/heads/main/get-it-on-github.png" alt="Git it on GitHub" width="207" height="80">](https://github.com/fcitx5-android/fcitx5-android/releases/latest)
