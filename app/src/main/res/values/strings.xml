@@ -68,11 +68,17 @@
     <string name="build_time">Build time</string>
     <string name="build_git_hash">Build Git hash</string>
     <string name="source_code">Source code</string>
+    <string name="project_origin">Project origin</string>
+    <string name="current_fork_source_code">Current maintained fork</string>
+    <string name="current_fork_source_code_summary">This build is maintained in hc-tec\'s fork. Open the current Android source repository.</string>
+    <string name="original_upstream_project">Based on Fcitx5 for Android</string>
+    <string name="original_upstream_project_summary">This app is a derivative of the open-source Fcitx5 for Android project. Open the upstream repository and contributor history.</string>
     <string name="privacy_policy">Privacy policy</string>
     <string name="license">License</string>
     <string name="open_source_licenses">Open source licenses</string>
     <string name="licenses_of_third_party_libraries">Licenses of third-party libraries</string>
     <string name="github_repo">GitHub repository</string>
+    <string name="current_fork_repository">Current fork repository</string>
     <string name="expanded_candidate_grid_span_count">Number of expanded candidate spans in grid style</string>
     <string name="no_config_options">Currently no configuration options are available</string>
     <string name="unimplemented_type">⛔ Unimplemented type</string>

@@ -68,11 +68,17 @@
     <string name="build_time">构建时间</string>
     <string name="build_git_hash">构建 Git 哈希</string>
     <string name="source_code">源代码</string>
+    <string name="project_origin">项目来源</string>
+    <string name="current_fork_source_code">当前维护分支</string>
+    <string name="current_fork_source_code_summary">这个构建由 hc-tec 维护的 fork 提供。打开当前 Android 源码仓库。</string>
+    <string name="original_upstream_project">基于 Fcitx5 for Android</string>
+    <string name="original_upstream_project_summary">这个应用基于开源项目 Fcitx5 for Android 改造。打开上游仓库和贡献者历史。</string>
     <string name="privacy_policy">隐私政策</string>
     <string name="license">许可</string>
     <string name="open_source_licenses">开源软件许可</string>
     <string name="licenses_of_third_party_libraries">第三方库许可证</string>
     <string name="github_repo">GitHub 仓库</string>
+    <string name="current_fork_repository">当前 fork 仓库</string>
     <string name="expanded_candidate_grid_span_count">表格样式展开候选词列数</string>
     <string name="no_config_options">目前没有可用的配置选项</string>
     <string name="unimplemented_type">⛔ 未实现类型</string>

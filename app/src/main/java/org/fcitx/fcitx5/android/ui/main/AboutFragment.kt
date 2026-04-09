@@ -21,6 +21,21 @@ class AboutFragment : PaddingPreferenceFragment() {
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceScreen = preferenceManager.createPreferenceScreen(requireContext()).apply {
+            addCategory(R.string.project_origin) {
+                isIconSpaceReserved = false
+                addPreference(
+                    R.string.current_fork_source_code,
+                    R.string.current_fork_source_code_summary
+                ) {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Const.githubRepo)))
+                }
+                addPreference(
+                    R.string.original_upstream_project,
+                    R.string.original_upstream_project_summary
+                ) {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Const.upstreamGithubRepo)))
+                }
+            }
             addPreference(R.string.privacy_policy) {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Const.privacyPolicyUrl)))
             }
@@ -30,7 +45,7 @@ class AboutFragment : PaddingPreferenceFragment() {
             ) {
                 navigateWithAnim(SettingsRoute.License)
             }
-            addPreference(R.string.source_code, R.string.github_repo) {
+            addPreference(R.string.source_code, R.string.current_fork_repository) {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Const.githubRepo)))
             }
             addPreference(R.string.license, Const.licenseSpdxId) {
