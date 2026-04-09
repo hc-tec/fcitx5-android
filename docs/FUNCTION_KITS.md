@@ -49,5 +49,12 @@ export FUNCTION_KIT_WORKSPACE_ROOT="$(cd .. && pwd)"
 ./gradlew :app:assembleDebug
 ```
 
-If the real Function Kits are detected, they will be bundled into the APK automatically.
+If the real Function Kits are detected, debug builds bundle the available curated kits automatically.
 
+For release builds, the APK intentionally keeps only the public built-ins:
+
+- `chat-auto-reply`
+- `quick-phrases`
+- `kit-store`
+
+Dev/test kits such as `bridge-debugger`, `ime-hooks`, `runtime-lab`, `file-upload-lab`, and experimental bundles such as `tone-rewrite` should stay out of release and be installed through Download Center when needed.

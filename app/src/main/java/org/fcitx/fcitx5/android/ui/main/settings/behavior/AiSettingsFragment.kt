@@ -42,6 +42,33 @@ class AiSettingsFragment : ManagedPreferenceFragment(AppPrefs.getInstance().ai) 
 
     override fun onPreferenceUiCreated(screen: PreferenceScreen) {
         val context = requireContext()
+        val guideCategory =
+            PreferenceCategory(context).apply {
+                title = getString(R.string.ai_get_started_category)
+                order = -220
+            }
+        screen.addPreference(guideCategory)
+
+        guideCategory.addPreference(
+            Preference(context).apply {
+                key = "ai_get_started_steps"
+                order = -219
+                setup(title = getString(R.string.ai_get_started_title))
+                summary = getString(R.string.ai_get_started_summary)
+                isSelectable = false
+            }
+        )
+
+        guideCategory.addPreference(
+            Preference(context).apply {
+                key = "ai_get_started_examples"
+                order = -218
+                setup(title = getString(R.string.ai_get_started_examples))
+                summary = getString(R.string.ai_get_started_examples_summary)
+                isSelectable = false
+            }
+        )
+
         val statusCategory =
             PreferenceCategory(context).apply {
                 title = getString(R.string.ai_status_category)

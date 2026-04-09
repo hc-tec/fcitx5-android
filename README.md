@@ -28,6 +28,16 @@ You can also download the **latest CI build** on our Jeninks server: [![build st
 
 In case you want Fcitx5 on other platforms: [macOS](https://github.com/fcitx-contrib/fcitx5-macos), [iOS](https://github.com/fcitx-contrib/fcitx5-ios), [HarmonyOS](https://github.com/fcitx-contrib/fcitx5-harmony), [ChromeOS](https://github.com/fcitx-contrib/fcitx5-chrome), [Windows](https://github.com/fcitx-contrib/fcitx5-windows); or [try Fcitx5 in the browser](https://fcitx-contrib.github.io/online/index.html)
 
+## AI-powered Function Kits
+
+After installing the app, open `Settings → AI` before using AI-powered Function Kits.
+
+1. Turn on `Enable shared Android AI`.
+2. Fill `Chat API base URL`, `Chat API key` if your provider requires it, and `Chat model name`.
+3. Return to `Settings → Function Kit` and open the kit again.
+
+This shared configuration is reused by Android-side Function Kits such as Chat Auto Reply, so API keys do not need to be stored inside the kit UI itself.
+
 ## Project status
 
 ### Supported Languages

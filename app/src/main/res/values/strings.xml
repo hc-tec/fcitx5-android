@@ -289,7 +289,12 @@
     <string name="redo">Redo</string>
     <string name="status_area">Status area</string>
     <string name="ai">AI</string>
-    <string name="ai_settings_summary">Shared AI model settings used by Function Kits on Android</string>
+    <string name="ai_settings_summary">Configure shared AI for Function Kits: enable it and fill the Base URL, API key, and model</string>
+    <string name="ai_get_started_category">Getting started</string>
+    <string name="ai_get_started_title">Configure shared AI after install</string>
+    <string name="ai_get_started_summary">After installing an AI-powered Function Kit, turn on Shared Android AI below, fill the Base URL, API key if your provider requires it, and model, then return to Function Kit and try again.</string>
+    <string name="ai_get_started_examples">Provider examples</string>
+    <string name="ai_get_started_examples_summary">Examples: http://127.0.0.1:11434/v1 for Ollama, an OpenAI-compatible gateway, or your own hosted proxy. The host appends /chat/completions automatically.</string>
     <string name="ai_status_category">Current status</string>
     <string name="ai_status_runtime">Shared Android AI runtime</string>
     <string name="ai_status_runtime_disabled_summary">Shared Android AI is disabled. Function Kits will fall back to remote host routing or local demo output.</string>
@@ -369,6 +374,8 @@
     <string name="function_kit_manager_general_category">General</string>
     <string name="function_kit_manager_kits_category">Installed Function Kits</string>
     <string name="function_kit_manager_kit_category">Function Kit</string>
+    <string name="function_kit_manager_shared_ai_title">Shared AI settings</string>
+    <string name="function_kit_manager_shared_ai_summary">AI-powered kits reuse Settings → AI. Open it to fill the Base URL, API key, and model for shared Android AI.</string>
     <string name="function_kit_manager_enabled_toggle">Enable</string>
     <string name="function_kit_manager_pin_to_toolbar">Pin to toolbar</string>
     <string name="function_kit_manager_pin_to_toolbar_summary">Keep this Function Kit visible as a fixed toolbar shortcut.</string>
@@ -382,6 +389,12 @@
     <string name="function_kit_manager_bindings_empty_title">No bindings declared</string>
     <string name="function_kit_manager_bindings_empty_summary">This Function Kit does not declare any bindings.</string>
     <string name="function_kit_manager_description">Description</string>
+    <string name="function_kit_detail_ai_category">Shared AI</string>
+    <string name="function_kit_detail_ai_status_title">AI runtime status</string>
+    <string name="function_kit_detail_ai_status_missing_summary">This Function Kit uses shared Android AI. Open AI settings and fill the Base URL, API key if needed, and model before trying it again.</string>
+    <string name="function_kit_detail_ai_status_ready_summary">Shared Android AI is ready: %1$s · %2$s · %3$ds timeout.</string>
+    <string name="function_kit_detail_ai_open_settings">Open AI settings</string>
+    <string name="function_kit_detail_ai_open_settings_summary">Turn on Shared Android AI and edit the shared provider config used by this Function Kit.</string>
     <string name="function_kit_manager_permissions_category">Runtime permissions</string>
     <string name="function_kit_manager_permissions_empty_title">No permissions requested</string>
     <string name="function_kit_manager_permissions_empty_summary">This Function Kit does not declare any runtime permissions.</string>

@@ -94,6 +94,20 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
         generalCategory.addPreference(
             Preference(context).apply {
                 setup(
+                    title = getString(R.string.function_kit_manager_shared_ai_title),
+                    summary = getString(R.string.function_kit_manager_shared_ai_summary)
+                )
+                isIconSpaceReserved = false
+                setOnPreferenceClickListener {
+                    navigateWithAnim(SettingsRoute.Ai)
+                    true
+                }
+            }
+        )
+
+        generalCategory.addPreference(
+            Preference(context).apply {
+                setup(
                     title = getString(R.string.function_kit_download_center),
                     summary = getString(R.string.function_kit_download_center_summary)
                 )

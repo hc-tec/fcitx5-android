@@ -224,29 +224,42 @@ fun Project.resolveFunctionKitWorkspaceRoot(): File? {
 val functionKitWorkspaceRoot = resolveFunctionKitWorkspaceRoot()
 val functionKitRuntimeSdkDir = functionKitWorkspaceRoot?.resolve("function-kit-runtime-sdk")
 val functionKitCatalogDir = functionKitWorkspaceRoot?.resolve("function-kits")
-// Only bundle curated kits into the APK. Others should be installed via Download Center (zip) for real-world flows.
-val functionKitExcludedIds = setOf("bridge-debugger")
+// Keep devtools and temporary kits out of release builds. Public/public-ish kits can still be installed later
+// via Download Center when we don't want them prebundled in the APK.
+val functionKitAlwaysExcludedIds = setOf("bridge-debugger")
+val functionKitReleaseBundledIds = setOf("chat-auto-reply", "quick-phrases", "kit-store")
 val functionKitDirectories =
     functionKitCatalogDir
         ?.listFiles()
-        ?.filter { it.isDirectory && it.resolve("manifest.json").isFile && it.name !in functionKitExcludedIds }
+        ?.filter { it.isDirectory && it.resolve("manifest.json").isFile && it.name !in functionKitAlwaysExcludedIds }
         .orEmpty()
         .sortedBy { it.name }
-val functionKitAssetsDir = layout.buildDirectory.dir("generated/function-kit-assets")
+val functionKitDebugDirectories = functionKitDirectories
+val functionKitReleaseDirectories =
+    functionKitDirectories.filter { it.name in functionKitReleaseBundledIds }
+val functionKitDebugAssetsDir = layout.buildDirectory.dir("generated/function-kit-debug-assets")
+val functionKitReleaseAssetsDir = layout.buildDirectory.dir("generated/function-kit-release-assets")
 val functionKitTestAssetsDir = layout.buildDirectory.dir("generated/function-kit-test-assets")
-val functionKitFallbackAssetsDir = layout.buildDirectory.dir("generated/function-kit-fallback-assets")
+val functionKitDebugFallbackAssetsDir = layout.buildDirectory.dir("generated/function-kit-debug-fallback-assets")
+val functionKitReleaseFallbackAssetsDir = layout.buildDirectory.dir("generated/function-kit-release-fallback-assets")
 val debugAiBootstrapConfig = resolveDebugAiBootstrapConfig()
 val effectiveDebugAiBootstrapConfig = debugAiBootstrapConfig.takeIf { it.enabled } ?: DebugAiBootstrapConfig()
 val debugShortCommitHash = buildCommitHash.trim().takeIf { it.isNotBlank() }?.take(7).orEmpty()
 val debugAppLabel = listOf("Fcitx5 Debug", buildVersionName, debugShortCommitHash).filter { it.isNotBlank() }.joinToString(" ")
 
-val syncFunctionKitAssets by tasks.registering(Sync::class) {
+fun registerFunctionKitAssetsTask(
+    taskName: String,
+    outputDir: Provider<out org.gradle.api.file.Directory>,
+    fallbackDir: Provider<out org.gradle.api.file.Directory>,
+    bundledDirectories: List<File>,
+    variantLabel: String
+) = tasks.register(taskName, Sync::class.java) {
     group = "function-kit"
-    description = "Sync browser Function Kit runtime assets into the Android app bundle."
-    into(functionKitAssetsDir)
+    description = "Sync browser Function Kit runtime assets into the Android app bundle ($variantLabel)."
+    into(outputDir)
     duplicatesStrategy = DuplicatesStrategy.INCLUDE
     doFirst {
-        val fallbackRoot = functionKitFallbackAssetsDir.get().asFile
+        val fallbackRoot = fallbackDir.get().asFile
         val placeholderManifest =
             fallbackRoot.resolve("function-kits/chat-auto-reply/manifest.json")
         placeholderManifest.parentFile.mkdirs()
@@ -305,11 +318,11 @@ val syncFunctionKitAssets by tasks.registering(Sync::class) {
         val runtimeDistDir = functionKitRuntimeSdkDir?.resolve("dist")
         val hasRuntimeDist = runtimeDistDir?.isDirectory == true
         val hasCatalog = functionKitCatalogDir?.isDirectory == true
-        val hasAnyKits = functionKitDirectories.isNotEmpty()
+        val hasAnyKits = bundledDirectories.isNotEmpty()
         if (!hasRuntimeDist || !hasCatalog || !hasAnyKits) {
             logger.warn(
                 buildString {
-                    appendLine("Function Kit workspace not detected; bundling placeholder kit only.")
+                    appendLine("Function Kit workspace not detected for $variantLabel; bundling placeholder kit only.")
                     appendLine("To include real kits/runtime in the APK, provide a workspace containing:")
                     appendLine("  - function-kits/")
                     appendLine("  - function-kit-runtime-sdk/")
@@ -320,8 +333,15 @@ val syncFunctionKitAssets by tasks.registering(Sync::class) {
                 }
             )
         }
+        if (variantLabel == "release") {
+            val excludedKitIds =
+                functionKitDirectories.map { it.name }.filterNot { it in bundledDirectories.map(File::getName).toSet() }
+            if (excludedKitIds.isNotEmpty()) {
+                logger.lifecycle("Function Kit release bundle keeps only curated kits: ${bundledDirectories.joinToString { it.name }}; excluded: ${excludedKitIds.joinToString()}")
+            }
+        }
     }
-    from(functionKitFallbackAssetsDir)
+    from(fallbackDir)
 
     val runtimeDistDir = functionKitRuntimeSdkDir?.resolve("dist")
     if (runtimeDistDir?.isDirectory == true) {
@@ -329,8 +349,6 @@ val syncFunctionKitAssets by tasks.registering(Sync::class) {
             into("function-kit-runtime-sdk/dist")
         }
     }
-    // Shared UI assets (no manifest.json, so it is not included in [functionKitDirectories]).
-    // Note: avoid leading underscore in directory name because Android packaging may ignore it for assets.
     val sharedDir = functionKitCatalogDir?.resolve("shared")
     if (sharedDir?.isDirectory == true) {
         from(sharedDir) {
@@ -341,7 +359,7 @@ val syncFunctionKitAssets by tasks.registering(Sync::class) {
             exclude("tests/**")
         }
     }
-    functionKitDirectories.forEach { kitDir ->
+    bundledDirectories.forEach { kitDir ->
         val kitId = kitDir.name
         from(kitDir) {
             into("function-kits/$kitId")
@@ -352,6 +370,24 @@ val syncFunctionKitAssets by tasks.registering(Sync::class) {
         }
     }
 }
+
+val syncFunctionKitDebugAssets =
+    registerFunctionKitAssetsTask(
+        taskName = "syncFunctionKitDebugAssets",
+        outputDir = functionKitDebugAssetsDir,
+        fallbackDir = functionKitDebugFallbackAssetsDir,
+        bundledDirectories = functionKitDebugDirectories,
+        variantLabel = "debug"
+    )
+
+val syncFunctionKitReleaseAssets =
+    registerFunctionKitAssetsTask(
+        taskName = "syncFunctionKitReleaseAssets",
+        outputDir = functionKitReleaseAssetsDir,
+        fallbackDir = functionKitReleaseFallbackAssetsDir,
+        bundledDirectories = functionKitReleaseDirectories,
+        variantLabel = "release"
+    )
 
 val syncFunctionKitTestAssets by tasks.registering(Sync::class) {
     group = "function-kit"
@@ -451,8 +487,11 @@ android {
         generateLocaleConfig = true
     }
 
-    sourceSets.named("main") {
-        assets.srcDir(functionKitAssetsDir.get().asFile)
+    sourceSets.named("debug") {
+        assets.srcDir(functionKitDebugAssetsDir.get().asFile)
+    }
+    sourceSets.named("release") {
+        assets.srcDir(functionKitReleaseAssetsDir.get().asFile)
     }
     sourceSets.named("androidTest") {
         assets.srcDir(functionKitTestAssetsDir.get().asFile)
@@ -548,6 +587,7 @@ configurations {
 }
 
 tasks.named("preBuild") {
-    dependsOn(syncFunctionKitAssets)
+    dependsOn(syncFunctionKitDebugAssets)
+    dependsOn(syncFunctionKitReleaseAssets)
     dependsOn(syncFunctionKitTestAssets)
 }

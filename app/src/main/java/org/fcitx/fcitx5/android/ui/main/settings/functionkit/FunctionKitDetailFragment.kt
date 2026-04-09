@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitAiChatBackend
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitDefaults
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitStudioRemoteAttach
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitKitSettings
@@ -38,6 +39,7 @@ import org.fcitx.fcitx5.android.ui.main.modified.MySwitchPreference
 import org.fcitx.fcitx5.android.ui.main.settings.SettingsRoute
 import org.fcitx.fcitx5.android.utils.clipboardManager
 import org.fcitx.fcitx5.android.utils.lazyRoute
+import org.fcitx.fcitx5.android.utils.navigateWithAnim
 import org.fcitx.fcitx5.android.utils.setup
 import org.fcitx.fcitx5.android.utils.toast
 import java.net.HttpURLConnection
@@ -176,6 +178,51 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
                     isIconSpaceReserved = false
                     setOnPreferenceClickListener {
                         showUninstallDialog()
+                        true
+                    }
+                }
+            )
+        }
+
+        if (usesSharedAi(kit)) {
+            val aiConfig = FunctionKitAiChatBackend.fromPrefs(AppPrefs.getInstance().ai)
+            val aiCategory =
+                PreferenceCategory(context).apply {
+                    title = getString(R.string.function_kit_detail_ai_category)
+                    order = -199
+                }
+            screen.addPreference(aiCategory)
+
+            aiCategory.addPreference(
+                Preference(context).apply {
+                    key = "function_kit_detail_ai_status:${kit.id}"
+                    setup(title = getString(R.string.function_kit_detail_ai_status_title))
+                    summary =
+                        if (aiConfig.isConfigured) {
+                            getString(
+                                R.string.function_kit_detail_ai_status_ready_summary,
+                                aiConfig.normalizedBaseUrl,
+                                aiConfig.model,
+                                aiConfig.timeoutSeconds
+                            )
+                        } else {
+                            getString(R.string.function_kit_detail_ai_status_missing_summary)
+                        }
+                    isSelectable = false
+                    isIconSpaceReserved = false
+                }
+            )
+
+            aiCategory.addPreference(
+                Preference(context).apply {
+                    key = "function_kit_detail_ai_open_settings:${kit.id}"
+                    setup(
+                        title = getString(R.string.function_kit_detail_ai_open_settings),
+                        summary = getString(R.string.function_kit_detail_ai_open_settings_summary)
+                    )
+                    isIconSpaceReserved = false
+                    setOnPreferenceClickListener {
+                        navigateWithAnim(SettingsRoute.Ai)
                         true
                     }
                 }
@@ -525,6 +572,11 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
         pinnedPreference.isChecked = FunctionKitKitSettings.isKitPinned(kit.id)
         preferenceScreen?.let { renderUi(it) }
     }
+
+    private fun usesSharedAi(manifest: FunctionKitManifest): Boolean =
+        manifest.runtimePermissions.any { permission ->
+            permission == "ai.request" || permission == "candidates.regenerate"
+        } || manifest.ai.executionMode == "direct-model"
 
     private fun showUninstallDialog() {
         val context = requireContext()

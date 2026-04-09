@@ -289,7 +289,12 @@
     <string name="redo">重做</string>
     <string name="status_area">状态区域</string>
     <string name="ai">AI</string>
-    <string name="ai_settings_summary">Android 侧共享 AI 模型配置，供功能件直接复用</string>
+    <string name="ai_settings_summary">给功能件配置共享 AI：打开后启用它，并填写 Base URL、API key、模型名称</string>
+    <string name="ai_get_started_category">首次配置</string>
+    <string name="ai_get_started_title">安装后先配共享 AI</string>
+    <string name="ai_get_started_summary">装好 AI 类功能件后，先在下方打开“共享 Android AI”，再填写 Base URL、API key（如果你的 provider 需要）和模型名称，然后回到功能件页面重试。</string>
+    <string name="ai_get_started_examples">Provider 示例</string>
+    <string name="ai_get_started_examples_summary">例如：Ollama 可填 http://127.0.0.1:11434/v1，也可以填 OpenAI-compatible 网关或你自己的托管代理。宿主会自动追加 /chat/completions。</string>
     <string name="ai_status_category">当前状态</string>
     <string name="ai_status_runtime">共享 Android AI 运行时</string>
     <string name="ai_status_runtime_disabled_summary">共享 Android AI 当前关闭。功能件会回退到远程宿主路由或本地示例输出。</string>
@@ -369,6 +374,8 @@
     <string name="function_kit_manager_general_category">通用</string>
     <string name="function_kit_manager_kits_category">已安装功能件</string>
     <string name="function_kit_manager_kit_category">功能件</string>
+    <string name="function_kit_manager_shared_ai_title">共享 AI 设置</string>
+    <string name="function_kit_manager_shared_ai_summary">AI 类功能件会直接复用“设置 → AI”。去那里填写 Base URL、API key 和模型名称即可。</string>
     <string name="function_kit_manager_enabled_toggle">启用</string>
     <string name="function_kit_manager_pin_to_toolbar">固定到工具栏</string>
     <string name="function_kit_manager_pin_to_toolbar_summary">将该功能件作为工具栏固定入口，优先展示。</string>
@@ -382,6 +389,12 @@
     <string name="function_kit_manager_bindings_empty_title">未声明动作</string>
     <string name="function_kit_manager_bindings_empty_summary">该功能件未声明任何可触发的动作（bindings）。</string>
     <string name="function_kit_manager_description">描述</string>
+    <string name="function_kit_detail_ai_category">共享 AI</string>
+    <string name="function_kit_detail_ai_status_title">AI 运行时状态</string>
+    <string name="function_kit_detail_ai_status_missing_summary">这个功能件会使用共享 Android AI。请先打开 AI 设置，填写 Base URL、API key（如需要）和模型名称，再回来重试。</string>
+    <string name="function_kit_detail_ai_status_ready_summary">共享 Android AI 已就绪：%1$s · %2$s · 超时 %3$d 秒。</string>
+    <string name="function_kit_detail_ai_open_settings">打开 AI 设置</string>
+    <string name="function_kit_detail_ai_open_settings_summary">在这里启用共享 Android AI，并编辑这个功能件会复用的 provider 配置。</string>
     <string name="function_kit_manager_permissions_category">运行时权限</string>
     <string name="function_kit_manager_permissions_empty_title">未声明权限</string>
     <string name="function_kit_manager_permissions_empty_summary">该功能件未声明任何运行时权限。</string>
