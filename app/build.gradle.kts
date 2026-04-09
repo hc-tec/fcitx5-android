@@ -227,7 +227,7 @@ val functionKitCatalogDir = functionKitWorkspaceRoot?.resolve("function-kits")
 // Keep devtools and temporary kits out of release builds. Public/public-ish kits can still be installed later
 // via Download Center when we don't want them prebundled in the APK.
 val functionKitAlwaysExcludedIds = setOf("bridge-debugger")
-val functionKitReleaseBundledIds = setOf("chat-auto-reply", "quick-phrases", "kit-store")
+val functionKitReleaseBundledIds = setOf("kit-store")
 val functionKitDirectories =
     functionKitCatalogDir
         ?.listFiles()
@@ -260,8 +260,15 @@ fun registerFunctionKitAssetsTask(
     duplicatesStrategy = DuplicatesStrategy.INCLUDE
     doFirst {
         val fallbackRoot = fallbackDir.get().asFile
+        val placeholderKitId =
+            bundledDirectories.firstOrNull()?.name
+                ?: if (variantLabel == "release") "kit-store" else "chat-auto-reply"
+        val placeholderKitName =
+            placeholderKitId
+                .split('-')
+                .joinToString(" ") { part -> part.replaceFirstChar(Char::titlecase) }
         val placeholderManifest =
-            fallbackRoot.resolve("function-kits/chat-auto-reply/manifest.json")
+            fallbackRoot.resolve("function-kits/$placeholderKitId/manifest.json")
         placeholderManifest.parentFile.mkdirs()
         placeholderManifest.writeText(
             // Keep this placeholder kit extremely small: it is only used when the Function Kit
@@ -269,8 +276,8 @@ fun registerFunctionKitAssetsTask(
             // Real kits will override this asset path when present.
             """
             {
-              "id": "chat-auto-reply",
-              "name": "Chat Auto Reply (Placeholder)",
+              "id": "$placeholderKitId",
+              "name": "$placeholderKitName (Placeholder)",
               "version": "0.0.0",
               "description": "Placeholder kit bundled by the host build. Clone function-kits workspace or set FUNCTION_KIT_WORKSPACE_ROOT to enable real kits.",
               "entry": { "bundle": { "html": "ui/app/index.html" } },
@@ -280,7 +287,7 @@ fun registerFunctionKitAssetsTask(
         )
 
         val placeholderEntryHtml =
-            fallbackRoot.resolve("function-kits/chat-auto-reply/ui/app/index.html")
+            fallbackRoot.resolve("function-kits/$placeholderKitId/ui/app/index.html")
         placeholderEntryHtml.parentFile.mkdirs()
         placeholderEntryHtml.writeText(
             """

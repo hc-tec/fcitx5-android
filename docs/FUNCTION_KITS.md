@@ -51,10 +51,8 @@ export FUNCTION_KIT_WORKSPACE_ROOT="$(cd .. && pwd)"
 
 If the real Function Kits are detected, debug builds bundle the available curated kits automatically.
 
-For release builds, the APK intentionally keeps only the public built-ins:
+For release builds, the APK intentionally keeps only the built-in store shell:
 
-- `chat-auto-reply`
-- `quick-phrases`
 - `kit-store`
 
-Dev/test kits such as `bridge-debugger`, `ime-hooks`, `runtime-lab`, `file-upload-lab`, and experimental bundles such as `tone-rewrite` should stay out of release and be installed through Download Center when needed.
+All other kits, including `chat-auto-reply`, `quick-phrases`, `bridge-debugger`, `ime-hooks`, `runtime-lab`, `file-upload-lab`, `tone-rewrite`, and `wx-reply`, should stay out of release and be installed through Download Center when needed.
