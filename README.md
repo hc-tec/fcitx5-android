@@ -4,13 +4,16 @@
 
 This fork is the Android host repository used by `keyflow`.
 
-- keyflow workspace / docs: `https://github.com/hc-tec/keyflow`
-- current Android host source: `https://github.com/hc-tec/fcitx5-android`
-- upstream project: `https://github.com/fcitx5-android/fcitx5-android`
+- keyflow workspace / docs: [hc-tec/keyflow](https://github.com/hc-tec/keyflow)
+- current Android host source: [hc-tec/fcitx5-android](https://github.com/hc-tec/fcitx5-android)
+- APK releases for this fork: [hc-tec/keyflow/releases](https://github.com/hc-tec/keyflow/releases)
+- upstream project: [fcitx5-android/fcitx5-android](https://github.com/fcitx5-android/fcitx5-android)
 
 ## Download
 
-[<img src="https://github.com/rubenpgrady/get-it-on-github/raw/refs/heads/main/get-it-on-github.png" alt="Git it on GitHub" width="207" height="80">](https://github.com/fcitx5-android/fcitx5-android/releases/latest)
+This fork keeps source code in `hc-tec/fcitx5-android`, while APK artifacts are published from `keyflow` releases.
+
+[<img src="https://github.com/rubenpgrady/get-it-on-github/raw/refs/heads/main/get-it-on-github.png" alt="Git it on GitHub" width="207" height="80">](https://github.com/hc-tec/keyflow/releases)
 [<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" width="207" height="80">](https://f-droid.org/packages/org.fcitx.fcitx5.android)
 [<img alt="Get it on Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" width="207" height="80">](https://play.google.com/store/apps/details?id=org.fcitx.fcitx5.android)
 
