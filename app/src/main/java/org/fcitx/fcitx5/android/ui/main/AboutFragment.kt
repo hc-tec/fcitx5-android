@@ -1,6 +1,7 @@
 /*
  * SPDX-License-Identifier: LGPL-2.1-or-later
  * SPDX-FileCopyrightText: Copyright 2021-2025 Fcitx5 for Android Contributors
+ * Modified by hc-tec on 2026-04-09: add explicit fork/upstream attribution in About.
  */
 package org.fcitx.fcitx5.android.ui.main
 

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Modified by hc-tec on 2026-04-09: add explicit fork/upstream attribution strings. -->
     <string name="app_name_release">Fcitx5</string>
     <string name="app_name_debug">Fcitx5 (Debug)</string>
     <string name="save">Save</string>

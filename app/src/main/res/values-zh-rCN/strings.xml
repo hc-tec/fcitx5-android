@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Modified by hc-tec on 2026-04-09: add explicit fork/upstream attribution strings. -->
     <string name="app_name_release">小企鹅输入法</string>
     <string name="app_name_debug">小企鹅输入法 (调试)</string>
     <string name="save">保存</string>
