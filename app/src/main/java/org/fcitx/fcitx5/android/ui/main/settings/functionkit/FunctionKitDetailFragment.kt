@@ -119,6 +119,17 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
             }
         screen.addPreference(kitCategory)
 
+        kitCategory.addPreference(
+            Preference(context).apply {
+                setup(
+                    title = FunctionKitRegistry.displayName(context, kit),
+                    summary = buildKitHeaderSummary()
+                )
+                isSelectable = false
+                applyFunctionKitPreferenceIcon(kit, targetSizePx = 128)
+            }
+        )
+
         enabledPreference =
             MySwitchPreference(context).apply {
                 key = "function_kit_kit_enabled:${kit.id}"
@@ -154,19 +165,6 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
                 }
             }
         kitCategory.addPreference(pinnedPreference)
-
-        kit.description?.takeIf { it.isNotBlank() }?.let { description ->
-            kitCategory.addPreference(
-                Preference(context).apply {
-                    setup(
-                        title = getString(R.string.function_kit_manager_description),
-                        summary = description.trim()
-                    )
-                    isSelectable = false
-                    isIconSpaceReserved = false
-                }
-            )
-        }
 
         if (FunctionKitPackageManager.isUserInstalled(context, kit.id)) {
             kitCategory.addPreference(
@@ -565,6 +563,20 @@ class FunctionKitDetailFragment : PaddingPreferenceFragment() {
         manifest.runtimePermissions.any { permission ->
             permission == "ai.request" || permission == "candidates.regenerate"
         } || manifest.ai.executionMode == "direct-model"
+
+    private fun buildKitHeaderSummary(): String =
+        buildString {
+            append("id=")
+            append(kit.id)
+            kit.version?.trim()?.takeIf { it.isNotBlank() }?.let { version ->
+                append(" · v=")
+                append(version)
+            }
+            kit.description?.trim()?.takeIf { it.isNotBlank() }?.let { description ->
+                append('\n')
+                append(description)
+            }
+        }
 
     private fun showUninstallDialog() {
         val context = requireContext()

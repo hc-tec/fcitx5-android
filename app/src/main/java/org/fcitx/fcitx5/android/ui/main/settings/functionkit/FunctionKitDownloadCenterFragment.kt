@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitPackageManager
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitRegistry
 import org.fcitx.fcitx5.android.ui.common.PaddingPreferenceFragment
 import org.fcitx.fcitx5.android.ui.common.withLoadingDialog
 import org.fcitx.fcitx5.android.ui.main.settings.SettingsRoute
@@ -135,6 +136,10 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
     private fun renderUi(screen: PreferenceScreen) {
         val context = screen.context
         screen.removeAll()
+        val installedById =
+            FunctionKitRegistry
+                .listInstalled(context)
+                .associateBy { it.id }
 
         val catalogCategory =
             PreferenceCategory(context).apply {
@@ -216,7 +221,7 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
                         title = title,
                         summary = summary
                     )
-                    isIconSpaceReserved = false
+                    installedById[pkg.kitId]?.let { applyFunctionKitPreferenceIcon(it, targetSizePx = 96) }
                     setOnPreferenceClickListener {
                         lifecycleScope.launch { installCatalogPackage(pkg) }
                         true
@@ -287,7 +292,7 @@ class FunctionKitDownloadCenterFragment : PaddingPreferenceFragment() {
                             title = kit.name,
                             summary = "id=${kit.id}"
                         )
-                        isIconSpaceReserved = false
+                        applyFunctionKitPreferenceIcon(kit, targetSizePx = 96)
                         setOnPreferenceClickListener {
                             navigateWithAnim(SettingsRoute.FunctionKitDetail(kitId = kit.id))
                             true

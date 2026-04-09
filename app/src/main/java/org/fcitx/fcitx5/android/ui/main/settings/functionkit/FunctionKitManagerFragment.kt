@@ -111,7 +111,10 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
                     title = getString(R.string.function_kit_download_center),
                     summary = getString(R.string.function_kit_download_center_summary)
                 )
-                isIconSpaceReserved = false
+                FunctionKitRegistry
+                    .listInstalled(context)
+                    .firstOrNull { it.id == "kit-store" }
+                    ?.let { applyFunctionKitPreferenceIcon(it, targetSizePx = 96) }
                 setOnPreferenceClickListener {
                     navigateWithAnim(SettingsRoute.FunctionKitDownloadCenter)
                     true
@@ -390,7 +393,7 @@ class FunctionKitManagerFragment : PaddingPreferenceFragment() {
                         title = FunctionKitRegistry.displayName(context, kit),
                         summary = summary
                     )
-                    isIconSpaceReserved = false
+                    applyFunctionKitPreferenceIcon(kit, targetSizePx = 96)
                     setOnPreferenceClickListener {
                         navigateWithAnim(
                             org.fcitx.fcitx5.android.ui.main.settings.SettingsRoute.FunctionKitDetail(
