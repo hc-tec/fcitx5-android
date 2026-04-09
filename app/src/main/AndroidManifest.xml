@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <!-- Modified by hc-tec on 2026-04-09: derive task affinity from the keyflow applicationId. -->
 
     <!-- remove unused permission from AppCompat -->
     <permission
@@ -71,7 +72,7 @@
             android:name=".input.functionkit.FunctionKitFilePickerActivity"
             android:excludeFromRecents="true"
             android:exported="false"
-            android:taskAffinity="org.fcitx.fcitx5.android.functionkit.picker"
+            android:taskAffinity="${applicationId}.functionkit.picker"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
             android:name=".ui.main.MainActivity"

@@ -1,12 +1,16 @@
 /*
  * SPDX-License-Identifier: LGPL-2.1-or-later
  * SPDX-FileCopyrightText: Copyright 2021-2026 Fcitx5 for Android Contributors
+ * Modified by hc-tec on 2026-04-09: point plugin host integration at the keyflow applicationId.
  */
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.kotlin.dsl.configure
+
+private const val MAIN_APPLICATION_ID = "io.github.hctec.keyflow"
+private const val MAIN_DEBUG_APPLICATION_ID = "$MAIN_APPLICATION_ID.debug"
 
 /**
  * Register `assemble${Variant}Plugins` task for root project,
@@ -21,18 +25,18 @@ class AndroidPluginAppConventionPlugin : Plugin<Project> {
             }
             buildTypes {
                 release {
-                    buildConfigField("String", "MAIN_APPLICATION_ID", "\"org.fcitx.fcitx5.android\"")
+                    buildConfigField("String", "MAIN_APPLICATION_ID", "\"$MAIN_APPLICATION_ID\"")
                     addManifestPlaceholders(
                         mapOf(
-                            "mainApplicationId" to "org.fcitx.fcitx5.android",
+                            "mainApplicationId" to MAIN_APPLICATION_ID,
                         )
                     )
                 }
                 debug {
-                    buildConfigField("String", "MAIN_APPLICATION_ID", "\"org.fcitx.fcitx5.android.debug\"")
+                    buildConfigField("String", "MAIN_APPLICATION_ID", "\"$MAIN_DEBUG_APPLICATION_ID\"")
                     addManifestPlaceholders(
                         mapOf(
-                            "mainApplicationId" to "org.fcitx.fcitx5.android.debug",
+                            "mainApplicationId" to MAIN_DEBUG_APPLICATION_ID,
                         )
                     )
                 }

@@ -1,3 +1,4 @@
+// Modified by hc-tec on 2026-04-09: switch the packaged Android applicationId to keyflow.
 import groovy.json.JsonSlurper
 import org.gradle.api.tasks.Sync
 import java.io.File
@@ -416,7 +417,7 @@ android {
     namespace = "org.fcitx.fcitx5.android"
 
     defaultConfig {
-        applicationId = "org.fcitx.fcitx5.android"
+        applicationId = "io.github.hctec.keyflow"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         @Suppress("UnstableApiUsage")

@@ -1,14 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-
-    <queries tools:node="remove">
-        <package android:name="org.fcitx.fcitx5.android" />
-    </queries>
-
-    <queries>
-        <package android:name="org.fcitx.fcitx5.android.debug" />
-    </queries>
+    <!-- Modified by hc-tec on 2026-04-09: keep only debug-specific activity flags after placeholder-based host wiring. -->
 
     <application>
         <activity
@@ -16,13 +9,6 @@
             android:directBootAware="true"
             android:exported="true"
             android:theme="@style/DeviceSettingsTheme"
-            tools:targetApi="24">
-            <intent-filter tools:node="remove">
-                <action android:name="org.fcitx.fcitx5.android.plugin.MANIFEST" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="org.fcitx.fcitx5.android.debug.plugin.MANIFEST" />
-            </intent-filter>
-        </activity>
+            tools:targetApi="24" />
     </application>
 </manifest>

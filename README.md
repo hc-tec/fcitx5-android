@@ -7,6 +7,7 @@ This fork is the Android host repository used by `keyflow`.
 - keyflow workspace / docs: [hc-tec/keyflow](https://github.com/hc-tec/keyflow)
 - current Android host source: [hc-tec/fcitx5-android](https://github.com/hc-tec/fcitx5-android)
 - APK releases for this fork: [hc-tec/keyflow/releases](https://github.com/hc-tec/keyflow/releases)
+- current package name for this fork: `io.github.hctec.keyflow`
 - upstream project: [fcitx5-android/fcitx5-android](https://github.com/fcitx5-android/fcitx5-android)
 
 ## Download
@@ -20,20 +21,8 @@ This fork keeps source code in `hc-tec/fcitx5-android`, while APK artifacts are 
 You can also download the **latest CI build** on our Jeninks server: [![build status](https://img.shields.io/jenkins/build.svg?jobUrl=https://jenkins.fcitx-im.org/job/android/job/fcitx5-android/)](https://jenkins.fcitx-im.org/job/android/job/fcitx5-android/)
 
 > [!NOTE]
-> APKs downloaded from GitHub Release/F-Droid/Jenkins have the same signature, which means they're compatible when upgrading, but Google Play's do not.
-> <details>
-> <summary>(click here for detailed signature info)</summary>
-> <ul>
-> <li>Package Name: <code>org.fcitx.fcitx5.android</code></li>
-> <li>Certificate SHA-256 fingerprint:</li>
-> <ul>
-> <li>GitHub Release/Jenkins/F-Droid</li>
-> <code>E4:DB:1E:9E:DF:F1:36:29:D0:7D:E4:BB:F8:16:5F:E9:BD:85:57:AB:55:09:26:72:DA:8E:40:DB:E4:84:EC:D7</code>
-> <li>Google Play</li>
-> <code>06:53:6F:F6:E8:76:C0:14:E1:4B:44:6F:61:FA:2B:80:9E:06:67:39:A1:D1:17:0D:0A:7A:89:88:4C:48:00:33</code>
-> </ul>
-> </ul>
-> </details>
+> This fork publishes installable APKs through `keyflow` releases and uses package name `io.github.hctec.keyflow`.
+> The F-Droid / Google Play badges above point to the upstream app `org.fcitx.fcitx5.android`, not this fork.
 
 In case you want Fcitx5 on other platforms: [macOS](https://github.com/fcitx-contrib/fcitx5-macos), [iOS](https://github.com/fcitx-contrib/fcitx5-ios), [HarmonyOS](https://github.com/fcitx-contrib/fcitx5-harmony), [ChromeOS](https://github.com/fcitx-contrib/fcitx5-chrome), [Windows](https://github.com/fcitx-contrib/fcitx5-windows); or [try Fcitx5 in the browser](https://fcitx-contrib.github.io/online/index.html)
 
