@@ -4782,15 +4782,17 @@ class FunctionKitWindow(
                 )
             }
 
+            val catalogPackageDir = extractNpmCatalogPackage(
+                source = source,
+                resolved = resolved,
+                tgzFile = tgzFile
+            )
+            val catalogFile = catalogPackageDir.resolve("catalog.json")
             val catalogJson =
-                runCatching {
-                    FunctionKitTgz.extractUtf8TextFileOrNull(
-                        tgzFile = tgzFile,
-                        pathInTgz = "package/catalog.json",
-                        maxBytes = MaxCatalogIndexBytes
-                    )
-                }.getOrNull()
-                    ?: throw RemoteInferenceException(
+                if (catalogFile.isFile) {
+                    catalogFile.inputStream().use { readUtf8Limited(it, MaxCatalogIndexBytes) }
+                } else {
+                    throw RemoteInferenceException(
                         code = "catalog_npm_missing_catalog_json",
                         message = "npm catalog package does not contain package/catalog.json.",
                         retryable = false,
@@ -4799,6 +4801,7 @@ class FunctionKitWindow(
                                 .put("packageName", packageName)
                                 .put("version", resolved.version)
                     )
+                }
 
             val root =
                 runCatching { JSONObject(catalogJson) }
@@ -4827,13 +4830,65 @@ class FunctionKitWindow(
             val packages = mutableListOf<JSONObject>()
             for (index in 0 until packagesNode.length()) {
                 val item = packagesNode.optJSONObject(index) ?: continue
-                normalizeCatalogPackageItem(item, source)?.let(packages::add)
+                normalizeCatalogPackageItem(
+                    item = item,
+                    source = source,
+                    npmCatalogPackageDir = catalogPackageDir
+                )?.let(packages::add)
             }
 
             return packages
         } finally {
             runCatching { tgzFile.delete() }
         }
+    }
+
+    private fun extractNpmCatalogPackage(
+        source: String,
+        resolved: NpmResolvedDist,
+        tgzFile: File
+    ): File {
+        val cacheRoot =
+            File(FunctionKitPackageManager.kitsRootDir(context), CatalogCacheDirectoryName).apply {
+                mkdirs()
+            }
+        val cacheKey = sha256HexString("npm-catalog:${source.trim()}:${resolved.packageName}@${resolved.version}")
+        val targetDir = File(cacheRoot, cacheKey)
+
+        runCatching { targetDir.deleteRecursively() }
+        if (!targetDir.mkdirs() && !targetDir.isDirectory) {
+            throw RemoteInferenceException(
+                code = "catalog_npm_cache_failed",
+                message = "Failed to create npm catalog cache directory.",
+                retryable = false,
+                details =
+                    JSONObject()
+                        .put("packageName", resolved.packageName)
+                        .put("version", resolved.version)
+            )
+        }
+
+        try {
+            FunctionKitTgz.extractNpmPackageToDir(
+                tgzFile = tgzFile,
+                outDir = targetDir,
+                maxEntries = MaxCatalogNpmPackageEntries,
+                maxBytes = MaxCatalogNpmPackageBytes
+            )
+        } catch (error: Throwable) {
+            runCatching { targetDir.deleteRecursively() }
+            throw RemoteInferenceException(
+                code = "catalog_npm_extract_failed",
+                message = "Failed to extract npm catalog package: ${error.message ?: error::class.java.simpleName}",
+                retryable = false,
+                details =
+                    JSONObject()
+                        .put("packageName", resolved.packageName)
+                        .put("version", resolved.version)
+            )
+        }
+
+        return targetDir
     }
 
     private fun parseNpmPackageSpec(spec: String): Pair<String, String?> {
@@ -5113,9 +5168,123 @@ class FunctionKitWindow(
         return uri.buildUpon().scheme(scheme).authority(authority).build().toString()
     }
 
+    private data class CatalogIconInfo(
+        val icon: String?,
+        val preferredIconAssetPath: String?,
+        val icons: JSONObject
+    )
+
+    private fun normalizeCatalogIconInfo(
+        item: JSONObject,
+        source: String,
+        npmCatalogPackageDir: File?
+    ): CatalogIconInfo {
+        val rewrittenIcons = JSONObject()
+        val sizedIcons = mutableListOf<Pair<Int, String>>()
+
+        val icons = item.optJSONObject("icons")
+        if (icons != null) {
+            val keys = icons.keys()
+            while (keys.hasNext()) {
+                val sizeKey = keys.next()
+                val rewritten = resolveCatalogIconPath(
+                    rawPath = icons.optString(sizeKey).trim(),
+                    source = source,
+                    npmCatalogPackageDir = npmCatalogPackageDir
+                ) ?: continue
+                rewrittenIcons.put(sizeKey, rewritten)
+                sizeKey.toIntOrNull()?.takeIf { it > 0 }?.let { size ->
+                    sizedIcons += size to rewritten
+                }
+            }
+        }
+
+        val explicitIcon =
+            resolveCatalogIconPath(
+                rawPath = item.optString("icon").trim(),
+                source = source,
+                npmCatalogPackageDir = npmCatalogPackageDir
+            )
+        val preferred =
+            explicitIcon
+                ?: sizedIcons
+                    .sortedWith(
+                        compareBy<Pair<Int, String>>(
+                            { (size) -> if (size >= PreferredCatalogIconSizePx) 0 else 1 },
+                            { (size) -> kotlin.math.abs(size - PreferredCatalogIconSizePx) },
+                            { (size) -> -size }
+                        )
+                    )
+                    .firstOrNull()
+                    ?.second
+
+        return CatalogIconInfo(
+            icon = explicitIcon ?: preferred,
+            preferredIconAssetPath = preferred,
+            icons = rewrittenIcons
+        )
+    }
+
+    private fun resolveCatalogIconPath(
+        rawPath: String,
+        source: String,
+        npmCatalogPackageDir: File?
+    ): String? {
+        val raw = rawPath.trim()
+        if (raw.isBlank()) {
+            return null
+        }
+        if (raw.startsWith("http://") || raw.startsWith("https://")) {
+            return raw
+        }
+        if (raw.startsWith("function-kits/")) {
+            return raw
+        }
+
+        val relative = normalizePackageSidecarPath(raw) ?: return null
+        if (npmCatalogPackageDir != null) {
+            val target = File(npmCatalogPackageDir, relative)
+            val canonicalRoot = runCatching { npmCatalogPackageDir.canonicalFile }.getOrNull() ?: return null
+            val canonicalTarget = runCatching { target.canonicalFile }.getOrNull() ?: return null
+            if (!canonicalTarget.path.startsWith(canonicalRoot.path + File.separator) || !canonicalTarget.isFile) {
+                return null
+            }
+            return "function-kits/$CatalogCacheDirectoryName/${npmCatalogPackageDir.name}/$relative"
+        }
+
+        return if (source.startsWith("http://") || source.startsWith("https://")) {
+            resolveCatalogRelativeUrl(URL(source), relative)
+        } else {
+            null
+        }
+    }
+
+    private fun resolveCatalogRelativeUrl(
+        base: URL,
+        maybeRelative: String
+    ): String = runCatching { URL(base, maybeRelative).toString() }.getOrDefault(maybeRelative)
+
+    private fun normalizePackageSidecarPath(rawPath: String): String? {
+        val normalized =
+            rawPath
+                .replace('\\', '/')
+                .trim()
+                .trimStart('/')
+                .removePrefix("package/")
+        if (normalized.isBlank()) {
+            return null
+        }
+        val segments = normalized.split('/')
+        if (segments.any { it.isBlank() || it == "." || it == ".." }) {
+            return null
+        }
+        return segments.joinToString("/")
+    }
+
     private fun normalizeCatalogPackageItem(
         item: JSONObject,
-        source: String
+        source: String,
+        npmCatalogPackageDir: File? = null
     ): JSONObject? {
         val kitId =
             item.optString("kitId").trim().ifBlank {
@@ -5139,6 +5308,7 @@ class FunctionKitWindow(
             }
 
         val description = item.optString("description").trim().ifBlank { null }
+        val iconInfo = normalizeCatalogIconInfo(item, source, npmCatalogPackageDir)
         val tag = item.optString("tag").trim().ifBlank { null }
         val tags =
             item.optJSONArray("tags")
@@ -5226,6 +5396,11 @@ class FunctionKitWindow(
         }
         if (description != null) {
             normalized.put("description", description)
+        }
+        iconInfo.icon?.let { normalized.put("icon", it) }
+        iconInfo.preferredIconAssetPath?.let { normalized.put("preferredIconAssetPath", it) }
+        if (iconInfo.icons.length() > 0) {
+            normalized.put("icons", iconInfo.icons)
         }
         if (tag != null) {
             normalized.put("tag", tag)
@@ -6722,6 +6897,10 @@ class FunctionKitWindow(
         private const val MaxCatalogIndexBytes = 2L * 1024L * 1024L
         private const val MaxNpmMetaBytes = 4L * 1024L * 1024L
         private const val MaxCatalogNpmTgzBytes = 8L * 1024L * 1024L
+        private const val MaxCatalogNpmPackageEntries = 512
+        private const val MaxCatalogNpmPackageBytes = 16L * 1024L * 1024L
+        private const val CatalogCacheDirectoryName = "_catalog-cache"
+        private const val PreferredCatalogIconSizePx = 96
         private const val NpmRegistryNpmJs = "https://registry.npmjs.org/"
         private const val NpmRegistryNpmMirror = "https://registry.npmmirror.com/"
         private const val LocalDemoAgentId = "android-local-demo"
