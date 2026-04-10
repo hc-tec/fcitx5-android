@@ -254,6 +254,7 @@ class FunctionKitWindow(
         FunctionKitWebViewHost.Config(
             expectedKitId = functionKitId,
             expectedSurface = null,
+            enableDevTools = BuildConfig.DEBUG,
             kitAssetResolution =
                 if (functionKitManifest.isUserInstalled) {
                     FunctionKitWebViewHost.KitAssetResolution.InstalledFirst
