@@ -45,6 +45,7 @@ private const val DefaultLocalDomain = "function-kit.local"
 private const val DefaultAssetPathPrefix = "/assets/"
 private const val DefaultBridgeName = "AndroidFunctionKitHost"
 private const val DefaultLegacyBridgeName = "AndroidFunctionKitLegacyHost"
+private const val CatalogCacheDirectoryName = "_catalog-cache"
 private const val LogTag = "FunctionKitWebViewHost"
 private const val RecentReplyProxyLimit = 64
 private const val VerboseFunctionKitHostLogs = false
@@ -221,6 +222,9 @@ class FunctionKitWebViewHost(
                 when (config.kitAssetResolution) {
                     KitAssetResolution.BundledOnly ->
                         FunctionKitBundledOnlyPathHandler(
+                            context = context,
+                            installRootDir = installRootDir,
+                            expectedKitId = config.expectedKitId?.trim()?.takeIf { it.isNotBlank() },
                             fallback = assetsHandler
                         )
                     else ->
@@ -303,8 +307,14 @@ class FunctionKitWebViewHost(
     }
 
     private class FunctionKitBundledOnlyPathHandler(
+        private val context: Context,
+        private val installRootDir: File,
+        private val expectedKitId: String?,
         private val fallback: WebViewAssetLoader.PathHandler
     ) : WebViewAssetLoader.PathHandler {
+        private val internalStorageHandler =
+            WebViewAssetLoader.InternalStoragePathHandler(context, installRootDir)
+
         override fun handle(path: String): WebResourceResponse? {
             val normalized =
                 path.replace("\\", "/")
@@ -315,6 +325,32 @@ class FunctionKitWebViewHost(
             val segments = normalized.split('/')
             if (segments.any { it.isBlank() || it == "." || it == ".." }) {
                 return null
+            }
+
+            if (segments.firstOrNull() == CatalogCacheDirectoryName) {
+                val target = File(installRootDir, normalized)
+                if (target.isFile) {
+                    return internalStorageHandler.handle("/$normalized")
+                }
+                return null
+            }
+
+            // Allow bundled kits (notably kit-store) to load other kits' user-installed assets
+            // while preventing overriding its own bundled assets.
+            if (segments.size >= 2) {
+                val kitId = segments.firstOrNull().orEmpty().trim()
+                val relative = segments.drop(1).joinToString("/").trim()
+                val shouldBlockOverride = expectedKitId != null && kitId == expectedKitId
+                if (kitId.isNotBlank() && !shouldBlockOverride && relative.isNotBlank()) {
+                    val resolved = FunctionKitPackageManager.resolveUserInstalledFile(context, kitId, relative)
+                    if (resolved != null && resolved.isFile) {
+                        val relativeToRoot =
+                            runCatching { resolved.relativeTo(installRootDir).path.replace('\\', '/') }.getOrNull()
+                        if (!relativeToRoot.isNullOrBlank()) {
+                            return internalStorageHandler.handle("/$relativeToRoot")
+                        }
+                    }
+                }
             }
 
             return fallback.handle("/function-kits/$normalized")

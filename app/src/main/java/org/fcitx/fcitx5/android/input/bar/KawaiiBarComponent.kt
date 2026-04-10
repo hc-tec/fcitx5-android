@@ -172,7 +172,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 org.fcitx.fcitx5.android.input.bar.ui.idle.ButtonsBarUi.FunctionKitToolbarButtonEntry(
                     kitId = kit.id,
                     label = FunctionKitRegistry.displayName(context, kit),
-                    iconAssetPath = kit.preferredIconAssetPath(48)
+                    iconAssetPath = kit.preferredIconAssetPath(128)
                 )
             }
     }

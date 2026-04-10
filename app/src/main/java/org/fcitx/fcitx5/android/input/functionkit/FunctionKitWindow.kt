@@ -4458,6 +4458,10 @@ class FunctionKitWindow(
                     )
                 }
 
+                if (url.startsWith("npm:", ignoreCase = true)) {
+                    return executeNpmKitInstall(JSONObject(source.toString()).put("kind", "npm").put("spec", url))
+                }
+
                 val maxBytes =
                     source.optLong("maxBytes")
                         .takeIf { it > 0 }
@@ -4516,6 +4520,7 @@ class FunctionKitWindow(
                     runCatching { tempZip.delete() }
                 }
             }
+            "npm" -> executeNpmKitInstall(source)
             "catalog" -> {
                 val catalogUrl = source.optString("catalogUrl").trim()
                 val kitId = source.optString("kitId").trim()
@@ -4558,6 +4563,124 @@ class FunctionKitWindow(
                     retryable = false,
                     details = JSONObject().put("kind", kind)
                 )
+        }
+    }
+
+    private fun executeNpmKitInstall(source: JSONObject): FunctionKitPackageManager.InstallOutcome {
+        val rawSpec =
+            source.optString("spec").trim()
+                .ifBlank { source.optString("package").trim() }
+                .ifBlank { source.optString("url").trim() }
+        if (!rawSpec.startsWith("npm:", ignoreCase = true)) {
+            throw RemoteInferenceException(
+                code = "kits_install_npm_invalid_source",
+                message = "kits.install source.kind=npm requires source.spec like npm:<packageName[@version]>.",
+                retryable = false,
+                details = JSONObject().put("source", rawSpec)
+            )
+        }
+
+        val specWithQuery = rawSpec.substringAfter("npm:", missingDelimiterValue = "").trim()
+        if (specWithQuery.isBlank()) {
+            throw RemoteInferenceException(
+                code = "kits_install_npm_invalid_source",
+                message = "npm: source must be npm:<packageName[@version]>",
+                retryable = false,
+                details = JSONObject().put("source", rawSpec)
+            )
+        }
+
+        val specPart = specWithQuery.substringBefore('?').trim()
+        val queryPart = specWithQuery.substringAfter('?', missingDelimiterValue = "").trim()
+        val queryRegistryOverride =
+            runCatching {
+                Uri.parse("https://keyflow.local/?$queryPart").getQueryParameter("registry")
+            }.getOrNull()
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        val registryOverride =
+            source.optString("registry").trim().takeIf { it.isNotBlank() }
+                ?: queryRegistryOverride
+
+        val (packageName, requestedVersionOrTag) =
+            parseNpmPackageSpec(specPart, errorCode = "kits_install_npm_invalid_source")
+        val resolved = resolveNpmDistFromRegistries(packageName, requestedVersionOrTag, registryOverride)
+        val expectedIntegrity = resolved.integrity.trim()
+        if (expectedIntegrity.isBlank()) {
+            throw RemoteInferenceException(
+                code = "kits_install_npm_missing_integrity",
+                message = "NPM tarball missing dist.integrity.",
+                retryable = false,
+                details =
+                    JSONObject()
+                        .put("packageName", packageName)
+                        .put("version", resolved.version)
+                        .put("registry", resolved.registry)
+            )
+        }
+
+        val downloadUrls =
+            listOfNotNull(
+                resolved.tarballUrl,
+                rewriteUrlHost(resolved.tarballUrl, NpmRegistryNpmMirror),
+                rewriteUrlHost(resolved.tarballUrl, NpmRegistryNpmJs)
+            ).distinct()
+
+        val maxBytes =
+            source.optLong("maxBytes")
+                .takeIf { it > 0 }
+                ?: MaxStoreZipBytes
+
+        var tempTgz: File? = null
+        var downloadError: String? = null
+        for (downloadUrl in downloadUrls) {
+            val download = downloadToTempZip(urlString = downloadUrl, maxBytes = maxBytes)
+            val file = download.file
+            if (file != null) {
+                tempTgz = file
+                downloadError = null
+                break
+            }
+            downloadError = download.errorMessage ?: "download failed"
+        }
+
+        val tgzFile =
+            tempTgz
+                ?: throw RemoteInferenceException(
+                    code = "kits_install_npm_tarball_download_failed",
+                    message = "Failed to download npm kit package: ${downloadError ?: resolved.tarballUrl}",
+                    retryable = true,
+                    details =
+                        JSONObject()
+                            .put("source", rawSpec)
+                            .put("packageName", packageName)
+                            .put("version", resolved.version)
+                )
+
+        try {
+            val actualIntegrity = sriIntegrityForFile(tgzFile, expectedIntegrity)
+            if (!equalsIntegrity(expectedIntegrity, actualIntegrity)) {
+                throw RemoteInferenceException(
+                    code = "kits_install_npm_integrity_mismatch",
+                    message = "NPM kit package integrity mismatch.",
+                    retryable = false,
+                    details =
+                        JSONObject()
+                            .put("packageName", packageName)
+                            .put("version", resolved.version)
+                            .put("expectedIntegrity", expectedIntegrity)
+                            .put("actualIntegrity", actualIntegrity)
+                )
+            }
+
+            val installKey =
+                source.optString("installKey").trim().ifBlank {
+                    "npm:${resolved.packageName}@${resolved.version}"
+                }
+
+            return FunctionKitPackageManager.installFromTgzFile(context, tgzFile, installKey = installKey)
+        } finally {
+            runCatching { tgzFile.delete() }
         }
     }
 
@@ -4891,11 +5014,14 @@ class FunctionKitWindow(
         return targetDir
     }
 
-    private fun parseNpmPackageSpec(spec: String): Pair<String, String?> {
+    private fun parseNpmPackageSpec(
+        spec: String,
+        errorCode: String = "catalog_npm_invalid_source"
+    ): Pair<String, String?> {
         val raw = spec.trim()
         if (raw.isBlank()) {
             throw RemoteInferenceException(
-                code = "catalog_npm_invalid_source",
+                code = errorCode,
                 message = "npm: source missing package name.",
                 retryable = false
             )
@@ -4913,7 +5039,7 @@ class FunctionKitWindow(
 
         if (name.isBlank()) {
             throw RemoteInferenceException(
-                code = "catalog_npm_invalid_source",
+                code = errorCode,
                 message = "npm: package name is blank.",
                 retryable = false,
                 details = JSONObject().put("spec", spec)

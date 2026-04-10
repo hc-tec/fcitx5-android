@@ -36,10 +36,13 @@ class ToolButton(context: Context) : CustomGestureView(context) {
         val disableAnimation by AppPrefs.getInstance().advanced.disableAnimation
     }
 
+    private val defaultIconPaddingPx = dp(10)
+    private val assetIconPaddingPx = dp(4)
+
     val image = imageView {
         isClickable = false
         isFocusable = false
-        padding = dp(10)
+        padding = defaultIconPaddingPx
         scaleType = ImageView.ScaleType.CENTER_INSIDE
     }
 
@@ -92,6 +95,7 @@ class ToolButton(context: Context) : CustomGestureView(context) {
     }
 
     fun setIcon(@DrawableRes icon: Int) {
+        image.padding = defaultIconPaddingPx
         image.imageTintList = defaultImageTintList
         image.imageResource = icon
         image.visibility = VISIBLE
@@ -99,6 +103,7 @@ class ToolButton(context: Context) : CustomGestureView(context) {
     }
 
     fun setAssetIcon(drawable: Drawable) {
+        image.padding = assetIconPaddingPx
         image.imageTintList = null
         image.setImageDrawable(drawable)
         image.visibility = VISIBLE
