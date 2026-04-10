@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Modified by hc-tec on 2026-04-09: add explicit fork/upstream attribution strings. -->
-    <string name="app_name_release">小企鵝輸入法</string>
-    <string name="app_name_debug">小企鵝輸入法 (除錯)</string>
+    <string name="app_name_release">Keyflow</string>
+    <string name="app_name_debug">Keyflow (除錯)</string>
     <string name="save">儲存</string>
     <string name="input_methods">輸入法</string>
     <string name="add_input_method">新增輸入法</string>
