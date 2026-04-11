@@ -160,6 +160,9 @@ internal object FunctionKitPackageManager {
         if (!KitIdRegex.matches(kitId)) {
             return InstallOutcome.Error("Invalid kit id: $kitId")
         }
+        if (kitId == "kit-store") {
+            return InstallOutcome.Error("下载中心是内置组件，不能通过安装包更新，请升级 Keyflow APK。")
+        }
 
         val normalizedInstallKey = installKey?.trim()?.takeIf { it.isNotBlank() }
         val targetDir =
@@ -284,6 +287,9 @@ internal object FunctionKitPackageManager {
             val kitId = parseKitId(manifestRaw) ?: return InstallOutcome.Error("Missing kit id in $ManifestFileName")
             if (!KitIdRegex.matches(kitId)) {
                 return InstallOutcome.Error("Invalid kit id: $kitId")
+            }
+            if (kitId == "kit-store") {
+                return InstallOutcome.Error("下载中心是内置组件，不能通过安装包更新，请升级 Keyflow APK。")
             }
 
             val normalizedInstallKey = installKey?.trim()?.takeIf { it.isNotBlank() }

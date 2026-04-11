@@ -86,6 +86,17 @@ internal object FunctionKitRegistry {
         first: FunctionKitManifest,
         second: FunctionKitManifest
     ): FunctionKitManifest {
+        // The download center is a privileged built-in kit (`kits.manage`, `files.download`).
+        // Never allow user-installed versions to shadow the bundled one, otherwise users can
+        // brick their management entry point.
+        if (first.id == "kit-store" || second.id == "kit-store") {
+            return when {
+                !first.isUserInstalled -> first
+                !second.isUserInstalled -> second
+                else -> first
+            }
+        }
+
         val cmp = compareVersions(first.version, second.version)
         if (cmp != null && cmp != 0) {
             return if (cmp > 0) first else second

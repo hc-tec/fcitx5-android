@@ -2454,6 +2454,22 @@ class FunctionKitWindow(
                 return@forEach
             }
 
+            val declaredPermissions = manifest.runtimePermissions
+            val grantedPermissions =
+                FunctionKitPermissionPolicy.grantedPermissions(
+                    requestedPermissions = declaredPermissions,
+                    prefs = functionKitPrefs,
+                    kitId = kitId
+                )
+            val permissionOverrides =
+                JSONObject().apply {
+                    declaredPermissions.forEach { permission ->
+                        FunctionKitKitSettings.getPermissionOverride(kitId, permission)?.let { value ->
+                            put(permission, value)
+                        }
+                    }
+                }
+
             kitsJson.put(
                 manifest.toJson()
                     .put("kitId", kitId)
@@ -2465,6 +2481,8 @@ class FunctionKitWindow(
                         "source",
                         if (FunctionKitPackageManager.isUserInstalled(context, kitId)) "user" else "bundled"
                     )
+                    .put("grantedPermissions", JSONArray(grantedPermissions))
+                    .put("permissionOverrides", permissionOverrides)
             )
         }
 
