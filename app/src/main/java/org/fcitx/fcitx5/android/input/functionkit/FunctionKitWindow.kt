@@ -5456,6 +5456,10 @@ class FunctionKitWindow(
                 .filter { it.isNotBlank() }
                 .distinct()
 
+        val downloadsLastWeek =
+            item.optLong("downloads_last_week")
+                .takeIf { it > 0 }
+
         val sizeBytes =
             item.optLong("sizeBytes")
                 .takeIf { it > 0 }
@@ -5540,6 +5544,9 @@ class FunctionKitWindow(
         }
         if (runtimePermissions.isNotEmpty()) {
             normalized.put("runtimePermissions", JSONArray(runtimePermissions))
+        }
+        if (downloadsLastWeek != null) {
+            normalized.put("downloads_last_week", downloadsLastWeek)
         }
         if (sizeBytes != null) {
             normalized.put("sizeBytes", sizeBytes)
