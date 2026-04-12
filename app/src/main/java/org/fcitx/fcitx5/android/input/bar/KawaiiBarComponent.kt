@@ -75,6 +75,8 @@ import org.fcitx.fcitx5.android.input.keyboard.CustomGestureView
 import org.fcitx.fcitx5.android.input.keyboard.KeyboardWindow
 import org.fcitx.fcitx5.android.input.popup.PopupComponent
 import org.fcitx.fcitx5.android.input.status.StatusAreaWindow
+import org.fcitx.fcitx5.android.input.voice.VoiceInputMode
+import org.fcitx.fcitx5.android.input.voice.VoiceInputWindow
 import org.fcitx.fcitx5.android.input.wm.InputWindow
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.AppUtil
@@ -121,6 +123,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private val showFunctionKitToolbarButton by functionKitToolbarButton
     private val toolbarNumRowOnPassword by prefs.keyboard.toolbarNumRowOnPassword
     private val showVoiceInputButton by prefs.keyboard.showVoiceInputButton
+    private val voiceInputMode by prefs.keyboard.voiceInputMode
     private val preferredVoiceInput by prefs.keyboard.preferredVoiceInput
 
     private var clipboardTimeoutJob: Job? = null
@@ -434,6 +437,10 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private val switchToVoiceInputCallback = View.OnClickListener {
         val (id, subtype) = voiceInputSubtype ?: return@OnClickListener
         InputMethodUtil.switchInputMethod(service, id, subtype)
+    }
+
+    private val openBuiltInVoiceInputCallback = View.OnClickListener {
+        windowManager.attachWindow(VoiceInputWindow())
     }
 
     private val idleUi: IdleUi by lazy {
@@ -762,10 +769,19 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         }
         voiceInputSubtype = InputMethodUtil.findVoiceSubtype(preferredVoiceInput)
         val shouldShowVoiceInput =
-            showVoiceInputButton && voiceInputSubtype != null && !capFlags.has(CapabilityFlag.Password)
+            when (voiceInputMode) {
+                VoiceInputMode.BuiltInSpeechRecognizer ->
+                    showVoiceInputButton && !capFlags.has(CapabilityFlag.Password)
+                VoiceInputMode.SystemVoiceIme ->
+                    showVoiceInputButton && voiceInputSubtype != null && !capFlags.has(CapabilityFlag.Password)
+            }
         idleUi.setHideKeyboardIsVoiceInput(
             shouldShowVoiceInput,
-            if (shouldShowVoiceInput) switchToVoiceInputCallback else hideKeyboardCallback
+            when {
+                !shouldShowVoiceInput -> hideKeyboardCallback
+                voiceInputMode == VoiceInputMode.BuiltInSpeechRecognizer -> openBuiltInVoiceInputCallback
+                else -> switchToVoiceInputCallback
+            }
         )
         evalIdleUiState()
     }

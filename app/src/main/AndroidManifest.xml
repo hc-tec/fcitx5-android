@@ -13,6 +13,7 @@
         tools:node="remove" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -68,6 +69,14 @@
         <activity
             android:name=".ui.main.CropImageActivity"
             android:exported="false" />
+        <activity
+            android:name=".input.voice.VoicePermissionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:finishOnTaskLaunch="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="${applicationId}.voice.permission"
+            android:theme="@style/Theme.DialogTheme" />
         <activity
             android:name=".input.functionkit.FunctionKitFilePickerActivity"
             android:excludeFromRecents="true"
