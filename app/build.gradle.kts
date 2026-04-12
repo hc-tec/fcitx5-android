@@ -495,6 +495,7 @@ android {
     androidResources {
         @Suppress("UnstableApiUsage")
         generateLocaleConfig = true
+        noCompress += "bin"
     }
 
     sourceSets.named("debug") {
@@ -533,6 +534,7 @@ dependencies {
     implementation(project(":lib:libime"))
     implementation(project(":lib:fcitx5-chinese-addons"))
     implementation(project(":lib:voice-core"))
+    implementation(project(":lib:whisper"))
     implementation(project(":lib:common"))
     implementation(libs.kotlinx.coroutines)
     implementation(libs.kotlinx.serialization.json)

@@ -1,8 +1,16 @@
 package org.fcitx.fcitx5.android.input.voice
 
-import android.speech.SpeechRecognizer
 import android.view.MotionEvent
 import android.view.View
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.input.FcitxInputMethodService
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
@@ -13,14 +21,16 @@ import org.fcitx.fcitx5.android.voice.core.VoiceRecognitionResult
 internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWindow>() {
     private val service: FcitxInputMethodService by manager.inputMethodService()
     private val theme by manager.theme()
-
     private val ui by lazy { VoiceInputUi(context, theme) }
 
     private var sessionId: String = ""
-    private var recognizerClient: AndroidSpeechRecognizerClient? = null
     private var latestTranscript: String = ""
     private var listening = false
     private var processing = false
+    private var recorder: WhisperAudioRecorder? = null
+    private var whisperState: WhisperModelManager.State.Ready? = null
+    private var windowScope = createWindowScope()
+    private var transcribeJob: Job? = null
 
     override val title: String by lazy {
         context.getString(R.string.voice_input_title)
@@ -32,15 +42,23 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     }
 
     override fun onAttached() {
+        if (!windowScope.isActive) {
+            windowScope = createWindowScope()
+        }
         ensureSession()
+        ensureEngineReady()
         renderIdle()
     }
 
     override fun onDetached() {
-        recognizerClient?.destroy()
-        recognizerClient = null
+        transcribeJob?.cancel()
+        transcribeJob = null
+        recorder?.cancel()
+        recorder = null
         listening = false
         processing = false
+        whisperState = null
+        windowScope.cancel()
         if (sessionId.isNotBlank()) {
             VoiceInputRuntime.sessionManager.clearSession(sessionId)
             sessionId = ""
@@ -66,84 +84,14 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
             }
         }
 
-    private val recognitionCallback =
-        object : AndroidSpeechRecognizerClient.Callback {
-            override fun onReadyForSpeech() {
-                if (listening) {
-                    ui.renderListening(latestTranscript)
-                }
-            }
-
-            override fun onPartialResult(
-                text: String,
-                confidence: Double
-            ) {
-                val processed =
-                    VoiceInputRuntime.sessionManager.processPartial(
-                        sessionId,
-                        VoiceRecognitionResult(text = text, confidence = confidence)
-                    )
-                latestTranscript = processed?.text?.ifBlank { text.trim() } ?: text.trim()
-                ui.renderListening(latestTranscript)
-            }
-
-            override fun onFinalResult(
-                text: String,
-                confidence: Double
-            ) {
-                listening = false
-                processing = false
-
-                val processed =
-                    VoiceInputRuntime.sessionManager.processFinal(
-                        sessionId,
-                        VoiceRecognitionResult(text = text, confidence = confidence)
-                    )
-                val committedText =
-                    processed?.text?.takeIf { it.isNotBlank() }
-                        ?: text.trim()
-                latestTranscript = committedText
-
-                if (committedText.isNotBlank()) {
-                    service.commitText(committedText)
-                }
-                ui.renderReady(latestTranscript)
-            }
-
-            override fun onError(error: Int) {
-                listening = false
-                processing = false
-                recognizerClient = null
-
-                when (error) {
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
-                        ui.renderPermissionRequired(
-                            View.OnClickListener {
-                                VoiceInputPermission.launchPermissionActivity(context)
-                            }
-                        )
-                    }
-                    SpeechRecognizer.ERROR_NO_MATCH,
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                        ui.renderMessage(
-                            context.getString(R.string.voice_input_no_speech),
-                            latestTranscript
-                        )
-                    }
-                    else -> {
-                        ui.renderMessage(formatRecognizerError(error), latestTranscript)
-                    }
-                }
-            }
-        }
-
     private fun startListening() {
         if (listening || processing) {
             return
         }
 
         ensureSession()
-        VoiceInputRuntime.sessionManager.updateSession(sessionId, VoiceInputContextReader.capture(service))
+        val request = VoiceInputContextReader.capture(service)
+        VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
 
         if (!VoiceInputPermission.hasRecordAudioPermission(context)) {
             ui.renderPermissionRequired(
@@ -154,37 +102,138 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
             return
         }
 
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            ui.renderUnavailable()
-            return
+        when (val state = WhisperModelManager.currentState()) {
+            is WhisperModelManager.State.Ready -> {
+                whisperState = state
+            }
+            WhisperModelManager.State.Loading,
+            WhisperModelManager.State.Uninitialized -> {
+                ensureEngineReady()
+                ui.renderLoading()
+                return
+            }
+            is WhisperModelManager.State.Error -> {
+                if (state.modelMissing) {
+                    renderIdle()
+                } else {
+                    ensureEngineReady(force = true)
+                    ui.renderLoading()
+                }
+                return
+            }
         }
 
+        val whisperRecorder =
+            runCatching { WhisperAudioRecorder().also { it.start() } }
+                .getOrElse { error ->
+                    recorder = null
+                    ui.renderMessage(
+                        context.getString(
+                            R.string.voice_input_error,
+                            error.message ?: context.getString(R.string.voice_input_engine_generic_error)
+                        ),
+                        latestTranscript
+                    )
+                    return
+                }
+
         service.finishComposing()
+        transcribeJob?.cancel()
+        recorder = whisperRecorder
         latestTranscript = ""
         listening = true
         processing = false
         ui.renderListening(latestTranscript)
-        recognizer().startListening(VoiceInputContextReader.resolveLocaleTag(service))
     }
 
     private fun stopListening() {
         if (!listening) {
             return
         }
+
+        val activeRecorder = recorder ?: return
+        recorder = null
         listening = false
         processing = true
+
+        val request = VoiceInputContextReader.capture(service)
+        VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
         ui.renderProcessing(latestTranscript)
-        recognizerClient?.stopListening()
+
+        transcribeJob?.cancel()
+        transcribeJob =
+            windowScope.launch {
+                try {
+                    val audioData = withContext(Dispatchers.IO) { activeRecorder.stop() }
+                    if (audioData.isEmpty()) {
+                        processing = false
+                        latestTranscript = ""
+                        ui.renderMessage(context.getString(R.string.voice_input_no_speech), latestTranscript)
+                        return@launch
+                    }
+
+                    val state =
+                        (WhisperModelManager.currentState() as? WhisperModelManager.State.Ready)
+                            ?: whisperState
+                    if (state == null) {
+                        processing = false
+                        ensureEngineReady(force = true)
+                        ui.renderLoading()
+                        return@launch
+                    }
+
+                    whisperState = state
+                    val rawText =
+                        state.whisperContext.transcribeData(
+                            audioData,
+                            WhisperLanguageResolver.resolve(request.locale)
+                        )
+                    commitTranscript(rawText)
+                } catch (_: CancellationException) {
+                } catch (error: Exception) {
+                    processing = false
+                    ui.renderMessage(
+                        context.getString(
+                            R.string.voice_input_error,
+                            error.message ?: context.getString(R.string.voice_input_engine_generic_error)
+                        ),
+                        latestTranscript
+                    )
+                }
+            }
     }
 
     private fun cancelListening() {
-        if (!listening && !processing) {
-            return
-        }
+        transcribeJob?.cancel()
+        transcribeJob = null
+        recorder?.cancel()
+        recorder = null
         listening = false
         processing = false
-        recognizerClient?.cancel()
-        recognizerClient = null
+        ui.renderReady(latestTranscript)
+    }
+
+    private fun commitTranscript(rawText: String) {
+        listening = false
+        processing = false
+
+        val transcript = rawText.trim().replace("\\s+".toRegex(), " ")
+        val processed =
+            VoiceInputRuntime.sessionManager.processFinal(
+                sessionId,
+                VoiceRecognitionResult(text = transcript, confidence = if (transcript.isBlank()) 0.0 else 0.75)
+            )
+        val committedText =
+            processed?.text?.takeIf { it.isNotBlank() }
+                ?: transcript
+        latestTranscript = committedText
+
+        if (committedText.isBlank()) {
+            ui.renderMessage(context.getString(R.string.voice_input_no_speech), latestTranscript)
+            return
+        }
+
+        service.commitText(committedText)
         ui.renderReady(latestTranscript)
     }
 
@@ -196,8 +245,32 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                         VoiceInputPermission.launchPermissionActivity(context)
                     }
                 )
-            !SpeechRecognizer.isRecognitionAvailable(context) -> ui.renderUnavailable()
-            else -> ui.renderReady(latestTranscript)
+            listening -> ui.renderListening(latestTranscript)
+            processing -> ui.renderProcessing(latestTranscript)
+            else ->
+                when (val state = WhisperModelManager.currentState()) {
+                    is WhisperModelManager.State.Ready -> {
+                        whisperState = state
+                        ui.renderReady(latestTranscript)
+                    }
+                    WhisperModelManager.State.Loading,
+                    WhisperModelManager.State.Uninitialized -> ui.renderLoading()
+                    is WhisperModelManager.State.Error ->
+                        ui.renderUnavailable(
+                            status =
+                                if (state.modelMissing) {
+                                    context.getString(R.string.voice_input_model_missing)
+                                } else {
+                                    context.getString(R.string.voice_input_engine_error, state.message)
+                                },
+                            hint =
+                                if (state.modelMissing) {
+                                    context.getString(R.string.voice_input_model_missing_hint)
+                                } else {
+                                    state.message
+                                }
+                        )
+                }
         }
     }
 
@@ -207,27 +280,17 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         }
     }
 
-    private fun recognizer(): AndroidSpeechRecognizerClient {
-        val existing = recognizerClient
-        if (existing != null) {
-            return existing
-        }
-        return AndroidSpeechRecognizerClient(context, recognitionCallback).also {
-            recognizerClient = it
+    private fun ensureEngineReady(force: Boolean = false) {
+        WhisperModelManager.ensureReady(context, force) { state ->
+            ui.root.post {
+                if (state is WhisperModelManager.State.Ready) {
+                    whisperState = state
+                }
+                renderIdle()
+            }
         }
     }
 
-    private fun formatRecognizerError(error: Int): String =
-        context.getString(
-            R.string.voice_input_error,
-            when (error) {
-                SpeechRecognizer.ERROR_AUDIO -> "audio"
-                SpeechRecognizer.ERROR_CLIENT -> "client"
-                SpeechRecognizer.ERROR_NETWORK -> "network"
-                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "network timeout"
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "recognizer busy"
-                SpeechRecognizer.ERROR_SERVER -> "server"
-                else -> "code=$error"
-            }
-        )
+    private fun createWindowScope(): CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 }

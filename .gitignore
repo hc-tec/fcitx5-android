@@ -3,6 +3,8 @@
 /app/src/main/assets/usr/
 # Generated asset descriptor
 /app/src/main/assets/descriptor.json
+/app/src/main/assets/models/ggml-*.bin
+/third_party/downloads/
 
 # Plugins
 # Installed data

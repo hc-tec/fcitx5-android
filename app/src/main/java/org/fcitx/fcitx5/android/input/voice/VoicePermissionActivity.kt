@@ -1,14 +1,14 @@
 package org.fcitx.fcitx5.android.input.voice
 
 import android.Manifest
+import android.app.Activity
+import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.os.Bundle
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.utils.toast
 
-class VoicePermissionActivity : AppCompatActivity() {
+class VoicePermissionActivity : Activity() {
     private var permissionDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,7 +24,7 @@ class VoicePermissionActivity : AppCompatActivity() {
                 .setTitle(R.string.voice_input_permission_title)
                 .setMessage(R.string.voice_input_permission_message)
                 .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
-                .setPositiveButton(R.string.grant_permission) { _, _ ->
+                .setPositiveButton(R.string.voice_input_grant_permission) { _, _ ->
                     requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), RequestCode)
                 }
                 .setOnCancelListener { finish() }

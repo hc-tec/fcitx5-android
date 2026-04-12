@@ -127,6 +127,16 @@ internal class VoiceInputUi(
         hideAction()
     }
 
+    fun renderLoading() {
+        statusView.text = ctx.getString(R.string.voice_input_loading_engine)
+        transcriptView.text = ctx.getString(R.string.voice_input_transcript_placeholder)
+        hintView.text = ctx.getString(R.string.voice_input_loading_engine_hint)
+        holdButton.text = ctx.getString(R.string.voice_input_loading_engine)
+        holdButton.isEnabled = false
+        holdButton.background = holdButtonBackground(active = false, enabled = false)
+        hideAction()
+    }
+
     fun renderPermissionRequired(onClickListener: View.OnClickListener) {
         statusView.text = ctx.getString(R.string.voice_input_permission_required)
         transcriptView.text = ctx.getString(R.string.voice_input_transcript_placeholder)
@@ -141,6 +151,19 @@ internal class VoiceInputUi(
         statusView.text = ctx.getString(R.string.voice_input_unavailable)
         transcriptView.text = ctx.getString(R.string.voice_input_transcript_placeholder)
         hintView.text = ctx.getString(R.string.voice_input_unavailable)
+        holdButton.text = ctx.getString(R.string.voice_input_hold_to_talk)
+        holdButton.isEnabled = false
+        holdButton.background = holdButtonBackground(active = false, enabled = false)
+        hideAction()
+    }
+
+    fun renderUnavailable(
+        status: String,
+        hint: String
+    ) {
+        statusView.text = status
+        transcriptView.text = ctx.getString(R.string.voice_input_transcript_placeholder)
+        hintView.text = hint
         holdButton.text = ctx.getString(R.string.voice_input_hold_to_talk)
         holdButton.isEnabled = false
         holdButton.background = holdButtonBackground(active = false, enabled = false)
