@@ -236,6 +236,9 @@
     <string name="voice_input_mode">语音输入提供方</string>
     <string name="voice_input_mode_builtin">内置离线引擎</string>
     <string name="voice_input_mode_system_ime">外部语音输入法</string>
+    <string name="voice_engine_preference">内置语音引擎</string>
+    <string name="voice_engine_sherpa_onnx">Sherpa-ONNX 流式</string>
+    <string name="voice_engine_whisper_cpp">Whisper.cpp 兜底</string>
     <string name="voice_model_preference">内置语音模型</string>
     <string name="voice_model_preference_auto">自动</string>
     <string name="voice_model_preference_fast">极速</string>
@@ -255,9 +258,9 @@
     <string name="voice_input_permission_granted">麦克风权限已授予。</string>
     <string name="voice_input_permission_denied">麦克风权限被拒绝。</string>
     <string name="voice_input_loading_engine">正在加载离线语音引擎…</string>
-    <string name="voice_input_loading_engine_hint">请稍候，正在准备内置 whisper.cpp 模型。</string>
-    <string name="voice_input_model_missing">当前 APK 还没有打包内置 whisper.cpp 模型。</string>
-    <string name="voice_input_model_missing_hint">请将多语言 whisper.cpp 模型，例如 app/src/main/assets/models/ggml-base.bin，放入项目后重新构建。</string>
+    <string name="voice_input_loading_engine_hint">请稍候，正在准备当前选择的内置语音引擎。</string>
+    <string name="voice_input_model_missing">当前 APK 还没有打包所选的内置语音模型。</string>
+    <string name="voice_input_model_missing_hint">请将所需模型文件放入 app/src/main/assets/models/ 后重新构建。</string>
     <string name="voice_input_engine_error">离线语音引擎失败：%1$s</string>
     <string name="voice_input_engine_generic_error">未知错误</string>
     <string name="voice_input_no_speech">没有检测到语音。</string>

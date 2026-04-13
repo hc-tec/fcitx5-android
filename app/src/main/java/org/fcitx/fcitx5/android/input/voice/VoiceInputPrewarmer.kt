@@ -3,10 +3,17 @@ package org.fcitx.fcitx5.android.input.voice
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import kotlinx.coroutines.runBlocking
+import java.util.concurrent.Executors
 
 internal object VoiceInputPrewarmer {
+    private val executor = Executors.newSingleThreadExecutor()
+
     @Volatile
     private var lastWarmupRequestElapsedMs: Long = 0L
+
+    @Volatile
+    private var warmupQueued = false
 
     fun maybePrewarm(context: Context) {
         if (!VoiceInputLauncher.shouldPrewarm()) {
@@ -19,9 +26,24 @@ internal object VoiceInputPrewarmer {
         }
         lastWarmupRequestElapsedMs = now
 
-        WhisperModelManager.ensureReady(context.applicationContext, force = false) { state ->
-            if (state !is WhisperModelManager.State.Loading) {
-                Log.i(LOG_TAG, "Background warmup finished state=${state::class.simpleName}")
+        if (warmupQueued) {
+            return
+        }
+        warmupQueued = true
+
+        val appContext = context.applicationContext
+        executor.execute {
+            try {
+                val engine = VoiceEngineFactory.create(appContext)
+                val result = runBlocking { engine.warmup(force = false) }
+                Log.i(
+                    LOG_TAG,
+                    "Background warmup finished engine=${engine.engineId} ready=${result.ready} model=${result.modelId ?: "unknown"}"
+                )
+            } catch (error: Exception) {
+                Log.w(LOG_TAG, "Background warmup failed", error)
+            } finally {
+                warmupQueued = false
             }
         }
     }

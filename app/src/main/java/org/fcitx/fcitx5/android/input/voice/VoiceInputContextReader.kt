@@ -10,6 +10,12 @@ internal object VoiceInputContextReader {
         val inputConnection = service.currentInputConnection
         val selectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
         val beforeCursor = inputConnection?.getTextBeforeCursor(64, 0)?.toString().orEmpty()
+        val hotwords =
+            VoiceContextHotwords.extract(
+                selectedText = selectedText,
+                composingText = "",
+                leftContext = beforeCursor
+            )
 
         return VoiceSessionRequest(
             locale = resolveLocaleTag(service),
@@ -17,7 +23,7 @@ internal object VoiceInputContextReader {
             leftContext = beforeCursor,
             selectedText = selectedText,
             composingText = "",
-            hotwords = emptyList()
+            hotwords = hotwords
         )
     }
 

@@ -12,18 +12,34 @@ internal class WhisperCppVoiceEngine(
     override val capabilities =
         VoiceEngineCapabilities(
             supportsStreamingPartial = true,
-            partialInitialDelayMs = 450,
-            partialPollIntervalMs = 250,
-            partialMinSamples = WhisperAudioRecorder.SAMPLE_RATE / 2,
-            partialStepSamples = WhisperAudioRecorder.SAMPLE_RATE / 5,
-            partialMaxSamples = WhisperAudioRecorder.SAMPLE_RATE * 2
+            partialInitialDelayMs = 300,
+            partialPollIntervalMs = 180,
+            partialMinSamples = WhisperAudioRecorder.SAMPLE_RATE / 3,
+            partialStepSamples = WhisperAudioRecorder.SAMPLE_RATE / 8,
+            partialMaxSamples = WhisperAudioRecorder.SAMPLE_RATE * 6 / 5,
+            partialAudioMode = VoicePartialAudioMode.RecentWindow
         )
 
-    override suspend fun warmup(force: Boolean) {
+    override suspend fun warmup(force: Boolean): VoiceEngineWarmupResult {
         val state = WhisperModelManager.awaitReady(context, force)
         Log.i(LOG_TAG, "warmup force=$force state=${state::class.simpleName}")
-        require(state is WhisperModelManager.State.Ready) {
-            (state as? WhisperModelManager.State.Error)?.message ?: "whisper.cpp engine is unavailable"
+        return when (state) {
+            is WhisperModelManager.State.Ready ->
+                VoiceEngineWarmupResult(
+                    ready = true,
+                    modelId = state.model.modelId
+                )
+            is WhisperModelManager.State.Error ->
+                VoiceEngineWarmupResult(
+                    ready = false,
+                    modelMissing = state.modelMissing,
+                    message = state.message
+                )
+            else ->
+                VoiceEngineWarmupResult(
+                    ready = false,
+                    message = "whisper.cpp engine is unavailable"
+                )
         }
     }
 
@@ -46,6 +62,8 @@ internal class WhisperCppVoiceEngine(
         require(state is WhisperModelManager.State.Ready) {
             (state as? WhisperModelManager.State.Error)?.message ?: "whisper.cpp engine is unavailable"
         }
+        val readyState = state as WhisperModelManager.State.Ready
+        var activeState = readyState
 
         val preparedAudio =
             if (partial && audioData.size > capabilities.partialMaxSamples) {
@@ -57,7 +75,7 @@ internal class WhisperCppVoiceEngine(
         val start = SystemClock.elapsedRealtime()
         val text =
             runCatching {
-                state.whisperContext.transcribeData(
+                readyState.whisperContext.transcribeData(
                     preparedAudio,
                     WhisperLanguageResolver.resolve(localeTag)
                 )
@@ -69,7 +87,9 @@ internal class WhisperCppVoiceEngine(
                     require(retryState is WhisperModelManager.State.Ready) {
                         (retryState as? WhisperModelManager.State.Error)?.message ?: "whisper.cpp CPU fallback is unavailable"
                     }
-                    retryState.whisperContext.transcribeData(
+                    val readyRetryState = retryState as WhisperModelManager.State.Ready
+                    activeState = readyRetryState
+                    readyRetryState.whisperContext.transcribeData(
                         preparedAudio,
                         WhisperLanguageResolver.resolve(localeTag)
                     )
@@ -80,13 +100,13 @@ internal class WhisperCppVoiceEngine(
         val latencyMs = SystemClock.elapsedRealtime() - start
         Log.i(
             LOG_TAG,
-            "engine=$engineId partial=$partial model=${state.model.modelId} samples=${preparedAudio.size} latencyMs=$latencyMs"
+            "engine=$engineId backend=${activeState.backend} partial=$partial model=${activeState.model.modelId} samples=${preparedAudio.size} latencyMs=$latencyMs"
         )
         return VoiceEngineResult(
             text = text,
             latencyMs = latencyMs,
             sampleCount = preparedAudio.size,
-            modelId = state.model.modelId
+            modelId = activeState.model.modelId
         )
     }
 

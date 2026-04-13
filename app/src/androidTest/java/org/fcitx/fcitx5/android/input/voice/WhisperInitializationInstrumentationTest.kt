@@ -18,6 +18,10 @@ class WhisperInitializationInstrumentationTest {
             "Expected bundled ggml-base-q5_1.bin model asset",
             assetNames!!.contains("ggml-base-q5_1.bin")
         )
+        assertTrue(
+            "Expected bundled ggml-tiny-q5_1.bin model asset",
+            assetNames.contains("ggml-tiny-q5_1.bin")
+        )
 
         val systemInfo = WhisperContext.getSystemInfo()
         assertTrue("Expected whisper system info to be non-empty", systemInfo.isNotBlank())

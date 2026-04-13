@@ -118,9 +118,25 @@ internal class WhisperAudioRecorder(
             copySamplesLocked(maxSamples)
         }
 
+    fun snapshotFrom(
+        startSample: Int,
+        maxSamples: Int = Int.MAX_VALUE
+    ): FloatArray =
+        synchronized(lock) {
+            copySamplesFromLocked(startSample, maxSamples)
+        }
+
     fun snapshotPcm16(maxSamples: Int = Int.MAX_VALUE): ShortArray =
         synchronized(lock) {
             copyPcm16Locked(maxSamples)
+        }
+
+    fun snapshotPcm16From(
+        startSample: Int,
+        maxSamples: Int = Int.MAX_VALUE
+    ): ShortArray =
+        synchronized(lock) {
+            copyPcm16FromLocked(startSample, maxSamples)
         }
 
     private fun stopInternal(record: AudioRecord) {
@@ -159,11 +175,29 @@ internal class WhisperAudioRecorder(
 
         val safeMaxSamples = maxSamples.coerceAtLeast(1)
         val resultSize = minOf(totalSamples, safeMaxSamples)
-        val skipSamples = totalSamples - resultSize
+        return copySamplesFromLocked(totalSamples - resultSize, resultSize)
+    }
+
+    private fun copySamplesFromLocked(
+        startSample: Int,
+        maxSamples: Int
+    ): FloatArray {
+        if (totalSamples == 0) {
+            return FloatArray(0)
+        }
+
+        val boundedStart = startSample.coerceIn(0, totalSamples)
+        val safeMaxSamples = maxSamples.coerceAtLeast(1)
+        val resultSize = minOf(totalSamples - boundedStart, safeMaxSamples)
+        if (resultSize <= 0) {
+            return FloatArray(0)
+        }
+
         val result = FloatArray(resultSize)
-        val snapshot = snapshotRanges(resultSize, skipSamples)
-        snapshot.forEach { (chunk, chunkSkip) ->
-            for (index in chunkSkip until chunk.size) {
+        val snapshot = snapshotRanges(startSample = boundedStart, resultSize = resultSize)
+        snapshot.forEach { slice ->
+            for (index in slice.start until slice.endExclusive) {
+                val chunk = slice.chunk
                 result[snapshot.offset] = chunk[index] / PCM16_MAX
                 snapshot.offset += 1
             }
@@ -178,40 +212,65 @@ internal class WhisperAudioRecorder(
 
         val safeMaxSamples = maxSamples.coerceAtLeast(1)
         val resultSize = minOf(totalSamples, safeMaxSamples)
-        val skipSamples = totalSamples - resultSize
+        return copyPcm16FromLocked(totalSamples - resultSize, resultSize)
+    }
+
+    private fun copyPcm16FromLocked(
+        startSample: Int,
+        maxSamples: Int
+    ): ShortArray {
+        if (totalSamples == 0) {
+            return ShortArray(0)
+        }
+
+        val boundedStart = startSample.coerceIn(0, totalSamples)
+        val safeMaxSamples = maxSamples.coerceAtLeast(1)
+        val resultSize = minOf(totalSamples - boundedStart, safeMaxSamples)
+        if (resultSize <= 0) {
+            return ShortArray(0)
+        }
+
         val result = ShortArray(resultSize)
-        val snapshot = snapshotRanges(resultSize, skipSamples)
-        snapshot.forEach { (chunk, chunkSkip) ->
-            val length = chunk.size - chunkSkip
-            System.arraycopy(chunk, chunkSkip, result, snapshot.offset, length)
+        val snapshot = snapshotRanges(startSample = boundedStart, resultSize = resultSize)
+        snapshot.forEach { slice ->
+            val length = slice.endExclusive - slice.start
+            System.arraycopy(slice.chunk, slice.start, result, snapshot.offset, length)
             snapshot.offset += length
         }
         return result
     }
 
     private fun snapshotRanges(
-        resultSize: Int,
-        skipSamples: Int
+        startSample: Int,
+        resultSize: Int
     ): SnapshotRanges {
-        val ranges = ArrayList<Pair<ShortArray, Int>>(chunks.size)
-        var consumed = 0
+        val ranges = ArrayList<ChunkSlice>(chunks.size)
+        val endSample = startSample + resultSize
+        var chunkStart = 0
         chunks.forEach { chunk ->
-            val chunkSkip = (skipSamples - consumed).coerceIn(0, chunk.size)
-            val chunkLength = chunk.size - chunkSkip
-            if (chunkLength > 0) {
-                ranges += chunk to chunkSkip
+            val chunkEnd = chunkStart + chunk.size
+            val sliceStart = (startSample - chunkStart).coerceIn(0, chunk.size)
+            val sliceEnd = (endSample - chunkStart).coerceIn(0, chunk.size)
+            if (sliceEnd > sliceStart) {
+                ranges += ChunkSlice(chunk = chunk, start = sliceStart, endExclusive = sliceEnd)
             }
-            consumed += chunk.size
+            chunkStart = chunkEnd
         }
         return SnapshotRanges(resultSize = resultSize, ranges = ranges)
     }
 
+    private data class ChunkSlice(
+        val chunk: ShortArray,
+        val start: Int,
+        val endExclusive: Int
+    )
+
     private class SnapshotRanges(
         val resultSize: Int,
-        private val ranges: List<Pair<ShortArray, Int>>
-    ) : Iterable<Pair<ShortArray, Int>> {
+        private val ranges: List<ChunkSlice>
+    ) : Iterable<ChunkSlice> {
         var offset: Int = 0
-        override fun iterator(): Iterator<Pair<ShortArray, Int>> = ranges.iterator()
+        override fun iterator(): Iterator<ChunkSlice> = ranges.iterator()
     }
 
     @Suppress("DEPRECATION")

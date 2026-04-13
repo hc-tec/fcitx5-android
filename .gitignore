@@ -5,6 +5,7 @@
 /app/src/main/assets/descriptor.json
 /app/src/main/assets/models/ggml-*.bin
 /third_party/downloads/
+/third_party/sherpa-onnx/
 
 # Plugins
 # Installed data

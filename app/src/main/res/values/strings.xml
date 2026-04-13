@@ -236,6 +236,9 @@
     <string name="voice_input_mode">Voice input provider</string>
     <string name="voice_input_mode_builtin">Built-in offline engine</string>
     <string name="voice_input_mode_system_ime">External voice IME</string>
+    <string name="voice_engine_preference">Built-in voice engine</string>
+    <string name="voice_engine_sherpa_onnx">Sherpa-ONNX streaming</string>
+    <string name="voice_engine_whisper_cpp">Whisper.cpp fallback</string>
     <string name="voice_model_preference">Built-in voice model</string>
     <string name="voice_model_preference_auto">Auto</string>
     <string name="voice_model_preference_fast">Fast</string>
@@ -255,9 +258,9 @@
     <string name="voice_input_permission_granted">Microphone permission granted.</string>
     <string name="voice_input_permission_denied">Microphone permission denied.</string>
     <string name="voice_input_loading_engine">Loading offline voice engine…</string>
-    <string name="voice_input_loading_engine_hint">Please wait while the built-in whisper.cpp model is prepared.</string>
-    <string name="voice_input_model_missing">Built-in whisper.cpp model is not bundled yet.</string>
-    <string name="voice_input_model_missing_hint">Place a multilingual whisper.cpp model such as app/src/main/assets/models/ggml-base.bin and rebuild.</string>
+    <string name="voice_input_loading_engine_hint">Please wait while the selected built-in voice engine is prepared.</string>
+    <string name="voice_input_model_missing">The selected built-in voice model is not bundled yet.</string>
+    <string name="voice_input_model_missing_hint">Place the required built-in voice model files under app/src/main/assets/models/ and rebuild.</string>
     <string name="voice_input_engine_error">Offline voice engine failed: %1$s</string>
     <string name="voice_input_engine_generic_error">unknown error</string>
     <string name="voice_input_no_speech">No speech detected.</string>

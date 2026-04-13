@@ -21,6 +21,7 @@ import org.fcitx.fcitx5.android.input.keyboard.SpaceLongPressBehavior
 import org.fcitx.fcitx5.android.input.keyboard.SwipeSymbolDirection
 import org.fcitx.fcitx5.android.input.picker.PickerWindow
 import org.fcitx.fcitx5.android.input.popup.EmojiModifier
+import org.fcitx.fcitx5.android.input.voice.BuiltInVoiceEngine
 import org.fcitx.fcitx5.android.input.voice.VoiceModelPreference
 import org.fcitx.fcitx5.android.input.voice.VoiceInputMode
 import org.fcitx.fcitx5.android.utils.DeviceUtil
@@ -43,6 +44,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             bool("migrated_voice_space_long_press_default_on", false)
         val migratedVoiceSpaceLongPressBackfillOn =
             bool("migrated_voice_space_long_press_backfill_on", false)
+        val builtInVoiceGpuDisabled = bool("built_in_voice_gpu_disabled", false)
     }
 
     inner class Advanced : ManagedPreferenceCategory(R.string.advanced, sharedPreferences) {
@@ -162,12 +164,21 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         ) {
             showVoiceInputButton.getValue() && voiceInputMode.getValue() == VoiceInputMode.SystemVoiceIme
         }
+        val builtInVoiceEngine = enumList(
+            R.string.voice_engine_preference,
+            "built_in_voice_engine",
+            BuiltInVoiceEngine.SherpaOnnx
+        ) {
+            showVoiceInputButton.getValue() && voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
+        }
         val builtInVoiceModel = enumList(
             R.string.voice_model_preference,
             "built_in_voice_model",
-            VoiceModelPreference.Balanced
+            VoiceModelPreference.Auto
         ) {
-            showVoiceInputButton.getValue() && voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
+            showVoiceInputButton.getValue() &&
+                voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&
+                builtInVoiceEngine.getValue() == BuiltInVoiceEngine.WhisperCpp
         }
 
         val expandKeypressArea =

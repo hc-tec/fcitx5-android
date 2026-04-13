@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -44,6 +45,8 @@ internal class VoiceInputWindow(
     private var partialLoopJob: Job? = null
     private var partialTranscriptionJob: Job? = null
     private var lastPartialScheduledSamples = 0
+    private var lastIncrementalEngineSamples = 0
+    private var pendingIncrementalTargetSamples = 0
     private var listeningState = VoiceListeningState.NOT_TALKED_YET
     private val partialStabilizer = VoicePartialStabilizer()
     private var pendingAutoStart = autoStartListening
@@ -163,12 +166,30 @@ internal class VoiceInputWindow(
         endpointLoopJob?.cancel()
         partialLoopJob?.cancel()
         partialTranscriptionJob?.cancel()
+        val engine = voiceEngine ?: return false
+        runCatching {
+            engine.beginSession(request)
+        }.onFailure { error ->
+            whisperRecorder.cancel()
+            recorder = null
+            Log.w(LOG_TAG, "Failed to begin voice session", error)
+            ui.renderMessage(
+                context.getString(
+                    R.string.voice_input_error,
+                    error.message ?: context.getString(R.string.voice_input_engine_generic_error)
+                ),
+                latestTranscript
+            )
+            return false
+        }
         recorder = whisperRecorder
         latestTranscript = ""
         listening = true
         processing = false
         listeningState = VoiceListeningState.NOT_TALKED_YET
         lastPartialScheduledSamples = 0
+        lastIncrementalEngineSamples = 0
+        pendingIncrementalTargetSamples = 0
         partialStabilizer.reset()
         Log.i(LOG_TAG, "Listening started session=$sessionId locale=${request.locale}")
         ui.renderListening(latestTranscript, listeningState)
@@ -190,7 +211,8 @@ internal class VoiceInputWindow(
         endpointLoopJob = null
         partialLoopJob?.cancel()
         partialLoopJob = null
-        partialTranscriptionJob?.cancel()
+        val pendingPartialJob = partialTranscriptionJob
+        partialTranscriptionJob = null
 
         val request = VoiceInputContextReader.capture(service)
         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
@@ -200,8 +222,10 @@ internal class VoiceInputWindow(
         transcribeJob =
             windowScope.launch {
                 try {
+                    pendingPartialJob?.cancelAndJoin()
                     val audioData = withContext(Dispatchers.IO) { activeRecorder.stop() }
                     if (audioData.isEmpty()) {
+                        voiceEngine?.endSession(cancelled = false)
                         processing = false
                         latestTranscript = ""
                         Log.i(LOG_TAG, "Final audio empty, no speech detected")
@@ -211,6 +235,7 @@ internal class VoiceInputWindow(
 
                     val activityStats = VoiceActivityDetector.analyze(audioData)
                     if (!activityStats.hasSpeech && latestTranscript.isBlank()) {
+                        voiceEngine?.endSession(cancelled = false)
                         processing = false
                         Log.i(
                             LOG_TAG,
@@ -221,14 +246,22 @@ internal class VoiceInputWindow(
                     }
 
                     val engine = voiceEngine ?: return@launch
+                    val finalPayload =
+                        if (engine.capabilities.partialAudioMode == VoicePartialAudioMode.IncrementalSession) {
+                            audioData.sliceRemaining(lastIncrementalEngineSamples)
+                        } else {
+                            audioData
+                        }
                     Log.i(
                         LOG_TAG,
-                        "Submitting final transcription samples=${audioData.size} locale=${request.locale} speechRatio=${activityStats.speechRatio}"
+                        "Submitting final transcription samples=${finalPayload.size} totalSamples=${audioData.size} locale=${request.locale} speechRatio=${activityStats.speechRatio}"
                     )
-                    val result = engine.transcribeFinal(audioData, request.locale)
+                    val result = engine.transcribeFinal(finalPayload, request.locale)
+                    engine.endSession(cancelled = false)
                     commitTranscript(result.text)
                 } catch (_: CancellationException) {
                 } catch (error: Exception) {
+                    voiceEngine?.endSession(cancelled = false)
                     processing = false
                     Log.w(LOG_TAG, "Final transcription failed", error)
                     ui.renderMessage(
@@ -253,8 +286,12 @@ internal class VoiceInputWindow(
         partialTranscriptionJob = null
         recorder?.cancel()
         recorder = null
+        voiceEngine?.endSession(cancelled = true)
         listening = false
         processing = false
+        lastPartialScheduledSamples = 0
+        lastIncrementalEngineSamples = 0
+        pendingIncrementalTargetSamples = 0
         listeningState = VoiceListeningState.NOT_TALKED_YET
         partialStabilizer.reset()
         Log.i(LOG_TAG, "Listening cancelled session=$sessionId")
@@ -303,46 +340,89 @@ internal class VoiceInputWindow(
                 while (listening) {
                     val activeRecorder = recorder ?: break
                     val sampleCount = activeRecorder.sampleCount()
+                    val scheduleCursor =
+                        if (engine.capabilities.partialAudioMode == VoicePartialAudioMode.IncrementalSession) {
+                            maxOf(lastIncrementalEngineSamples, pendingIncrementalTargetSamples)
+                        } else {
+                            lastPartialScheduledSamples
+                        }
                     val canSchedule =
                         sampleCount >= engine.capabilities.partialMinSamples &&
-                            sampleCount - lastPartialScheduledSamples >= engine.capabilities.partialStepSamples &&
+                            sampleCount - scheduleCursor >= engine.capabilities.partialStepSamples &&
                             partialTranscriptionJob?.isActive != true
 
                     if (canSchedule) {
-                        lastPartialScheduledSamples = sampleCount
                         val request = VoiceInputContextReader.capture(service)
                         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
-                        val snapshot =
-                            withContext(Dispatchers.Default) {
-                                activeRecorder.snapshot(engine.capabilities.partialMaxSamples)
-                            }
-                        val pcmSnapshot =
-                            withContext(Dispatchers.Default) {
-                                activeRecorder.snapshotPcm16(engine.capabilities.partialMaxSamples)
-                            }
-                        if (snapshot.isNotEmpty()) {
-                            val endpointDecision = analyzeEndpoint(pcmSnapshot, snapshot)
-                            if (!endpointDecision.hasSpeech) {
+                        if (engine.capabilities.partialAudioMode == VoicePartialAudioMode.IncrementalSession) {
+                            val targetSampleCount = sampleCount
+                            val snapshot =
+                                withContext(Dispatchers.Default) {
+                                    activeRecorder.snapshotFrom(
+                                        startSample = lastIncrementalEngineSamples,
+                                        maxSamples = targetSampleCount - lastIncrementalEngineSamples
+                                    )
+                                }
+                            if (snapshot.isNotEmpty()) {
+                                pendingIncrementalTargetSamples = targetSampleCount
                                 Log.i(
                                     LOG_TAG,
-                                    "Skipping partial: VAD rejected snapshot samples=${snapshot.size} source=${endpointDecision.source}"
+                                    "Scheduling incremental partial chunkSamples=${snapshot.size} totalSamples=$targetSampleCount locale=${request.locale}"
                                 )
-                                delay(engine.capabilities.partialPollIntervalMs)
-                                continue
+                                schedulePartialTranscription(
+                                    audioData = snapshot,
+                                    localeTag = request.locale,
+                                    incrementalTargetSamples = targetSampleCount
+                                )
                             }
-                            if (endpointDecision.trailingSilenceMs >= 1200 && latestTranscript.isNotBlank()) {
+                        } else {
+                            lastPartialScheduledSamples = sampleCount
+                            val analysisMaxSamples = minOf(sampleCount, REALTIME_ANALYSIS_MAX_SAMPLES)
+                            val analysisSnapshot =
+                                withContext(Dispatchers.Default) {
+                                    activeRecorder.snapshot(analysisMaxSamples)
+                                }
+                            val pcmSnapshot =
+                                withContext(Dispatchers.Default) {
+                                    activeRecorder.snapshotPcm16(analysisMaxSamples)
+                                }
+                            val partialSnapshotMaxSamples =
+                                if (engine.capabilities.partialAudioMode == VoicePartialAudioMode.FullSession) {
+                                    sampleCount
+                                } else {
+                                    engine.capabilities.partialMaxSamples
+                                }
+                            val snapshot =
+                                withContext(Dispatchers.Default) {
+                                    activeRecorder.snapshot(partialSnapshotMaxSamples)
+                                }
+                            if (snapshot.isNotEmpty()) {
+                                val endpointDecision = analyzeEndpoint(pcmSnapshot, analysisSnapshot)
+                                if (!endpointDecision.hasSpeech) {
+                                    Log.i(
+                                        LOG_TAG,
+                                        "Skipping partial: VAD rejected snapshot samples=${snapshot.size} source=${endpointDecision.source}"
+                                    )
+                                    delay(engine.capabilities.partialPollIntervalMs)
+                                    continue
+                                }
+                                if (endpointDecision.trailingSilenceMs >= 1200 && latestTranscript.isNotBlank()) {
+                                    Log.i(
+                                        LOG_TAG,
+                                        "Skipping partial: trailingSilenceMs=${endpointDecision.trailingSilenceMs} transcriptLength=${latestTranscript.length}"
+                                    )
+                                    delay(engine.capabilities.partialPollIntervalMs)
+                                    continue
+                                }
                                 Log.i(
                                     LOG_TAG,
-                                    "Skipping partial: trailingSilenceMs=${endpointDecision.trailingSilenceMs} transcriptLength=${latestTranscript.length}"
+                                    "Scheduling partial samples=${snapshot.size} locale=${request.locale} source=${endpointDecision.source}"
                                 )
-                                delay(engine.capabilities.partialPollIntervalMs)
-                                continue
+                                schedulePartialTranscription(
+                                    audioData = snapshot,
+                                    localeTag = request.locale
+                                )
                             }
-                            Log.i(
-                                LOG_TAG,
-                                "Scheduling partial samples=${snapshot.size} locale=${request.locale} source=${endpointDecision.source}"
-                            )
-                            schedulePartialTranscription(snapshot, request.locale)
                         }
                     }
                     delay(engine.capabilities.partialPollIntervalMs)
@@ -352,13 +432,16 @@ internal class VoiceInputWindow(
 
     private fun schedulePartialTranscription(
         audioData: FloatArray,
-        localeTag: String
+        localeTag: String,
+        incrementalTargetSamples: Int? = null
     ) {
         val engine = voiceEngine ?: return
         val job =
             windowScope.launch {
+                var consumed = false
                 try {
                     val result = engine.transcribePartial(audioData, localeTag)
+                    consumed = true
                     if (!listening) {
                         return@launch
                     }
@@ -390,12 +473,31 @@ internal class VoiceInputWindow(
                 } catch (error: Exception) {
                     Log.w(LOG_TAG, "Ignoring partial transcription failure", error)
                 } finally {
+                    if (incrementalTargetSamples != null) {
+                        if (consumed) {
+                            lastIncrementalEngineSamples = maxOf(lastIncrementalEngineSamples, incrementalTargetSamples)
+                        }
+                        if (pendingIncrementalTargetSamples == incrementalTargetSamples) {
+                            pendingIncrementalTargetSamples = 0
+                        }
+                    }
                     if (partialTranscriptionJob === coroutineContext[Job]) {
                         partialTranscriptionJob = null
                     }
                 }
             }
         partialTranscriptionJob = job
+    }
+
+    private fun FloatArray.sliceRemaining(startSample: Int): FloatArray {
+        val boundedStart = startSample.coerceIn(0, size)
+        return if (boundedStart == 0) {
+            this
+        } else if (boundedStart >= size) {
+            FloatArray(0)
+        } else {
+            copyOfRange(boundedStart, size)
+        }
     }
 
     private fun commitTranscript(rawText: String) {
@@ -496,20 +598,22 @@ internal class VoiceInputWindow(
 
         windowScope.launch {
             try {
-                engine.warmup(force)
-                val state = WhisperModelManager.currentState()
-                engineReady = state is WhisperModelManager.State.Ready
-                engineModelMissing = false
-                engineErrorMessage = null
-                Log.i(LOG_TAG, "Engine ready model=${(state as? WhisperModelManager.State.Ready)?.model?.modelId}")
+                val result = engine.warmup(force)
+                engineReady = result.ready
+                engineModelMissing = result.modelMissing
+                engineErrorMessage = result.message
+                if (result.ready) {
+                    Log.i(LOG_TAG, "Engine ready engine=${engine.engineId} model=${result.modelId ?: "unknown"}")
+                } else {
+                    Log.w(
+                        LOG_TAG,
+                        "Engine warmup unavailable engine=${engine.engineId} modelMissing=${result.modelMissing} message=${result.message.orEmpty()}"
+                    )
+                }
             } catch (error: Exception) {
-                val state = WhisperModelManager.currentState()
                 engineReady = false
-                engineModelMissing = (state as? WhisperModelManager.State.Error)?.modelMissing == true
-                engineErrorMessage =
-                    (state as? WhisperModelManager.State.Error)?.message
-                        ?: error.message
-                        ?: context.getString(R.string.voice_input_engine_generic_error)
+                engineModelMissing = false
+                engineErrorMessage = error.message ?: context.getString(R.string.voice_input_engine_generic_error)
                 Log.w(LOG_TAG, "Engine warmup failed", error)
             } finally {
                 engineLoading = false

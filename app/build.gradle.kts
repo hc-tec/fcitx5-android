@@ -535,6 +535,7 @@ dependencies {
     implementation(project(":lib:fcitx5-chinese-addons"))
     implementation(project(":lib:voice-core"))
     implementation(project(":lib:whisper"))
+    implementation(project(":lib:sherpa"))
     implementation(project(":lib:common"))
     implementation(files("libs/vad-release.aar"))
     implementation(libs.kotlinx.coroutines)

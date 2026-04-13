@@ -17,7 +17,9 @@ internal object WhisperModelManager {
 
         data class Ready(
             val whisperContext: WhisperContext,
-            val model: VoiceModelDescriptor
+            val model: VoiceModelDescriptor,
+            val backend: WhisperBackend,
+            val effectivePreference: VoiceModelPreference
         ) : State
 
         data class Error(
@@ -41,6 +43,11 @@ internal object WhisperModelManager {
     @Volatile
     private var discardPreviousReadyContext = false
 
+    private data class LoadConfig(
+        val configuredPreference: VoiceModelPreference,
+        val runtimeProfile: WhisperRuntimeProfile
+    )
+
     fun currentState(): State = state
 
     fun noteGpuInferenceFailure(reason: String) {
@@ -49,6 +56,7 @@ internal object WhisperModelManager {
         }
         forceCpuFallback = true
         discardPreviousReadyContext = true
+        persistGpuDisable()
     }
 
     suspend fun awaitReady(
@@ -114,10 +122,13 @@ internal object WhisperModelManager {
                 }
             }
 
-            val useGpu = !forceCpuFallback
-            Log.i(LOG_TAG, "Loading whisper model force=$force preference=${currentPreference()} useGpu=$useGpu")
+            val loadConfig = currentLoadConfig()
+            Log.i(
+                LOG_TAG,
+                "Loading whisper model force=$force preference=${loadConfig.configuredPreference} effectivePreference=${loadConfig.runtimeProfile.effectivePreference} backend=${loadConfig.runtimeProfile.backend} reason=${loadConfig.runtimeProfile.reason ?: "default"}"
+            )
             val nextState =
-                runCatching { loadContext(appContext, useGpu = useGpu) }
+                runCatching { loadContext(appContext, loadConfig) }
                     .getOrElse { error ->
                         val message =
                             error.message
@@ -138,20 +149,23 @@ internal object WhisperModelManager {
         }
     }
 
-    internal fun resolveModel(assetNames: Array<String>): VoiceModelDescriptor? =
+    internal fun resolveModel(
+        assetNames: Array<String>,
+        preference: VoiceModelPreference = currentPreference()
+    ): VoiceModelDescriptor? =
         VoiceModelCatalog.selectWhisperModel(
             assetNames = assetNames,
-            preference = currentPreference()
+            preference = preference
         )
 
     private fun loadContext(
         context: Context,
-        useGpu: Boolean
+        loadConfig: LoadConfig
     ): State {
         val assetNames =
             context.assets.list(MODEL_ASSET_DIR)
                 ?: emptyArray()
-        val model = resolveModel(assetNames)
+        val model = resolveModel(assetNames, preference = loadConfig.runtimeProfile.effectivePreference)
         if (model == null) {
             return State.Error(
                 message = "No whisper.cpp model found under app/src/main/assets/$MODEL_ASSET_DIR/",
@@ -159,9 +173,18 @@ internal object WhisperModelManager {
             )
         }
 
+        val useGpu = loadConfig.runtimeProfile.backend == WhisperBackend.Gpu
         val whisperContext = WhisperContext.createContextFromAsset(context.assets, model.assetPath, useGpu = useGpu)
-        Log.i(LOG_TAG, "Loaded model asset=${model.assetPath} modelId=${model.modelId} useGpu=$useGpu")
-        return State.Ready(whisperContext = whisperContext, model = model)
+        Log.i(
+            LOG_TAG,
+            "Loaded model asset=${model.assetPath} modelId=${model.modelId} backend=${loadConfig.runtimeProfile.backend}"
+        )
+        return State.Ready(
+            whisperContext = whisperContext,
+            model = model,
+            backend = loadConfig.runtimeProfile.backend,
+            effectivePreference = loadConfig.runtimeProfile.effectivePreference
+        )
     }
 
     private fun shouldReloadForPreference(
@@ -169,18 +192,47 @@ internal object WhisperModelManager {
         state: State.Ready
     ): Boolean {
         val assetNames = context.assets.list(MODEL_ASSET_DIR) ?: return false
+        val loadConfig = currentLoadConfig()
         val preferred =
             VoiceModelCatalog.selectWhisperModel(
                 assetNames = assetNames,
-                preference = currentPreference()
+                preference = loadConfig.runtimeProfile.effectivePreference
             )
-        return preferred != null && preferred.modelId != state.model.modelId
+        return state.backend != loadConfig.runtimeProfile.backend ||
+            preferred != null && preferred.modelId != state.model.modelId
     }
 
     private fun currentPreference(): VoiceModelPreference =
         runCatching {
             AppPrefs.getInstance().keyboard.builtInVoiceModel.getValue()
-        }.getOrDefault(VoiceModelPreference.Balanced)
+        }.getOrDefault(VoiceModelPreference.Auto)
+
+    private fun currentLoadConfig(): LoadConfig {
+        val configuredPreference = currentPreference()
+        val runtimeProfile =
+            WhisperRuntimePolicy.resolve(
+                configuredPreference = configuredPreference,
+                forceCpuFallback = forceCpuFallback,
+                persistedGpuDisabled = persistedGpuDisabled()
+            )
+        return LoadConfig(
+            configuredPreference = configuredPreference,
+            runtimeProfile = runtimeProfile
+        )
+    }
+
+    private fun persistedGpuDisabled(): Boolean =
+        runCatching {
+            AppPrefs.getInstance().internal.builtInVoiceGpuDisabled.getValue()
+        }.getOrDefault(false)
+
+    private fun persistGpuDisable() {
+        runCatching {
+            AppPrefs.getInstance().internal.builtInVoiceGpuDisabled.setValue(true)
+        }.onFailure { error ->
+            Log.w(LOG_TAG, "Failed to persist GPU disable flag", error)
+        }
+    }
 
     private const val MODEL_ASSET_DIR = "models"
     private const val LOG_TAG = "WhisperModelManager"
