@@ -3,6 +3,8 @@ package org.fcitx.fcitx5.android.input.voice
 import android.content.Context
 import com.whispercpp.whisper.WhisperContext
 import java.util.concurrent.Executors
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 internal object WhisperModelManager {
     sealed interface State {
@@ -12,7 +14,7 @@ internal object WhisperModelManager {
 
         data class Ready(
             val whisperContext: WhisperContext,
-            val assetPath: String
+            val model: VoiceModelDescriptor
         ) : State
 
         data class Error(
@@ -31,6 +33,18 @@ internal object WhisperModelManager {
     private var loading = false
 
     fun currentState(): State = state
+
+    suspend fun awaitReady(
+        context: Context,
+        force: Boolean = false
+    ): State =
+        suspendCoroutine { continuation ->
+            ensureReady(context, force) { nextState ->
+                if (nextState !is State.Loading) {
+                    continuation.resume(nextState)
+                }
+            }
+        }
 
     fun ensureReady(
         context: Context,
@@ -86,50 +100,24 @@ internal object WhisperModelManager {
         }
     }
 
-    internal fun resolveModelAssetPath(assetNames: Array<String>): String? {
-        val normalized =
-            assetNames
-                .map(String::trim)
-                .filter(String::isNotBlank)
-                .toSet()
-
-        preferredAssets.firstOrNull { it in normalized }?.let { return "$MODEL_ASSET_DIR/$it" }
-
-        return normalized
-            .filter { it.startsWith("ggml-") && it.endsWith(".bin") }
-            .sorted()
-            .firstOrNull()
-            ?.let { "$MODEL_ASSET_DIR/$it" }
-    }
+    internal fun resolveModel(assetNames: Array<String>): VoiceModelDescriptor? =
+        VoiceModelCatalog.selectWhisperModel(assetNames)
 
     private fun loadContext(context: Context): State {
         val assetNames =
             context.assets.list(MODEL_ASSET_DIR)
                 ?: emptyArray()
-        val assetPath = resolveModelAssetPath(assetNames)
-        if (assetPath == null) {
+        val model = resolveModel(assetNames)
+        if (model == null) {
             return State.Error(
                 message = "No whisper.cpp model found under app/src/main/assets/$MODEL_ASSET_DIR/",
                 modelMissing = true
             )
         }
 
-        val whisperContext = WhisperContext.createContextFromAsset(context.assets, assetPath)
-        return State.Ready(whisperContext = whisperContext, assetPath = assetPath)
+        val whisperContext = WhisperContext.createContextFromAsset(context.assets, model.assetPath)
+        return State.Ready(whisperContext = whisperContext, model = model)
     }
 
     private const val MODEL_ASSET_DIR = "models"
-
-    private val preferredAssets =
-        listOf(
-            "ggml-base-q5_1.bin",
-            "ggml-base-q8_0.bin",
-            "ggml-base.bin",
-            "ggml-small-q5_1.bin",
-            "ggml-small-q8_0.bin",
-            "ggml-small.bin",
-            "ggml-tiny-q5_1.bin",
-            "ggml-tiny-q8_0.bin",
-            "ggml-tiny.bin"
-        )
 }

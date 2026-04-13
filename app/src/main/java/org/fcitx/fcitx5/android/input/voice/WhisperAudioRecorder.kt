@@ -104,6 +104,16 @@ internal class WhisperAudioRecorder(
         }
     }
 
+    fun sampleCount(): Int =
+        synchronized(lock) {
+            totalSamples
+        }
+
+    fun snapshot(maxSamples: Int = Int.MAX_VALUE): FloatArray =
+        synchronized(lock) {
+            copySamplesLocked(maxSamples)
+        }
+
     private fun stopInternal(record: AudioRecord) {
         running = false
         try {
@@ -125,19 +135,38 @@ internal class WhisperAudioRecorder(
                 return FloatArray(0)
             }
 
-            val result = FloatArray(totalSamples)
-            var offset = 0
-            chunks.forEach { chunk ->
-                for (sample in chunk) {
-                    result[offset] = sample / PCM16_MAX
-                    offset += 1
-                }
-            }
+            val result = copySamplesLocked(Int.MAX_VALUE)
             chunks.clear()
             totalSamples = 0
             readErrorCode = 0
             return result
         }
+    }
+
+    private fun copySamplesLocked(maxSamples: Int): FloatArray {
+        if (totalSamples == 0) {
+            return FloatArray(0)
+        }
+
+        val safeMaxSamples = maxSamples.coerceAtLeast(1)
+        val resultSize = minOf(totalSamples, safeMaxSamples)
+        val skipSamples = totalSamples - resultSize
+        val result = FloatArray(resultSize)
+        var consumed = 0
+        var offset = 0
+
+        chunks.forEach { chunk ->
+            val chunkSkip = (skipSamples - consumed).coerceIn(0, chunk.size)
+            val chunkLength = chunk.size - chunkSkip
+            if (chunkLength > 0 && offset < resultSize) {
+                for (index in 0 until chunkLength) {
+                    result[offset] = chunk[chunkSkip + index] / PCM16_MAX
+                    offset += 1
+                }
+            }
+            consumed += chunk.size
+        }
+        return result
     }
 
     @Suppress("DEPRECATION")

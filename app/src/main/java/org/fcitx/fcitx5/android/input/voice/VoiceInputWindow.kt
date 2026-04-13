@@ -1,5 +1,6 @@
 package org.fcitx.fcitx5.android.input.voice
 
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import kotlinx.coroutines.CancellationException
@@ -8,9 +9,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.input.FcitxInputMethodService
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
@@ -28,9 +31,16 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     private var listening = false
     private var processing = false
     private var recorder: WhisperAudioRecorder? = null
-    private var whisperState: WhisperModelManager.State.Ready? = null
+    private var voiceEngine: VoiceEngine? = null
+    private var engineLoading = false
+    private var engineReady = false
+    private var engineModelMissing = false
+    private var engineErrorMessage: String? = null
     private var windowScope = createWindowScope()
     private var transcribeJob: Job? = null
+    private var partialLoopJob: Job? = null
+    private var partialTranscriptionJob: Job? = null
+    private var lastPartialScheduledSamples = 0
 
     override val title: String by lazy {
         context.getString(R.string.voice_input_title)
@@ -45,6 +55,9 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         if (!windowScope.isActive) {
             windowScope = createWindowScope()
         }
+        if (voiceEngine == null) {
+            voiceEngine = VoiceEngineFactory.create(context)
+        }
         ensureSession()
         ensureEngineReady()
         renderIdle()
@@ -53,11 +66,15 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     override fun onDetached() {
         transcribeJob?.cancel()
         transcribeJob = null
+        partialLoopJob?.cancel()
+        partialLoopJob = null
+        partialTranscriptionJob?.cancel()
+        partialTranscriptionJob = null
         recorder?.cancel()
         recorder = null
         listening = false
         processing = false
-        whisperState = null
+        engineLoading = false
         windowScope.cancel()
         if (sessionId.isNotBlank()) {
             VoiceInputRuntime.sessionManager.clearSession(sessionId)
@@ -102,23 +119,14 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
             return
         }
 
-        when (val state = WhisperModelManager.currentState()) {
-            is WhisperModelManager.State.Ready -> {
-                whisperState = state
-            }
-            WhisperModelManager.State.Loading,
-            WhisperModelManager.State.Uninitialized -> {
-                ensureEngineReady()
+        when {
+            engineLoading -> {
                 ui.renderLoading()
                 return
             }
-            is WhisperModelManager.State.Error -> {
-                if (state.modelMissing) {
-                    renderIdle()
-                } else {
-                    ensureEngineReady(force = true)
-                    ui.renderLoading()
-                }
+            !engineReady -> {
+                ensureEngineReady(force = engineErrorMessage != null && !engineModelMissing)
+                renderIdle()
                 return
             }
         }
@@ -139,11 +147,15 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
 
         service.finishComposing()
         transcribeJob?.cancel()
+        partialLoopJob?.cancel()
+        partialTranscriptionJob?.cancel()
         recorder = whisperRecorder
         latestTranscript = ""
         listening = true
         processing = false
+        lastPartialScheduledSamples = 0
         ui.renderListening(latestTranscript)
+        startPartialLoop()
     }
 
     private fun stopListening() {
@@ -155,6 +167,9 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         recorder = null
         listening = false
         processing = true
+        partialLoopJob?.cancel()
+        partialLoopJob = null
+        partialTranscriptionJob?.cancel()
 
         val request = VoiceInputContextReader.capture(service)
         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
@@ -172,23 +187,9 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                         return@launch
                     }
 
-                    val state =
-                        (WhisperModelManager.currentState() as? WhisperModelManager.State.Ready)
-                            ?: whisperState
-                    if (state == null) {
-                        processing = false
-                        ensureEngineReady(force = true)
-                        ui.renderLoading()
-                        return@launch
-                    }
-
-                    whisperState = state
-                    val rawText =
-                        state.whisperContext.transcribeData(
-                            audioData,
-                            WhisperLanguageResolver.resolve(request.locale)
-                        )
-                    commitTranscript(rawText)
+                    val engine = voiceEngine ?: return@launch
+                    val result = engine.transcribeFinal(audioData, request.locale)
+                    commitTranscript(result.text)
                 } catch (_: CancellationException) {
                 } catch (error: Exception) {
                     processing = false
@@ -206,6 +207,10 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     private fun cancelListening() {
         transcribeJob?.cancel()
         transcribeJob = null
+        partialLoopJob?.cancel()
+        partialLoopJob = null
+        partialTranscriptionJob?.cancel()
+        partialTranscriptionJob = null
         recorder?.cancel()
         recorder = null
         listening = false
@@ -213,11 +218,84 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         ui.renderReady(latestTranscript)
     }
 
+    private fun startPartialLoop() {
+        val engine = voiceEngine ?: return
+        if (!engine.capabilities.supportsStreamingPartial) {
+            return
+        }
+
+        partialLoopJob =
+            windowScope.launch {
+                delay(engine.capabilities.partialInitialDelayMs)
+                while (listening) {
+                    val activeRecorder = recorder ?: break
+                    val sampleCount = activeRecorder.sampleCount()
+                    val canSchedule =
+                        sampleCount >= engine.capabilities.partialMinSamples &&
+                            sampleCount - lastPartialScheduledSamples >= engine.capabilities.partialStepSamples &&
+                            partialTranscriptionJob?.isActive != true
+
+                    if (canSchedule) {
+                        lastPartialScheduledSamples = sampleCount
+                        val request = VoiceInputContextReader.capture(service)
+                        VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
+                        val snapshot =
+                            withContext(Dispatchers.Default) {
+                                activeRecorder.snapshot(engine.capabilities.partialMaxSamples)
+                            }
+                        if (snapshot.isNotEmpty()) {
+                            schedulePartialTranscription(snapshot, request.locale)
+                        }
+                    }
+                    delay(engine.capabilities.partialPollIntervalMs)
+                }
+            }
+    }
+
+    private fun schedulePartialTranscription(
+        audioData: FloatArray,
+        localeTag: String
+    ) {
+        val engine = voiceEngine ?: return
+        val job =
+            windowScope.launch {
+                try {
+                    val result = engine.transcribePartial(audioData, localeTag)
+                    if (!listening) {
+                        return@launch
+                    }
+
+                    val rawText = normalizeTranscript(result.text)
+                    if (rawText.isBlank()) {
+                        return@launch
+                    }
+
+                    val processed =
+                        VoiceInputRuntime.sessionManager.processPartial(
+                            sessionId,
+                            VoiceRecognitionResult(text = rawText, confidence = 0.55)
+                        )
+                    latestTranscript = processed?.text?.ifBlank { rawText } ?: rawText
+                    if (listening) {
+                        ui.renderListening(latestTranscript)
+                    }
+                } catch (_: CancellationException) {
+                } catch (error: Exception) {
+                    Log.w(LOG_TAG, "Ignoring partial transcription failure", error)
+                } finally {
+                    if (partialTranscriptionJob === coroutineContext[Job]) {
+                        partialTranscriptionJob = null
+                    }
+                }
+            }
+        partialTranscriptionJob = job
+    }
+
     private fun commitTranscript(rawText: String) {
         listening = false
         processing = false
 
-        val transcript = rawText.trim().replace("\\s+".toRegex(), " ")
+        val transcript = normalizeTranscript(rawText)
         val processed =
             VoiceInputRuntime.sessionManager.processFinal(
                 sessionId,
@@ -247,30 +325,23 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                 )
             listening -> ui.renderListening(latestTranscript)
             processing -> ui.renderProcessing(latestTranscript)
+            engineLoading -> ui.renderLoading()
+            engineModelMissing ->
+                ui.renderUnavailable(
+                    status = context.getString(R.string.voice_input_model_missing),
+                    hint = context.getString(R.string.voice_input_model_missing_hint)
+                )
+            engineErrorMessage != null ->
+                ui.renderUnavailable(
+                    status = context.getString(R.string.voice_input_engine_error, engineErrorMessage),
+                    hint = engineErrorMessage.orEmpty()
+                )
+            engineReady -> ui.renderReady(latestTranscript)
             else ->
-                when (val state = WhisperModelManager.currentState()) {
-                    is WhisperModelManager.State.Ready -> {
-                        whisperState = state
-                        ui.renderReady(latestTranscript)
-                    }
-                    WhisperModelManager.State.Loading,
-                    WhisperModelManager.State.Uninitialized -> ui.renderLoading()
-                    is WhisperModelManager.State.Error ->
-                        ui.renderUnavailable(
-                            status =
-                                if (state.modelMissing) {
-                                    context.getString(R.string.voice_input_model_missing)
-                                } else {
-                                    context.getString(R.string.voice_input_engine_error, state.message)
-                                },
-                            hint =
-                                if (state.modelMissing) {
-                                    context.getString(R.string.voice_input_model_missing_hint)
-                                } else {
-                                    state.message
-                                }
-                        )
-                }
+                ui.renderUnavailable(
+                    status = context.getString(R.string.voice_input_loading_engine),
+                    hint = context.getString(R.string.voice_input_loading_engine_hint)
+                )
         }
     }
 
@@ -281,16 +352,43 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     }
 
     private fun ensureEngineReady(force: Boolean = false) {
-        WhisperModelManager.ensureReady(context, force) { state ->
-            ui.root.post {
-                if (state is WhisperModelManager.State.Ready) {
-                    whisperState = state
-                }
+        if (engineLoading && !force) {
+            return
+        }
+        val engine = voiceEngine ?: VoiceEngineFactory.create(context).also { voiceEngine = it }
+        engineLoading = true
+        engineErrorMessage = null
+        engineModelMissing = false
+        renderIdle()
+
+        windowScope.launch {
+            try {
+                engine.warmup(force)
+                val state = WhisperModelManager.currentState()
+                engineReady = state is WhisperModelManager.State.Ready
+                engineModelMissing = false
+                engineErrorMessage = null
+            } catch (error: Exception) {
+                val state = WhisperModelManager.currentState()
+                engineReady = false
+                engineModelMissing = (state as? WhisperModelManager.State.Error)?.modelMissing == true
+                engineErrorMessage =
+                    (state as? WhisperModelManager.State.Error)?.message
+                        ?: error.message
+                        ?: context.getString(R.string.voice_input_engine_generic_error)
+            } finally {
+                engineLoading = false
                 renderIdle()
             }
         }
     }
 
+    private fun normalizeTranscript(value: String): String = value.trim().replace("\\s+".toRegex(), " ")
+
     private fun createWindowScope(): CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private companion object {
+        private const val LOG_TAG = "VoiceInputWindow"
+    }
 }
