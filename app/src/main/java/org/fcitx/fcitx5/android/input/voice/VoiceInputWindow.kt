@@ -21,7 +21,9 @@ import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.wm.InputWindow
 import org.fcitx.fcitx5.android.voice.core.VoiceRecognitionResult
 
-internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWindow>() {
+internal class VoiceInputWindow(
+    private val autoStartListening: Boolean = false
+) : InputWindow.ExtendedInputWindow<VoiceInputWindow>() {
     private val service: FcitxInputMethodService by manager.inputMethodService()
     private val theme by manager.theme()
     private val ui by lazy { VoiceInputUi(context, theme) }
@@ -44,6 +46,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     private var lastPartialScheduledSamples = 0
     private var listeningState = VoiceListeningState.NOT_TALKED_YET
     private val partialStabilizer = VoicePartialStabilizer()
+    private var pendingAutoStart = autoStartListening
 
     override val title: String by lazy {
         context.getString(R.string.voice_input_title)
@@ -64,6 +67,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         ensureSession()
         ensureEngineReady()
         renderIdle()
+        maybeStartListeningAutomatically()
     }
 
     override fun onDetached() {
@@ -106,10 +110,10 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
             }
         }
 
-    private fun startListening() {
+    private fun startListening(): Boolean {
         if (listening || processing) {
             Log.i(LOG_TAG, "Ignoring start request listening=$listening processing=$processing")
-            return
+            return false
         }
 
         ensureSession()
@@ -122,20 +126,20 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                     VoiceInputPermission.launchPermissionActivity(context)
                 }
             )
-            return
+            return false
         }
 
         when {
             engineLoading -> {
                 Log.i(LOG_TAG, "Engine still loading, rendering loading state")
                 ui.renderLoading()
-                return
+                return false
             }
             !engineReady -> {
                 Log.i(LOG_TAG, "Engine not ready yet, retrying warmup")
                 ensureEngineReady(force = engineErrorMessage != null && !engineModelMissing)
                 renderIdle()
-                return
+                return false
             }
         }
 
@@ -151,7 +155,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                         ),
                         latestTranscript
                     )
-                    return
+                    return false
                 }
 
         service.finishComposing()
@@ -170,6 +174,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         ui.renderListening(latestTranscript, listeningState)
         startEndpointLoop()
         startPartialLoop()
+        return true
     }
 
     private fun stopListening() {
@@ -509,7 +514,17 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
             } finally {
                 engineLoading = false
                 renderIdle()
+                maybeStartListeningAutomatically()
             }
+        }
+    }
+
+    private fun maybeStartListeningAutomatically() {
+        if (!pendingAutoStart || listening || processing) {
+            return
+        }
+        if (startListening()) {
+            pendingAutoStart = false
         }
     }
 
