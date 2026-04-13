@@ -3,6 +3,7 @@ package org.fcitx.fcitx5.android.input.voice
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
 import kotlin.math.max
 
 internal class WhisperAudioRecorder(
@@ -57,6 +58,7 @@ internal class WhisperAudioRecorder(
             releaseRecord(record)
             "AudioRecord failed to start recording"
         }
+        Log.i(LOG_TAG, "Recorder started sampleRate=$sampleRate buffer=${max(minBufferSize, sampleRate / 2)}")
 
         val reader =
             Thread(
@@ -74,6 +76,7 @@ internal class WhisperAudioRecorder(
                             }
                             count < 0 -> {
                                 readErrorCode = count
+                                Log.w(LOG_TAG, "Recorder read failed code=$count")
                                 running = false
                             }
                         }
@@ -89,6 +92,7 @@ internal class WhisperAudioRecorder(
         val record = audioRecord ?: return FloatArray(0)
         stopInternal(record)
         val samples = drainSamples()
+        Log.i(LOG_TAG, "Recorder stopped samples=${samples.size} readErrorCode=$readErrorCode")
         if (samples.isEmpty() && readErrorCode != 0) {
             throw IllegalStateException("AudioRecord read failed: $readErrorCode")
         }
@@ -191,5 +195,6 @@ internal class WhisperAudioRecorder(
 
         private const val READ_FRAME_SAMPLES = 1_600
         private const val PCM16_MAX = 32768f
+        private const val LOG_TAG = "WhisperRecorder"
     }
 }

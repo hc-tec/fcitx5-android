@@ -14,15 +14,16 @@ internal class WhisperCppVoiceEngine(
     override val capabilities =
         VoiceEngineCapabilities(
             supportsStreamingPartial = true,
-            partialInitialDelayMs = 900,
-            partialPollIntervalMs = 350,
-            partialMinSamples = WhisperAudioRecorder.SAMPLE_RATE,
-            partialStepSamples = WhisperAudioRecorder.SAMPLE_RATE / 2,
-            partialMaxSamples = WhisperAudioRecorder.SAMPLE_RATE * 3
+            partialInitialDelayMs = 450,
+            partialPollIntervalMs = 250,
+            partialMinSamples = WhisperAudioRecorder.SAMPLE_RATE / 2,
+            partialStepSamples = WhisperAudioRecorder.SAMPLE_RATE / 5,
+            partialMaxSamples = WhisperAudioRecorder.SAMPLE_RATE * 2
         )
 
     override suspend fun warmup(force: Boolean) {
         val state = WhisperModelManager.awaitReady(context, force)
+        Log.i(LOG_TAG, "warmup force=$force state=${state::class.simpleName}")
         require(state is WhisperModelManager.State.Ready) {
             (state as? WhisperModelManager.State.Error)?.message ?: "whisper.cpp engine is unavailable"
         }
@@ -62,7 +63,7 @@ internal class WhisperCppVoiceEngine(
                 WhisperLanguageResolver.resolve(localeTag)
             )
         val latencyMs = SystemClock.elapsedRealtime() - start
-        Log.d(
+        Log.i(
             LOG_TAG,
             "engine=$engineId partial=$partial model=${state.model.modelId} samples=${preparedAudio.size} latencyMs=$latencyMs"
         )

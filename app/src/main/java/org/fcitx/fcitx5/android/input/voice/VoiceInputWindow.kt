@@ -104,6 +104,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
 
     private fun startListening() {
         if (listening || processing) {
+            Log.i(LOG_TAG, "Ignoring start request listening=$listening processing=$processing")
             return
         }
 
@@ -122,10 +123,12 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
 
         when {
             engineLoading -> {
+                Log.i(LOG_TAG, "Engine still loading, rendering loading state")
                 ui.renderLoading()
                 return
             }
             !engineReady -> {
+                Log.i(LOG_TAG, "Engine not ready yet, retrying warmup")
                 ensureEngineReady(force = engineErrorMessage != null && !engineModelMissing)
                 renderIdle()
                 return
@@ -136,6 +139,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
             runCatching { WhisperAudioRecorder().also { it.start() } }
                 .getOrElse { error ->
                     recorder = null
+                    Log.w(LOG_TAG, "Failed to start recorder", error)
                     ui.renderMessage(
                         context.getString(
                             R.string.voice_input_error,
@@ -156,6 +160,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         processing = false
         lastPartialScheduledSamples = 0
         partialStabilizer.reset()
+        Log.i(LOG_TAG, "Listening started session=$sessionId locale=${request.locale}")
         ui.renderListening(latestTranscript)
         startPartialLoop()
     }
@@ -185,6 +190,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                     if (audioData.isEmpty()) {
                         processing = false
                         latestTranscript = ""
+                        Log.i(LOG_TAG, "Final audio empty, no speech detected")
                         ui.renderMessage(context.getString(R.string.voice_input_no_speech), latestTranscript)
                         return@launch
                     }
@@ -192,16 +198,25 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                     val activityStats = VoiceActivityDetector.analyze(audioData)
                     if (!activityStats.hasSpeech && latestTranscript.isBlank()) {
                         processing = false
+                        Log.i(
+                            LOG_TAG,
+                            "Final VAD rejected audio samples=${audioData.size} speechRatio=${activityStats.speechRatio} trailingSilenceMs=${activityStats.trailingSilenceMs}"
+                        )
                         ui.renderMessage(context.getString(R.string.voice_input_no_speech), latestTranscript)
                         return@launch
                     }
 
                     val engine = voiceEngine ?: return@launch
+                    Log.i(
+                        LOG_TAG,
+                        "Submitting final transcription samples=${audioData.size} locale=${request.locale} speechRatio=${activityStats.speechRatio}"
+                    )
                     val result = engine.transcribeFinal(audioData, request.locale)
                     commitTranscript(result.text)
                 } catch (_: CancellationException) {
                 } catch (error: Exception) {
                     processing = false
+                    Log.w(LOG_TAG, "Final transcription failed", error)
                     ui.renderMessage(
                         context.getString(
                             R.string.voice_input_error,
@@ -225,6 +240,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         listening = false
         processing = false
         partialStabilizer.reset()
+        Log.i(LOG_TAG, "Listening cancelled session=$sessionId")
         ui.renderReady(latestTranscript)
     }
 
@@ -256,13 +272,25 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                         if (snapshot.isNotEmpty()) {
                             val activityStats = VoiceActivityDetector.analyze(snapshot)
                             if (!activityStats.hasSpeech) {
+                                Log.i(
+                                    LOG_TAG,
+                                    "Skipping partial: VAD rejected snapshot samples=${snapshot.size} speechRatio=${activityStats.speechRatio}"
+                                )
                                 delay(engine.capabilities.partialPollIntervalMs)
                                 continue
                             }
                             if (activityStats.trailingSilenceMs >= 1200 && latestTranscript.isNotBlank()) {
+                                Log.i(
+                                    LOG_TAG,
+                                    "Skipping partial: trailingSilenceMs=${activityStats.trailingSilenceMs} transcriptLength=${latestTranscript.length}"
+                                )
                                 delay(engine.capabilities.partialPollIntervalMs)
                                 continue
                             }
+                            Log.i(
+                                LOG_TAG,
+                                "Scheduling partial samples=${snapshot.size} locale=${request.locale} speechRatio=${activityStats.speechRatio}"
+                            )
                             schedulePartialTranscription(snapshot, request.locale)
                         }
                     }
@@ -300,6 +328,10 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                             candidate = processedText,
                             stableLength = processed?.stableLength ?: 0
                         )
+                    Log.i(
+                        LOG_TAG,
+                        "Partial updated rawLength=${rawText.length} renderedLength=${latestTranscript.length}"
+                    )
                     if (listening) {
                         ui.renderListening(latestTranscript)
                     }
@@ -332,10 +364,12 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         latestTranscript = committedText
 
         if (committedText.isBlank()) {
+            Log.i(LOG_TAG, "Final transcript blank after post-processing")
             ui.renderMessage(context.getString(R.string.voice_input_no_speech), latestTranscript)
             return
         }
 
+        Log.i(LOG_TAG, "Committing final transcript length=${committedText.length}")
         service.commitText(committedText)
         ui.renderReady(latestTranscript)
     }
@@ -384,6 +418,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         engineLoading = true
         engineErrorMessage = null
         engineModelMissing = false
+        Log.i(LOG_TAG, "Ensuring engine ready force=$force")
         renderIdle()
 
         windowScope.launch {
@@ -393,6 +428,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                 engineReady = state is WhisperModelManager.State.Ready
                 engineModelMissing = false
                 engineErrorMessage = null
+                Log.i(LOG_TAG, "Engine ready model=${(state as? WhisperModelManager.State.Ready)?.model?.modelId}")
             } catch (error: Exception) {
                 val state = WhisperModelManager.currentState()
                 engineReady = false
@@ -401,6 +437,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                     (state as? WhisperModelManager.State.Error)?.message
                         ?: error.message
                         ?: context.getString(R.string.voice_input_engine_generic_error)
+                Log.w(LOG_TAG, "Engine warmup failed", error)
             } finally {
                 engineLoading = false
                 renderIdle()

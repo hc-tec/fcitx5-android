@@ -1,6 +1,7 @@
 package org.fcitx.fcitx5.android.input.voice
 
 import android.content.Context
+import android.util.Log
 import com.whispercpp.whisper.WhisperContext
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import java.util.concurrent.Executors
@@ -81,6 +82,7 @@ internal object WhisperModelManager {
 
         val appContext = context.applicationContext
         executor.execute {
+            Log.i(LOG_TAG, "Loading whisper model force=$force preference=${currentPreference()}")
             val nextState =
                 runCatching { loadContext(appContext) }
                     .getOrElse { error ->
@@ -98,6 +100,7 @@ internal object WhisperModelManager {
                 completionCallbacks = callbacks.toList()
                 callbacks.clear()
             }
+            Log.i(LOG_TAG, "Model manager state=${nextState::class.simpleName}")
             completionCallbacks.forEach { it(nextState) }
         }
     }
@@ -121,6 +124,7 @@ internal object WhisperModelManager {
         }
 
         val whisperContext = WhisperContext.createContextFromAsset(context.assets, model.assetPath)
+        Log.i(LOG_TAG, "Loaded model asset=${model.assetPath} modelId=${model.modelId}")
         return State.Ready(whisperContext = whisperContext, model = model)
     }
 
@@ -143,4 +147,5 @@ internal object WhisperModelManager {
         }.getOrDefault(VoiceModelPreference.Balanced)
 
     private const val MODEL_ASSET_DIR = "models"
+    private const val LOG_TAG = "WhisperModelManager"
 }

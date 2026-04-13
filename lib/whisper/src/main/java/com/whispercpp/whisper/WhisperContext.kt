@@ -27,7 +27,7 @@ class WhisperContext private constructor(private var ptr: Long) {
         withContext(scope.coroutineContext) {
             require(ptr != 0L)
             val numThreads = WhisperCpuConfig.preferredThreadCount
-            Log.d(LOG_TAG, "Using $numThreads threads for whisper.cpp")
+            Log.i(LOG_TAG, "Using $numThreads threads for whisper.cpp")
             WhisperLib.fullTranscribe(ptr, numThreads, language, data)
             val textCount = WhisperLib.getTextSegmentCount(ptr)
             buildString {
@@ -81,18 +81,18 @@ class WhisperContext private constructor(private var ptr: Long) {
 private class WhisperLib {
     companion object {
         init {
-            Log.d(LOG_TAG, "Primary ABI: ${Build.SUPPORTED_ABIS.firstOrNull().orEmpty()}")
+            Log.i(LOG_TAG, "Primary ABI: ${Build.SUPPORTED_ABIS.firstOrNull().orEmpty()}")
             when {
                 isArmEabiV7a() && cpuInfo()?.contains("vfpv4") == true -> {
-                    Log.d(LOG_TAG, "Loading libwhisper_vfpv4.so")
+                    Log.i(LOG_TAG, "Loading libwhisper_vfpv4.so")
                     System.loadLibrary("whisper_vfpv4")
                 }
                 isArmEabiV8a() && cpuInfo()?.contains("fphp") == true -> {
-                    Log.d(LOG_TAG, "Loading libwhisper_v8fp16_va.so")
+                    Log.i(LOG_TAG, "Loading libwhisper_v8fp16_va.so")
                     System.loadLibrary("whisper_v8fp16_va")
                 }
                 else -> {
-                    Log.d(LOG_TAG, "Loading libwhisper.so")
+                    Log.i(LOG_TAG, "Loading libwhisper.so")
                     System.loadLibrary("whisper")
                 }
             }
