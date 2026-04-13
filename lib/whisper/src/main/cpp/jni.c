@@ -10,6 +10,33 @@
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+static void android_whisper_log_callback(enum ggml_log_level level, const char *text, void *user_data) {
+    UNUSED(user_data);
+
+    const int priority = level >= GGML_LOG_LEVEL_ERROR ? ANDROID_LOG_ERROR :
+                         level == GGML_LOG_LEVEL_WARN ? ANDROID_LOG_WARN :
+                         ANDROID_LOG_INFO;
+
+    if (text == NULL || text[0] == '\0') {
+        return;
+    }
+
+    __android_log_write(priority, TAG, text);
+}
+
+static struct whisper_context_params create_context_params(void) {
+    struct whisper_context_params params = whisper_context_default_params();
+    params.use_gpu = true;
+    params.gpu_device = 0;
+
+    whisper_log_set(android_whisper_log_callback, NULL);
+    LOGI("whisper.cpp context params prepared: use_gpu=%d gpu_device=%d", params.use_gpu, params.gpu_device);
+    LOGI("whisper.cpp system info: %s", whisper_print_system_info());
+
+    return params;
+}
 
 static size_t asset_read(void *ctx, void *output, size_t read_size) {
     return AAsset_read((AAsset *) ctx, output, read_size);
@@ -46,7 +73,12 @@ static struct whisper_context *whisper_init_from_asset(
             .close = &asset_close
     };
 
-    return whisper_init_with_params(&loader, whisper_context_default_params());
+    struct whisper_context_params params = create_context_params();
+    struct whisper_context *context = whisper_init_with_params(&loader, params);
+    if (!context) {
+        LOGE("Failed to initialize whisper context from asset '%s'", asset_path);
+    }
+    return context;
 }
 
 JNIEXPORT jlong JNICALL
@@ -69,8 +101,12 @@ Java_com_whispercpp_whisper_WhisperLib_00024Companion_initContext(
         jstring model_path_str) {
     UNUSED(thiz);
     const char *model_path = (*env)->GetStringUTFChars(env, model_path_str, NULL);
+    struct whisper_context_params params = create_context_params();
     struct whisper_context *context =
-            whisper_init_from_file_with_params(model_path, whisper_context_default_params());
+            whisper_init_from_file_with_params(model_path, params);
+    if (!context) {
+        LOGE("Failed to initialize whisper context from file '%s'", model_path);
+    }
     (*env)->ReleaseStringUTFChars(env, model_path_str, model_path);
     return (jlong) context;
 }

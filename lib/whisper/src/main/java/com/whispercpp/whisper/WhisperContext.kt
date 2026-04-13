@@ -56,6 +56,7 @@ class WhisperContext private constructor(private var ptr: Long) {
 
     companion object {
         fun createContextFromFile(filePath: String): WhisperContext {
+            WhisperLib.assertLoaded()
             val ptr = WhisperLib.initContext(filePath)
             if (ptr == 0L) {
                 throw IllegalStateException("Failed to load whisper model from $filePath")
@@ -67,6 +68,7 @@ class WhisperContext private constructor(private var ptr: Long) {
             assetManager: AssetManager,
             assetPath: String
         ): WhisperContext {
+            WhisperLib.assertLoaded()
             val ptr = WhisperLib.initContextFromAsset(assetManager, assetPath)
             if (ptr == 0L) {
                 throw IllegalStateException("Failed to load whisper model from asset $assetPath")
@@ -80,21 +82,37 @@ class WhisperContext private constructor(private var ptr: Long) {
 
 private class WhisperLib {
     companion object {
+        private var nativeLoadError: Throwable? = null
+
         init {
-            Log.i(LOG_TAG, "Primary ABI: ${Build.SUPPORTED_ABIS.firstOrNull().orEmpty()}")
-            when {
-                isArmEabiV7a() && cpuInfo()?.contains("vfpv4") == true -> {
-                    Log.i(LOG_TAG, "Loading libwhisper_vfpv4.so")
-                    System.loadLibrary("whisper_vfpv4")
+            Log.i(LOG_TAG, "Primary ABI: ${Build.SUPPORTED_ABIS.firstOrNull().orEmpty()} sdk=${Build.VERSION.SDK_INT}")
+            nativeLoadError =
+                runCatching {
+                    when {
+                        isArmEabiV7a() && cpuInfo()?.contains("vfpv4") == true -> {
+                            Log.i(LOG_TAG, "Loading libwhisper_vfpv4.so")
+                            System.loadLibrary("whisper_vfpv4")
+                        }
+                        isArmEabiV8a() && cpuInfo()?.contains("fphp") == true -> {
+                            Log.i(LOG_TAG, "Loading libwhisper_v8fp16_va.so")
+                            System.loadLibrary("whisper_v8fp16_va")
+                        }
+                        else -> {
+                            Log.i(LOG_TAG, "Loading libwhisper.so")
+                            System.loadLibrary("whisper")
+                        }
+                    }
+                }.exceptionOrNull()?.also { error ->
+                    Log.e(LOG_TAG, "Failed to load whisper native library", error)
                 }
-                isArmEabiV8a() && cpuInfo()?.contains("fphp") == true -> {
-                    Log.i(LOG_TAG, "Loading libwhisper_v8fp16_va.so")
-                    System.loadLibrary("whisper_v8fp16_va")
-                }
-                else -> {
-                    Log.i(LOG_TAG, "Loading libwhisper.so")
-                    System.loadLibrary("whisper")
-                }
+        }
+
+        fun assertLoaded() {
+            nativeLoadError?.let { error ->
+                throw IllegalStateException(
+                    "Failed to load whisper native library. Vulkan acceleration requires a compatible device/driver and Android 7.0+.",
+                    error
+                )
             }
         }
 
