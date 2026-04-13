@@ -3,6 +3,7 @@ package org.fcitx.fcitx5.android.input.voice
 import android.content.Context
 import android.util.Log
 import com.whispercpp.whisper.WhisperContext
+import kotlinx.coroutines.runBlocking
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
@@ -34,7 +35,21 @@ internal object WhisperModelManager {
     @Volatile
     private var loading = false
 
+    @Volatile
+    private var forceCpuFallback = false
+
+    @Volatile
+    private var discardPreviousReadyContext = false
+
     fun currentState(): State = state
+
+    fun noteGpuInferenceFailure(reason: String) {
+        if (!forceCpuFallback) {
+            Log.w(LOG_TAG, "Switching whisper.cpp to CPU fallback after GPU inference failure: $reason")
+        }
+        forceCpuFallback = true
+        discardPreviousReadyContext = true
+    }
 
     suspend fun awaitReady(
         context: Context,
@@ -55,6 +70,8 @@ internal object WhisperModelManager {
     ) {
         val immediate: State
         var shouldLoad = false
+        var previousReady: State.Ready? = null
+        var releasePreviousReady = true
 
         synchronized(this) {
             val currentState = state
@@ -66,6 +83,9 @@ internal object WhisperModelManager {
                         State.Loading
                     }
                     else -> {
+                        previousReady = currentState as? State.Ready
+                        releasePreviousReady = !discardPreviousReadyContext
+                        discardPreviousReadyContext = false
                         callbacks += callback
                         loading = true
                         state = State.Loading
@@ -82,9 +102,22 @@ internal object WhisperModelManager {
 
         val appContext = context.applicationContext
         executor.execute {
-            Log.i(LOG_TAG, "Loading whisper model force=$force preference=${currentPreference()}")
+            previousReady?.let { readyState ->
+                if (releasePreviousReady) {
+                    runCatching {
+                        runBlocking { readyState.whisperContext.release() }
+                    }.onFailure { error ->
+                        Log.w(LOG_TAG, "Failed to release previous whisper context", error)
+                    }
+                } else {
+                    Log.w(LOG_TAG, "Discarding previous whisper context without release after GPU failure")
+                }
+            }
+
+            val useGpu = !forceCpuFallback
+            Log.i(LOG_TAG, "Loading whisper model force=$force preference=${currentPreference()} useGpu=$useGpu")
             val nextState =
-                runCatching { loadContext(appContext) }
+                runCatching { loadContext(appContext, useGpu = useGpu) }
                     .getOrElse { error ->
                         val message =
                             error.message
@@ -111,7 +144,10 @@ internal object WhisperModelManager {
             preference = currentPreference()
         )
 
-    private fun loadContext(context: Context): State {
+    private fun loadContext(
+        context: Context,
+        useGpu: Boolean
+    ): State {
         val assetNames =
             context.assets.list(MODEL_ASSET_DIR)
                 ?: emptyArray()
@@ -123,8 +159,8 @@ internal object WhisperModelManager {
             )
         }
 
-        val whisperContext = WhisperContext.createContextFromAsset(context.assets, model.assetPath)
-        Log.i(LOG_TAG, "Loaded model asset=${model.assetPath} modelId=${model.modelId}")
+        val whisperContext = WhisperContext.createContextFromAsset(context.assets, model.assetPath, useGpu = useGpu)
+        Log.i(LOG_TAG, "Loaded model asset=${model.assetPath} modelId=${model.modelId} useGpu=$useGpu")
         return State.Ready(whisperContext = whisperContext, model = model)
     }
 

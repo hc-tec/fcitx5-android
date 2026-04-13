@@ -4,6 +4,7 @@
 #include <android/log.h>
 #include <cstring>
 #include <exception>
+#include <string>
 #include "whisper.h"
 
 #define UNUSED(x) (void)(x)
@@ -91,6 +92,13 @@ static bool should_detect_language(const char *language) {
     return language == nullptr || language[0] == '\0' || strcmp(language, "auto") == 0;
 }
 
+static void throw_illegal_state_exception(JNIEnv *env, const std::string &message) {
+    jclass exception_class = env->FindClass("java/lang/IllegalStateException");
+    if (exception_class != nullptr) {
+        env->ThrowNew(exception_class, message.c_str());
+    }
+}
+
 static struct whisper_context *try_init_from_asset(
         JNIEnv *env,
         jobject asset_manager,
@@ -121,11 +129,17 @@ static struct whisper_context *try_init_from_asset(
 static struct whisper_context *whisper_init_from_asset(
         JNIEnv *env,
         jobject asset_manager,
-        const char *asset_path
+        const char *asset_path,
+        bool prefer_gpu
 ) {
-    struct whisper_context *context = try_init_from_asset(env, asset_manager, asset_path, true);
+    struct whisper_context *context = try_init_from_asset(env, asset_manager, asset_path, prefer_gpu);
     if (context != nullptr) {
         return context;
+    }
+
+    if (!prefer_gpu) {
+        LOGE("Failed to initialize whisper context from asset '%s'", asset_path);
+        return nullptr;
     }
 
     LOGW("Falling back to CPU whisper asset initialization");
@@ -141,10 +155,11 @@ Java_com_whispercpp_whisper_WhisperLib_00024Companion_initContextFromAsset(
         JNIEnv *env,
         jobject thiz,
         jobject asset_manager,
-        jstring asset_path_str) {
+        jstring asset_path_str,
+        jboolean use_gpu) {
     UNUSED(thiz);
     const char *asset_path = env->GetStringUTFChars(asset_path_str, nullptr);
-    struct whisper_context *context = whisper_init_from_asset(env, asset_manager, asset_path);
+    struct whisper_context *context = whisper_init_from_asset(env, asset_manager, asset_path, use_gpu == JNI_TRUE);
     env->ReleaseStringUTFChars(asset_path_str, asset_path);
     return reinterpret_cast<jlong>(context);
 }
@@ -153,10 +168,12 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_com_whispercpp_whisper_WhisperLib_00024Companion_initContext(
         JNIEnv *env,
         jobject thiz,
-        jstring model_path_str) {
+        jstring model_path_str,
+        jboolean use_gpu) {
     UNUSED(thiz);
     const char *model_path = env->GetStringUTFChars(model_path_str, nullptr);
-    struct whisper_context *context = init_from_file_fallback(model_path);
+    struct whisper_context *context =
+            use_gpu == JNI_TRUE ? init_from_file_fallback(model_path) : try_init_from_file(model_path, false);
     if (context == nullptr) {
         LOGE("Failed to initialize whisper context from file '%s'", model_path);
     }
@@ -205,15 +222,27 @@ Java_com_whispercpp_whisper_WhisperLib_00024Companion_fullTranscribe(
     params.temperature = 0.0f;
     params.max_initial_ts = 1.0f;
 
+    std::string inference_error;
     whisper_reset_timings(context);
-    if (whisper_full(context, params, audio_data_arr, audio_data_length) != 0) {
-        LOGW("Failed to run whisper_full");
-    } else {
-        whisper_print_timings(context);
+    try {
+        if (whisper_full(context, params, audio_data_arr, audio_data_length) != 0) {
+            LOGW("Failed to run whisper_full");
+        } else {
+            whisper_print_timings(context);
+        }
+    } catch (const std::exception &error) {
+        inference_error = error.what();
+        LOGE("whisper_full threw exception: %s", inference_error.c_str());
+    } catch (...) {
+        inference_error = "whisper_full failed with unknown native exception";
+        LOGE("%s", inference_error.c_str());
     }
 
     env->ReleaseFloatArrayElements(audio_data, audio_data_arr, JNI_ABORT);
     env->ReleaseStringUTFChars(language_str, language);
+    if (!inference_error.empty()) {
+        throw_illegal_state_exception(env, inference_error);
+    }
 }
 
 extern "C" JNIEXPORT jint JNICALL

@@ -55,9 +55,12 @@ class WhisperContext private constructor(private var ptr: Long) {
     }
 
     companion object {
-        fun createContextFromFile(filePath: String): WhisperContext {
+        fun createContextFromFile(
+            filePath: String,
+            useGpu: Boolean = true
+        ): WhisperContext {
             WhisperLib.assertLoaded()
-            val ptr = WhisperLib.initContext(filePath)
+            val ptr = WhisperLib.initContext(filePath, useGpu)
             if (ptr == 0L) {
                 throw IllegalStateException("Failed to load whisper model from $filePath")
             }
@@ -66,10 +69,11 @@ class WhisperContext private constructor(private var ptr: Long) {
 
         fun createContextFromAsset(
             assetManager: AssetManager,
-            assetPath: String
+            assetPath: String,
+            useGpu: Boolean = true
         ): WhisperContext {
             WhisperLib.assertLoaded()
-            val ptr = WhisperLib.initContextFromAsset(assetManager, assetPath)
+            val ptr = WhisperLib.initContextFromAsset(assetManager, assetPath, useGpu)
             if (ptr == 0L) {
                 throw IllegalStateException("Failed to load whisper model from asset $assetPath")
             }
@@ -118,10 +122,14 @@ private class WhisperLib {
 
         external fun initContextFromAsset(
             assetManager: AssetManager,
-            assetPath: String
+            assetPath: String,
+            useGpu: Boolean
         ): Long
 
-        external fun initContext(modelPath: String): Long
+        external fun initContext(
+            modelPath: String,
+            useGpu: Boolean
+        ): Long
 
         external fun freeContext(contextPtr: Long)
 
