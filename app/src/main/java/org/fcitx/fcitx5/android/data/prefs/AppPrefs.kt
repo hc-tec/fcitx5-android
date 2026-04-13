@@ -21,6 +21,7 @@ import org.fcitx.fcitx5.android.input.keyboard.SpaceLongPressBehavior
 import org.fcitx.fcitx5.android.input.keyboard.SwipeSymbolDirection
 import org.fcitx.fcitx5.android.input.picker.PickerWindow
 import org.fcitx.fcitx5.android.input.popup.EmojiModifier
+import org.fcitx.fcitx5.android.input.voice.VoiceModelPreference
 import org.fcitx.fcitx5.android.input.voice.VoiceInputMode
 import org.fcitx.fcitx5.android.utils.DeviceUtil
 import org.fcitx.fcitx5.android.utils.appContext
@@ -156,6 +157,13 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             R.string.preferred_voice_input, "preferred_voice_input", ""
         ) {
             showVoiceInputButton.getValue() && voiceInputMode.getValue() == VoiceInputMode.SystemVoiceIme
+        }
+        val builtInVoiceModel = enumList(
+            R.string.voice_model_preference,
+            "built_in_voice_model",
+            VoiceModelPreference.Balanced
+        ) {
+            showVoiceInputButton.getValue() && voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
         }
 
         val expandKeypressArea =

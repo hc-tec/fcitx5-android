@@ -41,6 +41,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     private var partialLoopJob: Job? = null
     private var partialTranscriptionJob: Job? = null
     private var lastPartialScheduledSamples = 0
+    private val partialStabilizer = VoicePartialStabilizer()
 
     override val title: String by lazy {
         context.getString(R.string.voice_input_title)
@@ -154,6 +155,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         listening = true
         processing = false
         lastPartialScheduledSamples = 0
+        partialStabilizer.reset()
         ui.renderListening(latestTranscript)
         startPartialLoop()
     }
@@ -187,6 +189,13 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                         return@launch
                     }
 
+                    val activityStats = VoiceActivityDetector.analyze(audioData)
+                    if (!activityStats.hasSpeech && latestTranscript.isBlank()) {
+                        processing = false
+                        ui.renderMessage(context.getString(R.string.voice_input_no_speech), latestTranscript)
+                        return@launch
+                    }
+
                     val engine = voiceEngine ?: return@launch
                     val result = engine.transcribeFinal(audioData, request.locale)
                     commitTranscript(result.text)
@@ -215,6 +224,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         recorder = null
         listening = false
         processing = false
+        partialStabilizer.reset()
         ui.renderReady(latestTranscript)
     }
 
@@ -244,6 +254,15 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                                 activeRecorder.snapshot(engine.capabilities.partialMaxSamples)
                             }
                         if (snapshot.isNotEmpty()) {
+                            val activityStats = VoiceActivityDetector.analyze(snapshot)
+                            if (!activityStats.hasSpeech) {
+                                delay(engine.capabilities.partialPollIntervalMs)
+                                continue
+                            }
+                            if (activityStats.trailingSilenceMs >= 1200 && latestTranscript.isNotBlank()) {
+                                delay(engine.capabilities.partialPollIntervalMs)
+                                continue
+                            }
                             schedulePartialTranscription(snapshot, request.locale)
                         }
                     }
@@ -275,7 +294,12 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                             sessionId,
                             VoiceRecognitionResult(text = rawText, confidence = 0.55)
                         )
-                    latestTranscript = processed?.text?.ifBlank { rawText } ?: rawText
+                    val processedText = processed?.text?.ifBlank { rawText } ?: rawText
+                    latestTranscript =
+                        partialStabilizer.update(
+                            candidate = processedText,
+                            stableLength = processed?.stableLength ?: 0
+                        )
                     if (listening) {
                         ui.renderListening(latestTranscript)
                     }
@@ -294,6 +318,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     private fun commitTranscript(rawText: String) {
         listening = false
         processing = false
+        partialStabilizer.reset()
 
         val transcript = normalizeTranscript(rawText)
         val processed =

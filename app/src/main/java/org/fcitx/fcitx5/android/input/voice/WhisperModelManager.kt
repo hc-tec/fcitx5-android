@@ -2,6 +2,7 @@ package org.fcitx.fcitx5.android.input.voice
 
 import android.content.Context
 import com.whispercpp.whisper.WhisperContext
+import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -55,9 +56,10 @@ internal object WhisperModelManager {
         var shouldLoad = false
 
         synchronized(this) {
+            val currentState = state
             immediate =
                 when {
-                    state is State.Ready && !force -> state
+                    currentState is State.Ready && !force && !shouldReloadForPreference(context, currentState) -> currentState
                     loading && !force -> {
                         callbacks += callback
                         State.Loading
@@ -101,7 +103,10 @@ internal object WhisperModelManager {
     }
 
     internal fun resolveModel(assetNames: Array<String>): VoiceModelDescriptor? =
-        VoiceModelCatalog.selectWhisperModel(assetNames)
+        VoiceModelCatalog.selectWhisperModel(
+            assetNames = assetNames,
+            preference = currentPreference()
+        )
 
     private fun loadContext(context: Context): State {
         val assetNames =
@@ -118,6 +123,24 @@ internal object WhisperModelManager {
         val whisperContext = WhisperContext.createContextFromAsset(context.assets, model.assetPath)
         return State.Ready(whisperContext = whisperContext, model = model)
     }
+
+    private fun shouldReloadForPreference(
+        context: Context,
+        state: State.Ready
+    ): Boolean {
+        val assetNames = context.assets.list(MODEL_ASSET_DIR) ?: return false
+        val preferred =
+            VoiceModelCatalog.selectWhisperModel(
+                assetNames = assetNames,
+                preference = currentPreference()
+            )
+        return preferred != null && preferred.modelId != state.model.modelId
+    }
+
+    private fun currentPreference(): VoiceModelPreference =
+        runCatching {
+            AppPrefs.getInstance().keyboard.builtInVoiceModel.getValue()
+        }.getOrDefault(VoiceModelPreference.Balanced)
 
     private const val MODEL_ASSET_DIR = "models"
 }

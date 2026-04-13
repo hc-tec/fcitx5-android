@@ -23,4 +23,26 @@ class VoiceModelCatalogTest {
         assertEquals("base", result?.tier)
         assertTrue(result?.quantized == true)
     }
+
+    @Test
+    fun `fast preference prioritizes tiny models`() {
+        val result =
+            VoiceModelCatalog.selectWhisperModel(
+                assetNames = arrayOf("ggml-base-q5_1.bin", "ggml-tiny-q5_1.bin"),
+                preference = VoiceModelPreference.Fast
+            )
+
+        assertEquals("tiny-q5_1", result?.modelId)
+    }
+
+    @Test
+    fun `accurate preference prioritizes small models`() {
+        val result =
+            VoiceModelCatalog.selectWhisperModel(
+                assetNames = arrayOf("ggml-base-q5_1.bin", "ggml-small-q5_1.bin"),
+                preference = VoiceModelPreference.Accurate
+            )
+
+        assertEquals("small-q5_1", result?.modelId)
+    }
 }

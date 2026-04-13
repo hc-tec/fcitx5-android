@@ -235,6 +235,11 @@
     <string name="voice_input_mode">Voice input provider</string>
     <string name="voice_input_mode_builtin">Built-in offline engine</string>
     <string name="voice_input_mode_system_ime">External voice IME</string>
+    <string name="voice_model_preference">Built-in voice model</string>
+    <string name="voice_model_preference_auto">Auto</string>
+    <string name="voice_model_preference_fast">Fast</string>
+    <string name="voice_model_preference_balanced">Balanced</string>
+    <string name="voice_model_preference_accurate">Accurate</string>
     <string name="voice_input_title">Voice input</string>
     <string name="voice_input_ready">Hold the button and speak</string>
     <string name="voice_input_hold_to_talk">Hold to talk</string>

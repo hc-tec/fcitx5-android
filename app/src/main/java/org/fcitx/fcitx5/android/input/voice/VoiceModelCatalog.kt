@@ -12,21 +12,9 @@ internal object VoiceModelCatalog {
     private const val WHISPER_ENGINE_ID = "whisper.cpp"
     private const val MODEL_ASSET_DIR = "models"
 
-    private val preferredWhisperModelIds =
-        listOf(
-            "base-q5_1",
-            "base-q8_0",
-            "base",
-            "small-q5_1",
-            "small-q8_0",
-            "small",
-            "tiny-q5_1",
-            "tiny-q8_0",
-            "tiny"
-        )
-
     fun selectWhisperModel(
         assetNames: Array<String>,
+        preference: VoiceModelPreference = VoiceModelPreference.Balanced,
         preferredModelId: String? = null
     ): VoiceModelDescriptor? {
         val descriptors =
@@ -37,7 +25,7 @@ internal object VoiceModelCatalog {
         val preferredOrder =
             buildList {
                 preferredModelId?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
-                addAll(preferredWhisperModelIds)
+                addAll(preferredWhisperModelIds(preference))
             }
 
         preferredOrder.forEach { candidate ->
@@ -46,6 +34,53 @@ internal object VoiceModelCatalog {
 
         return descriptors.firstOrNull()
     }
+
+    fun preferredWhisperModelIds(preference: VoiceModelPreference): List<String> =
+        when (preference) {
+            VoiceModelPreference.Auto ->
+                listOf(
+                    "base-q5_1",
+                    "tiny-q5_1",
+                    "base-q8_0",
+                    "tiny-q8_0",
+                    "base",
+                    "small-q5_1",
+                    "small",
+                    "tiny"
+                )
+            VoiceModelPreference.Fast ->
+                listOf(
+                    "tiny-q5_1",
+                    "tiny-q8_0",
+                    "tiny",
+                    "base-q5_1",
+                    "base-q8_0",
+                    "base",
+                    "small-q5_1",
+                    "small"
+                )
+            VoiceModelPreference.Balanced ->
+                listOf(
+                    "base-q5_1",
+                    "base-q8_0",
+                    "base",
+                    "tiny-q5_1",
+                    "small-q5_1",
+                    "small",
+                    "tiny"
+                )
+            VoiceModelPreference.Accurate ->
+                listOf(
+                    "small-q5_1",
+                    "small-q8_0",
+                    "small",
+                    "base-q5_1",
+                    "base-q8_0",
+                    "base",
+                    "tiny-q5_1",
+                    "tiny"
+                )
+        }
 
     fun descriptorFromWhisperAsset(assetName: String): VoiceModelDescriptor? {
         val trimmed = assetName.trim()
