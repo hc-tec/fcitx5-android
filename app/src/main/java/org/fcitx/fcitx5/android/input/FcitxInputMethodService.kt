@@ -68,6 +68,7 @@ import org.fcitx.fcitx5.android.input.cursor.CursorTracker
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitInputSnapshotReader
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitImeActionSendInterceptor
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitImeSendIntent
+import org.fcitx.fcitx5.android.input.voice.VoiceInputPrewarmer
 import org.fcitx.fcitx5.android.input.wm.ImeBridgeState
 import org.fcitx.fcitx5.android.utils.InputMethodUtil
 import org.fcitx.fcitx5.android.utils.alpha
@@ -913,6 +914,7 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         Timber.d("onStartInputView: restarting=$restarting")
         FunctionKitInputSnapshotReader.warmUp(this)
+        VoiceInputPrewarmer.maybePrewarm(this)
         postFcitxJob {
             focus(true)
         }

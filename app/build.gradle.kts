@@ -536,6 +536,7 @@ dependencies {
     implementation(project(":lib:voice-core"))
     implementation(project(":lib:whisper"))
     implementation(project(":lib:common"))
+    implementation(files("libs/vad-release.aar"))
     implementation(libs.kotlinx.coroutines)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.activity)

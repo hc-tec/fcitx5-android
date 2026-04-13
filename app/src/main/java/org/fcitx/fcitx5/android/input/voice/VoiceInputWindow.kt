@@ -38,9 +38,11 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     private var engineErrorMessage: String? = null
     private var windowScope = createWindowScope()
     private var transcribeJob: Job? = null
+    private var endpointLoopJob: Job? = null
     private var partialLoopJob: Job? = null
     private var partialTranscriptionJob: Job? = null
     private var lastPartialScheduledSamples = 0
+    private var listeningState = VoiceListeningState.NOT_TALKED_YET
     private val partialStabilizer = VoicePartialStabilizer()
 
     override val title: String by lazy {
@@ -67,6 +69,8 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     override fun onDetached() {
         transcribeJob?.cancel()
         transcribeJob = null
+        endpointLoopJob?.cancel()
+        endpointLoopJob = null
         partialLoopJob?.cancel()
         partialLoopJob = null
         partialTranscriptionJob?.cancel()
@@ -152,16 +156,19 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
 
         service.finishComposing()
         transcribeJob?.cancel()
+        endpointLoopJob?.cancel()
         partialLoopJob?.cancel()
         partialTranscriptionJob?.cancel()
         recorder = whisperRecorder
         latestTranscript = ""
         listening = true
         processing = false
+        listeningState = VoiceListeningState.NOT_TALKED_YET
         lastPartialScheduledSamples = 0
         partialStabilizer.reset()
         Log.i(LOG_TAG, "Listening started session=$sessionId locale=${request.locale}")
-        ui.renderListening(latestTranscript)
+        ui.renderListening(latestTranscript, listeningState)
+        startEndpointLoop()
         startPartialLoop()
     }
 
@@ -174,6 +181,8 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         recorder = null
         listening = false
         processing = true
+        endpointLoopJob?.cancel()
+        endpointLoopJob = null
         partialLoopJob?.cancel()
         partialLoopJob = null
         partialTranscriptionJob?.cancel()
@@ -231,6 +240,8 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
     private fun cancelListening() {
         transcribeJob?.cancel()
         transcribeJob = null
+        endpointLoopJob?.cancel()
+        endpointLoopJob = null
         partialLoopJob?.cancel()
         partialLoopJob = null
         partialTranscriptionJob?.cancel()
@@ -239,9 +250,40 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         recorder = null
         listening = false
         processing = false
+        listeningState = VoiceListeningState.NOT_TALKED_YET
         partialStabilizer.reset()
         Log.i(LOG_TAG, "Listening cancelled session=$sessionId")
         ui.renderReady(latestTranscript)
+    }
+
+    private fun startEndpointLoop() {
+        endpointLoopJob =
+            windowScope.launch {
+                while (listening) {
+                    val activeRecorder = recorder ?: break
+                    val pcmSnapshot =
+                        withContext(Dispatchers.Default) {
+                            activeRecorder.snapshotPcm16(REALTIME_ANALYSIS_MAX_SAMPLES)
+                        }
+                    if (pcmSnapshot.isNotEmpty()) {
+                        val endpointDecision = analyzeEndpoint(pcmSnapshot)
+                        if (endpointDecision.state != listeningState) {
+                            listeningState = endpointDecision.state
+                            ui.renderListening(latestTranscript, listeningState)
+                        }
+
+                        if (endpointDecision.shouldAutoStop && listening) {
+                            Log.i(
+                                LOG_TAG,
+                                "Auto-stopping from endpoint detector source=${endpointDecision.source} trailingSilenceMs=${endpointDecision.trailingSilenceMs}"
+                            )
+                            stopListening()
+                            break
+                        }
+                    }
+                    delay(ENDPOINT_POLL_INTERVAL_MS)
+                }
+            }
     }
 
     private fun startPartialLoop() {
@@ -269,27 +311,31 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                             withContext(Dispatchers.Default) {
                                 activeRecorder.snapshot(engine.capabilities.partialMaxSamples)
                             }
+                        val pcmSnapshot =
+                            withContext(Dispatchers.Default) {
+                                activeRecorder.snapshotPcm16(engine.capabilities.partialMaxSamples)
+                            }
                         if (snapshot.isNotEmpty()) {
-                            val activityStats = VoiceActivityDetector.analyze(snapshot)
-                            if (!activityStats.hasSpeech) {
+                            val endpointDecision = analyzeEndpoint(pcmSnapshot, snapshot)
+                            if (!endpointDecision.hasSpeech) {
                                 Log.i(
                                     LOG_TAG,
-                                    "Skipping partial: VAD rejected snapshot samples=${snapshot.size} speechRatio=${activityStats.speechRatio}"
+                                    "Skipping partial: VAD rejected snapshot samples=${snapshot.size} source=${endpointDecision.source}"
                                 )
                                 delay(engine.capabilities.partialPollIntervalMs)
                                 continue
                             }
-                            if (activityStats.trailingSilenceMs >= 1200 && latestTranscript.isNotBlank()) {
+                            if (endpointDecision.trailingSilenceMs >= 1200 && latestTranscript.isNotBlank()) {
                                 Log.i(
                                     LOG_TAG,
-                                    "Skipping partial: trailingSilenceMs=${activityStats.trailingSilenceMs} transcriptLength=${latestTranscript.length}"
+                                    "Skipping partial: trailingSilenceMs=${endpointDecision.trailingSilenceMs} transcriptLength=${latestTranscript.length}"
                                 )
                                 delay(engine.capabilities.partialPollIntervalMs)
                                 continue
                             }
                             Log.i(
                                 LOG_TAG,
-                                "Scheduling partial samples=${snapshot.size} locale=${request.locale} speechRatio=${activityStats.speechRatio}"
+                                "Scheduling partial samples=${snapshot.size} locale=${request.locale} source=${endpointDecision.source}"
                             )
                             schedulePartialTranscription(snapshot, request.locale)
                         }
@@ -333,7 +379,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                         "Partial updated rawLength=${rawText.length} renderedLength=${latestTranscript.length}"
                     )
                     if (listening) {
-                        ui.renderListening(latestTranscript)
+                        ui.renderListening(latestTranscript, listeningState)
                     }
                 } catch (_: CancellationException) {
                 } catch (error: Exception) {
@@ -374,6 +420,28 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         ui.renderReady(latestTranscript)
     }
 
+    private fun analyzeEndpoint(
+        pcmSnapshot: ShortArray,
+        floatSnapshot: FloatArray? = null
+    ): VoiceEndpointDecision {
+        val webRtcStats = VoiceWebRtcVad.analyze(pcmSnapshot)
+        if (webRtcStats != null) {
+            return VoiceEndpointPolicy.decide(
+                stats = webRtcStats,
+                sampleCount = pcmSnapshot.size,
+                source = "webrtc-vad"
+            )
+        }
+
+        val fallbackSamples = floatSnapshot ?: pcmSnapshot.map { it / 32768f }.toFloatArray()
+        val fallbackStats = VoiceActivityDetector.analyze(fallbackSamples)
+        return VoiceEndpointPolicy.decide(
+            stats = fallbackStats,
+            sampleCount = fallbackSamples.size,
+            source = "energy-vad"
+        )
+    }
+
     private fun renderIdle() {
         when {
             !VoiceInputPermission.hasRecordAudioPermission(context) ->
@@ -382,7 +450,7 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
                         VoiceInputPermission.launchPermissionActivity(context)
                     }
                 )
-            listening -> ui.renderListening(latestTranscript)
+            listening -> ui.renderListening(latestTranscript, listeningState)
             processing -> ui.renderProcessing(latestTranscript)
             engineLoading -> ui.renderLoading()
             engineModelMissing ->
@@ -451,6 +519,8 @@ internal class VoiceInputWindow : InputWindow.ExtendedInputWindow<VoiceInputWind
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private companion object {
+        private const val ENDPOINT_POLL_INTERVAL_MS = 150L
+        private const val REALTIME_ANALYSIS_MAX_SAMPLES = WhisperAudioRecorder.SAMPLE_RATE * 8
         private const val LOG_TAG = "VoiceInputWindow"
     }
 }

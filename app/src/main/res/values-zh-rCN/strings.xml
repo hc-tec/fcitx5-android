@@ -261,6 +261,12 @@
     <string name="voice_input_engine_generic_error">未知错误</string>
     <string name="voice_input_no_speech">没有检测到语音。</string>
     <string name="voice_input_error">语音输入失败：%1$s</string>
+    <string name="voice_input_listening_waiting">开始说话</string>
+    <string name="voice_input_listening_waiting_hint">离线语音引擎已经就绪，正在等待你开口。</string>
+    <string name="voice_input_listening_mic_blocked">没有检测到有效声音</string>
+    <string name="voice_input_listening_mic_blocked_hint">请检查麦克风是否被静音、遮挡，或被系统限制。</string>
+    <string name="voice_input_listening_ending_soon">检测到停顿，即将结束</string>
+    <string name="voice_input_listening_ending_soon_hint">继续说话可保持识别，松手会按当前结果提交。</string>
     <string name="fcitx_daemon">Fcitx 守护程序</string>
     <string name="restarting_fcitx">正在重新启动 Fcitx</string>
     <string name="plugin_needs_reload">检测到插件更改，点此重新加载</string>

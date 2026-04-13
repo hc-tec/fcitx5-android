@@ -27,6 +27,8 @@
 # Built application files
 *.apk
 *.aar
+!app/libs/
+!app/libs/vad-release.aar
 *.ap_
 *.aab
 

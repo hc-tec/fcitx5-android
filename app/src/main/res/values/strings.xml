@@ -261,6 +261,12 @@
     <string name="voice_input_engine_generic_error">unknown error</string>
     <string name="voice_input_no_speech">No speech detected.</string>
     <string name="voice_input_error">Voice input failed: %1$s</string>
+    <string name="voice_input_listening_waiting">Start speaking</string>
+    <string name="voice_input_listening_waiting_hint">The offline engine is listening and waiting for speech.</string>
+    <string name="voice_input_listening_mic_blocked">No audible signal detected</string>
+    <string name="voice_input_listening_mic_blocked_hint">Check whether the microphone is muted, blocked, or denied by the system.</string>
+    <string name="voice_input_listening_ending_soon">Pause detected, finishing soon</string>
+    <string name="voice_input_listening_ending_soon_hint">Keep speaking to continue, or release to confirm the current result.</string>
     <string name="fcitx_daemon">Fcitx Daemon</string>
     <string name="restarting_fcitx">Restarting Fcitx</string>
     <string name="plugin_needs_reload">Plugin changes detected, click here to reload</string>

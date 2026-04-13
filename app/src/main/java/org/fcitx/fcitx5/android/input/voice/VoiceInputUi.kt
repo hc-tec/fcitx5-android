@@ -105,11 +105,26 @@ internal class VoiceInputUi(
         hideAction()
     }
 
-    fun renderListening(transcript: String) {
-        statusView.text = ctx.getString(R.string.voice_input_release_to_finish)
+    fun renderListening(
+        transcript: String,
+        state: VoiceListeningState = VoiceListeningState.TALKING
+    ) {
+        statusView.text =
+            when (state) {
+                VoiceListeningState.NOT_TALKED_YET -> ctx.getString(R.string.voice_input_listening_waiting)
+                VoiceListeningState.MIC_MAY_BE_BLOCKED -> ctx.getString(R.string.voice_input_listening_mic_blocked)
+                VoiceListeningState.TALKING -> ctx.getString(R.string.voice_input_release_to_finish)
+                VoiceListeningState.ENDING_SOON_VAD -> ctx.getString(R.string.voice_input_listening_ending_soon)
+            }
         transcriptView.text =
             transcript.ifBlank { ctx.getString(R.string.voice_input_transcript_placeholder) }
-        hintView.text = ctx.getString(R.string.voice_input_release_to_finish)
+        hintView.text =
+            when (state) {
+                VoiceListeningState.NOT_TALKED_YET -> ctx.getString(R.string.voice_input_listening_waiting_hint)
+                VoiceListeningState.MIC_MAY_BE_BLOCKED -> ctx.getString(R.string.voice_input_listening_mic_blocked_hint)
+                VoiceListeningState.TALKING -> ctx.getString(R.string.voice_input_release_to_finish)
+                VoiceListeningState.ENDING_SOON_VAD -> ctx.getString(R.string.voice_input_listening_ending_soon_hint)
+            }
         holdButton.text = ctx.getString(R.string.voice_input_release_to_finish)
         holdButton.isEnabled = true
         holdButton.background = holdButtonBackground(active = true, enabled = true)
