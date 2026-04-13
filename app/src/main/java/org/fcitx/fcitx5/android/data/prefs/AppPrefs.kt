@@ -41,6 +41,8 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             bool("migrated_function_kit_toolbar_shortcut_default_on", false)
         val migratedVoiceSpaceLongPressDefaultOn =
             bool("migrated_voice_space_long_press_default_on", false)
+        val migratedVoiceSpaceLongPressBackfillOn =
+            bool("migrated_voice_space_long_press_backfill_on", false)
     }
 
     inner class Advanced : ManagedPreferenceCategory(R.string.advanced, sharedPreferences) {
@@ -661,6 +663,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
     private fun applyMigrations() {
         migrateFunctionKitToolbarShortcutDefaultOn()
         migrateVoiceSpaceLongPressDefaultOn()
+        migrateVoiceSpaceLongPressBackfillOn()
     }
 
     private fun migrateFunctionKitToolbarShortcutDefaultOn() {
@@ -685,6 +688,22 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         }
 
         internal.migratedVoiceSpaceLongPressDefaultOn.setValue(true)
+    }
+
+    private fun migrateVoiceSpaceLongPressBackfillOn() {
+        if (internal.migratedVoiceSpaceLongPressBackfillOn.getValue()) {
+            return
+        }
+
+        if (
+            keyboard.showVoiceInputButton.getValue() &&
+            keyboard.voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&
+            keyboard.spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.None
+        ) {
+            keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.VoiceInput)
+        }
+
+        internal.migratedVoiceSpaceLongPressBackfillOn.setValue(true)
     }
 
     companion object {
