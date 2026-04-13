@@ -17,7 +17,7 @@ endif()
 set(
     SOURCE_FILES
     ${WHISPER_LIB_DIR}/src/whisper.cpp
-    ${CMAKE_SOURCE_DIR}/jni.c
+    ${CMAKE_SOURCE_DIR}/jni.cpp
 )
 
 find_library(LOG_LIB log)
@@ -30,6 +30,11 @@ function(configure_whisper_acceleration)
 
     if (NOT ANDROID OR NOT VOICE_WHISPER_ENABLE_VULKAN)
         message(STATUS "whisper.cpp Android acceleration: Vulkan disabled")
+        return()
+    endif()
+
+    if (NOT (ANDROID_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "x86_64"))
+        message(STATUS "whisper.cpp Android acceleration: Vulkan disabled for ABI ${ANDROID_ABI}")
         return()
     endif()
 

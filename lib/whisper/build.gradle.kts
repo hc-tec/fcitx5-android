@@ -11,7 +11,7 @@ android {
             cmake {
                 arguments += "-DANDROID_STL=c++_shared"
                 arguments += "-DVOICE_WHISPER_VULKAN_BUILD=1"
-                arguments += "-DVOICE_WHISPER_VULKAN_REV=6"
+                arguments += "-DVOICE_WHISPER_VULKAN_REV=7"
             }
         }
     }
