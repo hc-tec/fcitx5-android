@@ -4,8 +4,11 @@
 # Generated asset descriptor
 /app/src/main/assets/descriptor.json
 /app/src/main/assets/models/ggml-*.bin
+/app/src/main/assets/models/*.tar.bz2
+/app/src/main/assets/models/**/.cache/
 /third_party/downloads/
 /third_party/sherpa-onnx/
+/.hf_home/
 
 # Plugins
 # Installed data

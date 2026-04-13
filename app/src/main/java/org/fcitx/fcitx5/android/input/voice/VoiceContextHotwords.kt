@@ -20,9 +20,9 @@ internal object VoiceContextHotwords {
 
     fun formatForSherpaStream(hotwords: List<String>): String =
         hotwords
-            .map(String::trim)
+            .map { it.replace("[\\r\\n/]+".toRegex(), " ").replace("\\s+".toRegex(), " ").trim() }
             .filter(String::isNotBlank)
-            .joinToString(separator = "\n")
+            .joinToString(separator = "/")
 
     private fun addCandidates(
         sink: LinkedHashSet<String>,

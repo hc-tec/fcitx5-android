@@ -22,6 +22,7 @@ import org.fcitx.fcitx5.android.input.keyboard.SwipeSymbolDirection
 import org.fcitx.fcitx5.android.input.picker.PickerWindow
 import org.fcitx.fcitx5.android.input.popup.EmojiModifier
 import org.fcitx.fcitx5.android.input.voice.BuiltInVoiceEngine
+import org.fcitx.fcitx5.android.input.voice.SherpaOnnxModelPreference
 import org.fcitx.fcitx5.android.input.voice.VoiceModelPreference
 import org.fcitx.fcitx5.android.input.voice.VoiceInputMode
 import org.fcitx.fcitx5.android.utils.DeviceUtil
@@ -179,6 +180,15 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             showVoiceInputButton.getValue() &&
                 voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&
                 builtInVoiceEngine.getValue() == BuiltInVoiceEngine.WhisperCpp
+        }
+        val builtInSherpaModel = enumList(
+            R.string.voice_sherpa_model_preference,
+            "built_in_sherpa_model",
+            SherpaOnnxModelPreference.HotwordEnhanced
+        ) {
+            showVoiceInputButton.getValue() &&
+                voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&
+                builtInVoiceEngine.getValue() == BuiltInVoiceEngine.SherpaOnnx
         }
 
         val expandKeypressArea =

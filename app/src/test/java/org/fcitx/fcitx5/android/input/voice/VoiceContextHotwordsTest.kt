@@ -20,9 +20,16 @@ class VoiceContextHotwordsTest {
     }
 
     @Test
-    fun sherpaHotwordsUseUtf8LineFormat() {
+    fun sherpaHotwordsUseSlashSeparatedPerStreamFormat() {
         val result = VoiceContextHotwords.formatForSherpaStream(listOf("OpenClaw", "KeyFlow"))
 
-        assertEquals("OpenClaw\nKeyFlow", result)
+        assertEquals("OpenClaw/KeyFlow", result)
+    }
+
+    @Test
+    fun sherpaHotwordsNormalizeReservedSeparators() {
+        val result = VoiceContextHotwords.formatForSherpaStream(listOf("Open/Claw", "Key\nFlow"))
+
+        assertEquals("Open Claw/Key Flow", result)
     }
 }

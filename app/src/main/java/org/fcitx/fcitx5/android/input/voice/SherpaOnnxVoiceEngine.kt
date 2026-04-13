@@ -87,7 +87,7 @@ internal class SherpaOnnxVoiceEngine(
         require(state is SherpaOnnxModelManager.State.Ready) {
             (state as? SherpaOnnxModelManager.State.Error)?.message ?: "sherpa-onnx engine is unavailable"
         }
-        val readyState = state as SherpaOnnxModelManager.State.Ready
+        val readyState = state
 
         val start = SystemClock.elapsedRealtime()
         val text =
@@ -120,12 +120,18 @@ internal class SherpaOnnxVoiceEngine(
     ): SessionState {
         val streamHotwords = buildStreamHotwords(readyState.model, request)
         val current = activeSession
-        if (current != null && current.localeTag == request.locale && current.hotwordsSignature == streamHotwords) {
+        if (
+            current != null &&
+            current.modelId == readyState.model.modelId &&
+            current.localeTag == request.locale &&
+            current.hotwordsSignature == streamHotwords
+        ) {
             return current
         }
 
         releaseSessionLocked()
         return SessionState(
+            modelId = readyState.model.modelId,
             localeTag = request.locale,
             hotwordsSignature = streamHotwords,
             stream =
@@ -178,6 +184,7 @@ internal class SherpaOnnxVoiceEngine(
     }
 
     private data class SessionState(
+        val modelId: String,
         val localeTag: String,
         val stream: OnlineStream,
         val hotwordsSignature: String,
