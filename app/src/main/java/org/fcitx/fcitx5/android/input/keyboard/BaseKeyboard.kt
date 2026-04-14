@@ -56,6 +56,7 @@ abstract class BaseKeyboard(
     private val popupOnKeyPress by prefs.keyboard.popupOnKeyPress
     private val expandKeypressArea by prefs.keyboard.expandKeypressArea
     private val swipeSymbolDirection by prefs.keyboard.swipeSymbolDirection
+    private val spaceKeyLongPressBehavior by prefs.keyboard.spaceKeyLongPressBehavior
 
     private val spaceSwipeMoveCursor = prefs.keyboard.spaceSwipeMoveCursor
     private val spaceKeys = mutableListOf<KeyView>()
@@ -151,6 +152,7 @@ abstract class BaseKeyboard(
             is KeyDef.Appearance.Text -> TextKeyView(context, theme, def.appearance)
             is KeyDef.Appearance.Image -> ImageKeyView(context, theme, def.appearance)
         }.apply {
+            var spaceVoiceLongPressActive = false
             soundEffect = when (def) {
                 is SpaceKey -> InputFeedbacks.SoundEffect.SpaceBar
                 is MiniSpaceKey -> InputFeedbacks.SoundEffect.SpaceBar
@@ -214,6 +216,13 @@ abstract class BaseKeyboard(
                     }
                     is KeyDef.Behavior.LongPress -> {
                         setOnLongClickListener { _ ->
+                            if (
+                                def is SpaceKey &&
+                                spaceKeyLongPressBehavior == SpaceLongPressBehavior.VoiceInput &&
+                                it.action is KeyAction.SpaceLongPressAction
+                            ) {
+                                spaceVoiceLongPressActive = true
+                            }
                             onAction(it.action)
                             true
                         }
@@ -343,6 +352,27 @@ abstract class BaseKeyboard(
                             oldOnGestureListener.onGesture(view, event)
                         }
                     }
+                }
+            }
+            if (def is SpaceKey) {
+                val oldOnGestureListener = onGestureListener ?: OnGestureListener.Empty
+                onGestureListener = OnGestureListener { view, event ->
+                    when (event.type) {
+                        GestureType.Down -> {
+                            spaceVoiceLongPressActive = false
+                            false
+                        }
+                        GestureType.Up -> {
+                            if (spaceVoiceLongPressActive) {
+                                spaceVoiceLongPressActive = false
+                                onAction(KeyAction.SpaceLongPressReleaseAction)
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        GestureType.Move -> false
+                    } || oldOnGestureListener.onGesture(view, event)
                 }
             }
         }
