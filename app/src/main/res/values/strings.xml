@@ -251,8 +251,8 @@
     <string name="voice_input_title">Voice input</string>
     <string name="voice_input_ready">Hold the button and speak</string>
     <string name="voice_input_hold_to_talk">Hold to talk</string>
-    <string name="voice_input_recording_short">Listening</string>
-    <string name="voice_input_processing_short">Processing</string>
+    <string name="voice_input_recording_short">Speak now</string>
+    <string name="voice_input_processing_short">Recognizing</string>
     <string name="voice_input_release_to_finish">Release to finish recognition</string>
     <string name="voice_input_processing">Processing…</string>
     <string name="voice_input_transcript_placeholder">Recognized text will appear here.</string>

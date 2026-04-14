@@ -251,7 +251,7 @@
     <string name="voice_input_title">语音输入</string>
     <string name="voice_input_ready">按住按钮后开始说话</string>
     <string name="voice_input_hold_to_talk">按住说话</string>
-    <string name="voice_input_recording_short">录音中</string>
+    <string name="voice_input_recording_short">请说话</string>
     <string name="voice_input_processing_short">识别中</string>
     <string name="voice_input_release_to_finish">松开后结束识别</string>
     <string name="voice_input_processing">识别处理中…</string>
