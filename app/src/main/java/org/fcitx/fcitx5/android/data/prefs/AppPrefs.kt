@@ -45,6 +45,10 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             bool("migrated_voice_space_long_press_default_on", false)
         val migratedVoiceSpaceLongPressBackfillOn =
             bool("migrated_voice_space_long_press_backfill_on", false)
+        val migratedVoiceToolbarButtonRetired =
+            bool("migrated_voice_toolbar_button_retired", false)
+        val migratedWhisperRetired =
+            bool("migrated_whisper_retired", false)
         val builtInVoiceGpuDisabled = bool("built_in_voice_gpu_disabled", false)
     }
 
@@ -150,34 +154,54 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         val keepLettersUppercase = switch(
             R.string.keep_keyboard_letters_uppercase,
             "keep_keyboard_letters_uppercase",
-            false
+            true
         )
 
+        // Keep the legacy preference key for migration compatibility, but stop surfacing
+        // the toolbar voice button in settings. Voice entry now lives on space long press.
         val showVoiceInputButton =
-            switch(R.string.show_voice_input_button, "show_voice_input_button", false)
+            ManagedPreference.PBool(sharedPreferences, "show_voice_input_button", false).apply {
+                register()
+            }
+        val spaceKeyLongPressBehavior = enumList(
+            R.string.space_long_press_behavior,
+            "space_long_press_behavior",
+            SpaceLongPressBehavior.VoiceInput
+        )
+
+        private fun hasVoiceInputEntryEnabled(): Boolean =
+            showVoiceInputButton.getValue() ||
+                spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.VoiceInput
+
         val voiceInputMode = enumList(
             R.string.voice_input_mode,
             "voice_input_mode",
             VoiceInputMode.BuiltInSpeechRecognizer
-        ) { showVoiceInputButton.getValue() }
+        ) { hasVoiceInputEntryEnabled() }
         val preferredVoiceInput = voiceInputPreference(
             R.string.preferred_voice_input, "preferred_voice_input", ""
         ) {
-            showVoiceInputButton.getValue() && voiceInputMode.getValue() == VoiceInputMode.SystemVoiceIme
+            hasVoiceInputEntryEnabled() && voiceInputMode.getValue() == VoiceInputMode.SystemVoiceIme
         }
-        val builtInVoiceEngine = enumList(
-            R.string.voice_engine_preference,
-            "built_in_voice_engine",
-            BuiltInVoiceEngine.SherpaOnnx
-        ) {
-            showVoiceInputButton.getValue() && voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
-        }
+        // Keep the legacy preference key for migration compatibility, but stop surfacing
+        // the experimental whisper/sherpa engine switch in settings.
+        val builtInVoiceEngine =
+            ManagedPreference.PStringLike(
+                sharedPreferences,
+                "built_in_voice_engine",
+                BuiltInVoiceEngine.SherpaOnnx,
+                object : ManagedPreference.StringLikeCodec<BuiltInVoiceEngine> {
+                    override fun decode(raw: String): BuiltInVoiceEngine = enumValueOf(raw)
+                }
+            ).apply {
+                register()
+            }
         val builtInVoiceModel = enumList(
             R.string.voice_model_preference,
             "built_in_voice_model",
             VoiceModelPreference.Auto
         ) {
-            showVoiceInputButton.getValue() &&
+            hasVoiceInputEntryEnabled() &&
                 voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&
                 builtInVoiceEngine.getValue() == BuiltInVoiceEngine.WhisperCpp
         }
@@ -186,7 +210,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             "built_in_sherpa_model",
             SherpaOnnxModelPreference.MixedZhEn
         ) {
-            showVoiceInputButton.getValue() &&
+            hasVoiceInputEntryEnabled() &&
                 voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&
                 builtInVoiceEngine.getValue() == BuiltInVoiceEngine.SherpaOnnx
         }
@@ -206,11 +230,6 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             700,
             "ms",
             10
-        )
-        val spaceKeyLongPressBehavior = enumList(
-            R.string.space_long_press_behavior,
-            "space_long_press_behavior",
-            SpaceLongPressBehavior.None
         )
         val spaceSwipeMoveCursor =
             switch(R.string.space_swipe_move_cursor, "space_swipe_move_cursor", true)
@@ -685,6 +704,8 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         migrateFunctionKitToolbarShortcutDefaultOn()
         migrateVoiceSpaceLongPressDefaultOn()
         migrateVoiceSpaceLongPressBackfillOn()
+        migrateVoiceToolbarButtonRetired()
+        migrateWhisperRetired()
     }
 
     private fun migrateFunctionKitToolbarShortcutDefaultOn() {
@@ -704,7 +725,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             return
         }
 
-        if (!sharedPreferences.contains("space_long_press_behavior") && keyboard.showVoiceInputButton.getValue()) {
+        if (!sharedPreferences.contains("space_long_press_behavior")) {
             keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.VoiceInput)
         }
 
@@ -717,7 +738,6 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         }
 
         if (
-            keyboard.showVoiceInputButton.getValue() &&
             keyboard.voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&
             keyboard.spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.None
         ) {
@@ -725,6 +745,33 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         }
 
         internal.migratedVoiceSpaceLongPressBackfillOn.setValue(true)
+    }
+
+    private fun migrateVoiceToolbarButtonRetired() {
+        if (internal.migratedVoiceToolbarButtonRetired.getValue()) {
+            return
+        }
+
+        if (keyboard.showVoiceInputButton.getValue()) {
+            if (keyboard.spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.None) {
+                keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.VoiceInput)
+            }
+            keyboard.showVoiceInputButton.setValue(false)
+        }
+
+        internal.migratedVoiceToolbarButtonRetired.setValue(true)
+    }
+
+    private fun migrateWhisperRetired() {
+        if (internal.migratedWhisperRetired.getValue()) {
+            return
+        }
+
+        if (keyboard.builtInVoiceEngine.getValue() != BuiltInVoiceEngine.SherpaOnnx) {
+            keyboard.builtInVoiceEngine.setValue(BuiltInVoiceEngine.SherpaOnnx)
+        }
+
+        internal.migratedWhisperRetired.setValue(true)
     }
 
     companion object {

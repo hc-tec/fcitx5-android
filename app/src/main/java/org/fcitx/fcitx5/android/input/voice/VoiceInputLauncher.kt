@@ -26,10 +26,7 @@ internal object VoiceInputLauncher {
     fun isToolbarVoiceInputAvailable(
         service: FcitxInputMethodService,
         prefs: AppPrefs.Keyboard = AppPrefs.getInstance().keyboard
-    ): Boolean =
-        prefs.showVoiceInputButton.getValue() &&
-            !isPasswordField(service) &&
-            isPreferredVoiceInputAvailable(prefs)
+    ): Boolean = false
 
     fun launchPreferredVoiceInput(
         service: FcitxInputMethodService,

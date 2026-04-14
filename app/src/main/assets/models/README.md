@@ -1,19 +1,13 @@
-# Whisper Models
+# Built-In Voice Models
 
-The built-in offline voice engine expects a Whisper model under:
+The built-in offline voice engine now ships Sherpa streaming models under:
 
 `app/src/main/assets/models/`
 
-Recommended first model for Chinese input:
+Current bundled profiles:
 
-- `ggml-base.bin`
+- `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20`
+- `sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23`
+- `sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01`
 
-Smaller fallback:
-
-- `ggml-tiny.bin`
-
-You can download a model with:
-
-`powershell -ExecutionPolicy Bypass -File scripts\download_whisper_model.ps1`
-
-Model binaries are intentionally ignored by Git.
+The old Whisper model assets have been retired from the packaged app.

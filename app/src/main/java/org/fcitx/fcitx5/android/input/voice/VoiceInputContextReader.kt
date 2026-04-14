@@ -2,19 +2,30 @@ package org.fcitx.fcitx5.android.input.voice
 
 import android.os.Build
 import org.fcitx.fcitx5.android.input.FcitxInputMethodService
+import org.fcitx.fcitx5.android.input.functionkit.FunctionKitInputSnapshotReader
 import org.fcitx.fcitx5.android.voice.core.VoiceSessionRequest
 import java.util.Locale
 
 internal object VoiceInputContextReader {
+    private const val CursorContextChars = 256
+    private const val SelectionTextMaxChars = 256
+
     fun capture(service: FcitxInputMethodService): VoiceSessionRequest {
-        val inputConnection = service.currentInputConnection
-        val selectedText = inputConnection?.getSelectedText(0)?.toString().orEmpty()
-        val beforeCursor = inputConnection?.getTextBeforeCursor(64, 0)?.toString().orEmpty()
+        val snapshot =
+            FunctionKitInputSnapshotReader.capture(
+                service = service,
+                cursorContextChars = CursorContextChars,
+                selectionTextMaxChars = SelectionTextMaxChars
+            )
+        val selectedText = snapshot.selectedText
+        val beforeCursor = snapshot.beforeCursor
+        val afterCursor = snapshot.afterCursor
         val hotwords =
             VoiceContextHotwords.extract(
                 selectedText = selectedText,
                 composingText = "",
-                leftContext = beforeCursor
+                leftContext = beforeCursor,
+                rightContext = afterCursor
             )
 
         return VoiceSessionRequest(

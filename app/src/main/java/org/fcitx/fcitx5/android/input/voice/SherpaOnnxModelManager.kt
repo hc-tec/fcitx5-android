@@ -57,7 +57,7 @@ internal object SherpaOnnxModelCatalog {
                 enableEndpoint = true,
                 decodingMethod = "modified_beam_search",
                 maxActivePaths = 4,
-                hotwordsScore = 1.5f
+                hotwordsScore = 2.2f
             ).normalized()
         }
 
@@ -105,7 +105,7 @@ internal object SherpaOnnxModelCatalog {
                 enableEndpoint = true,
                 decodingMethod = "modified_beam_search",
                 maxActivePaths = 4,
-                hotwordsScore = 1.5f
+                hotwordsScore = 2.2f
             ).normalized()
         }
 

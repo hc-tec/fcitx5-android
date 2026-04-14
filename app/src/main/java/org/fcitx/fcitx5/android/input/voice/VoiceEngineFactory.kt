@@ -10,6 +10,6 @@ internal object VoiceEngineFactory {
     ): VoiceEngine =
         when (prefs.builtInVoiceEngine.getValue()) {
             BuiltInVoiceEngine.SherpaOnnx -> SherpaOnnxVoiceEngine(context.applicationContext)
-            BuiltInVoiceEngine.WhisperCpp -> WhisperCppVoiceEngine(context.applicationContext)
+            BuiltInVoiceEngine.WhisperCpp -> SherpaOnnxVoiceEngine(context.applicationContext)
         }
 }
