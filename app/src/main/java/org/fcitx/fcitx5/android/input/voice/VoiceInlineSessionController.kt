@@ -93,7 +93,7 @@ internal class VoiceInlineSessionController :
         }
 
         ensureSession()
-        val request = VoiceInputContextReader.capture(service)
+        val request = VoiceInputRuntime.captureRequest(service)
         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
 
         if (!VoiceInputPermission.hasRecordAudioPermission(context)) {
@@ -184,7 +184,7 @@ internal class VoiceInlineSessionController :
         val pendingPartialJob = partialTranscriptionJob
         partialTranscriptionJob = null
 
-        val request = VoiceInputContextReader.capture(service)
+        val request = VoiceInputRuntime.captureRequest(service)
         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
 
         transcribeJob?.cancel()
@@ -313,7 +313,7 @@ internal class VoiceInlineSessionController :
                             partialTranscriptionJob?.isActive != true
 
                     if (canSchedule) {
-                        val request = VoiceInputContextReader.capture(service)
+                        val request = VoiceInputRuntime.captureRequest(service)
                         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
                         if (engine.capabilities.partialAudioMode == VoicePartialAudioMode.IncrementalSession) {
                             val targetSampleCount = sampleCount
@@ -443,6 +443,7 @@ internal class VoiceInlineSessionController :
         listening = false
         processing = false
         partialStabilizer.reset()
+        val request = VoiceInputRuntime.captureRequest(service)
 
         val transcript = normalizeTranscript(rawText)
         val processed =
@@ -462,6 +463,11 @@ internal class VoiceInlineSessionController :
 
         Log.i(LOG_TAG, "Committing inline final transcript length=${committedText.length}")
         service.commitText(committedText)
+        VoiceInputRuntime.rememberAcceptedPhrases(
+            locale = request.locale,
+            packageName = request.packageName,
+            phrases = processed?.learnedEntities.orEmpty()
+        )
         publishVoiceUiState(VoiceInputUiState.Idle)
     }
 
@@ -489,7 +495,7 @@ internal class VoiceInlineSessionController :
 
     private fun ensureSession() {
         if (sessionId.isBlank()) {
-            sessionId = VoiceInputRuntime.sessionManager.createSession(VoiceInputContextReader.capture(service))
+            sessionId = VoiceInputRuntime.sessionManager.createSession(VoiceInputRuntime.captureRequest(service))
         }
     }
 

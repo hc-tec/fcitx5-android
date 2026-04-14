@@ -120,7 +120,7 @@ internal class VoiceInputWindow(
         }
 
         ensureSession()
-        val request = VoiceInputContextReader.capture(service)
+        val request = VoiceInputRuntime.captureRequest(service)
         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
 
         if (!VoiceInputPermission.hasRecordAudioPermission(context)) {
@@ -214,7 +214,7 @@ internal class VoiceInputWindow(
         val pendingPartialJob = partialTranscriptionJob
         partialTranscriptionJob = null
 
-        val request = VoiceInputContextReader.capture(service)
+        val request = VoiceInputRuntime.captureRequest(service)
         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
         ui.renderProcessing(latestTranscript)
 
@@ -352,7 +352,7 @@ internal class VoiceInputWindow(
                             partialTranscriptionJob?.isActive != true
 
                     if (canSchedule) {
-                        val request = VoiceInputContextReader.capture(service)
+                        val request = VoiceInputRuntime.captureRequest(service)
                         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
                         if (engine.capabilities.partialAudioMode == VoicePartialAudioMode.IncrementalSession) {
                             val targetSampleCount = sampleCount
@@ -504,6 +504,7 @@ internal class VoiceInputWindow(
         listening = false
         processing = false
         partialStabilizer.reset()
+        val request = VoiceInputRuntime.captureRequest(service)
 
         val transcript = normalizeTranscript(rawText)
         val processed =
@@ -524,6 +525,11 @@ internal class VoiceInputWindow(
 
         Log.i(LOG_TAG, "Committing final transcript length=${committedText.length}")
         service.commitText(committedText)
+        VoiceInputRuntime.rememberAcceptedPhrases(
+            locale = request.locale,
+            packageName = request.packageName,
+            phrases = processed?.learnedEntities.orEmpty()
+        )
         ui.renderReady(latestTranscript)
     }
 
@@ -581,7 +587,7 @@ internal class VoiceInputWindow(
 
     private fun ensureSession() {
         if (sessionId.isBlank()) {
-            sessionId = VoiceInputRuntime.sessionManager.createSession(VoiceInputContextReader.capture(service))
+            sessionId = VoiceInputRuntime.sessionManager.createSession(VoiceInputRuntime.captureRequest(service))
         }
     }
 
