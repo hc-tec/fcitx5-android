@@ -23,7 +23,6 @@ import org.fcitx.fcitx5.android.input.picker.PickerWindow
 import org.fcitx.fcitx5.android.input.popup.EmojiModifier
 import org.fcitx.fcitx5.android.input.voice.BuiltInVoiceEngine
 import org.fcitx.fcitx5.android.input.voice.SherpaOnnxModelPreference
-import org.fcitx.fcitx5.android.input.voice.VoiceModelPreference
 import org.fcitx.fcitx5.android.input.voice.VoiceInputMode
 import org.fcitx.fcitx5.android.utils.DeviceUtil
 import org.fcitx.fcitx5.android.utils.appContext
@@ -49,7 +48,6 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             bool("migrated_voice_toolbar_button_retired", false)
         val migratedWhisperRetired =
             bool("migrated_whisper_retired", false)
-        val builtInVoiceGpuDisabled = bool("built_in_voice_gpu_disabled", false)
     }
 
     inner class Advanced : ManagedPreferenceCategory(R.string.advanced, sharedPreferences) {
@@ -183,8 +181,8 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         ) {
             hasVoiceInputEntryEnabled() && voiceInputMode.getValue() == VoiceInputMode.SystemVoiceIme
         }
-        // Keep the legacy preference key for migration compatibility, but stop surfacing
-        // the experimental whisper/sherpa engine switch in settings.
+        // Keep the legacy preference key for migration compatibility so old installs that
+        // previously stored `WhisperCpp` can be coerced back to Sherpa without crashing.
         val builtInVoiceEngine =
             ManagedPreference.PStringLike(
                 sharedPreferences,
@@ -196,23 +194,13 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             ).apply {
                 register()
             }
-        val builtInVoiceModel = enumList(
-            R.string.voice_model_preference,
-            "built_in_voice_model",
-            VoiceModelPreference.Auto
-        ) {
-            hasVoiceInputEntryEnabled() &&
-                voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&
-                builtInVoiceEngine.getValue() == BuiltInVoiceEngine.WhisperCpp
-        }
         val builtInSherpaModel = enumList(
             R.string.voice_sherpa_model_preference,
             "built_in_sherpa_model",
             SherpaOnnxModelPreference.Auto
         ) {
             hasVoiceInputEntryEnabled() &&
-                voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&
-                builtInVoiceEngine.getValue() == BuiltInVoiceEngine.SherpaOnnx
+                voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
         }
 
         val expandKeypressArea =
