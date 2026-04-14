@@ -165,6 +165,8 @@ internal class VoiceInlineSessionController :
         partialStabilizer.reset()
         Log.i(LOG_TAG, "Inline voice listening started session=$sessionId locale=${request.locale}")
         publishListeningUiState()
+        startEndpointLoop()
+        startPartialLoop()
         return true
     }
 
@@ -211,11 +213,17 @@ internal class VoiceInlineSessionController :
                     )
 
                     val engine = voiceEngine ?: return@launch
+                    val finalPayload =
+                        if (engine.capabilities.partialAudioMode == VoicePartialAudioMode.IncrementalSession) {
+                            audioData.sliceRemaining(lastIncrementalEngineSamples)
+                        } else {
+                            audioData
+                        }
                     Log.i(
                         LOG_TAG,
-                        "Submitting inline final transcription samples=${audioData.size} locale=${request.locale}"
+                        "Submitting inline final transcription samples=${finalPayload.size} totalSamples=${audioData.size} locale=${request.locale}"
                     )
-                    val result = engine.transcribeFinal(audioData, request.locale)
+                    val result = engine.transcribeFinal(finalPayload, request.locale)
                     engine.endSession(cancelled = false)
                     commitTranscript(result.text)
                 } catch (_: CancellationException) {
