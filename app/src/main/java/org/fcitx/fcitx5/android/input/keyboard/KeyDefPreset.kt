@@ -93,9 +93,11 @@ class AlphabetDigitKey(
     )
 }
 
-class CapsKey : KeyDef(
-    Appearance.Image(
-        src = R.drawable.ic_capslock_none,
+class LeadingActionKey : KeyDef(
+    Appearance.Text(
+        displayText = "Shift",
+        textSize = 14f,
+        textStyle = Typeface.BOLD,
         viewId = R.id.button_caps,
         percentWidth = 0.15f,
         variant = Variant.Alternative

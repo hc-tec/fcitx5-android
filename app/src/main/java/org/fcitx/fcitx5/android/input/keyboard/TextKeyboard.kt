@@ -6,6 +6,7 @@ package org.fcitx.fcitx5.android.input.keyboard
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.util.TypedValue
 import android.view.View
 import androidx.annotation.Keep
 import androidx.core.view.allViews
@@ -55,7 +56,7 @@ class TextKeyboard(
                 AlphabetKey("L", ")")
             ),
             listOf(
-                CapsKey(),
+                LeadingActionKey(),
                 AlphabetKey("Z", "'"),
                 AlphabetKey("X", ":"),
                 AlphabetKey("C", "\""),
@@ -76,7 +77,7 @@ class TextKeyboard(
         )
     }
 
-    val caps: ImageKeyView by lazy { findViewById(R.id.button_caps) }
+    val leadingActionKey: TextKeyView by lazy { findViewById(R.id.button_caps) }
     val backspace: ImageKeyView by lazy { findViewById(R.id.button_backspace) }
     val quickphrase: ImageKeyView by lazy { findViewById(R.id.button_quickphrase) }
     val lang: ImageKeyView by lazy { findViewById(R.id.button_lang) }
@@ -102,6 +103,7 @@ class TextKeyboard(
     }
 
     private var capsState: CapsState = CapsState.None
+    private var currentIme: InputMethodEntry? = null
 
     private fun transformAlphabet(c: String): String {
         return when (capsState) {
@@ -143,7 +145,17 @@ class TextKeyboard(
                     }
                 }
             }
-            is KeyAction.CapsAction -> switchCapsState(action.lock)
+            is KeyAction.CapsAction -> {
+                if (currentIme?.let(::supportsPinyinSegmentation) == true) {
+                    if (!action.lock) {
+                        transformed = KeyAction.PinyinSegmentAction
+                    } else {
+                        return
+                    }
+                } else {
+                    switchCapsState(action.lock)
+                }
+            }
             else -> {}
         }
         super.onAction(transformed, source)
@@ -151,7 +163,7 @@ class TextKeyboard(
 
     override fun onAttach() {
         capsState = CapsState.None
-        updateCapsButtonIcon()
+        updateLeadingActionKey()
         updateAlphabetKeys()
     }
 
@@ -165,12 +177,15 @@ class TextKeyboard(
     }
 
     override fun onInputMethodUpdate(ime: InputMethodEntry) {
+        currentIme = ime
         space.mainText.text = buildString {
             append(ime.displayName)
             ime.subMode.run { label.ifEmpty { name.ifEmpty { null } } }?.let { append(" ($it)") }
         }
         if (capsState != CapsState.None) {
             switchCapsState()
+        } else {
+            updateLeadingActionKey()
         }
     }
 
@@ -208,18 +223,19 @@ class TextKeyboard(
                     else -> CapsState.None
                 }
             }
-        updateCapsButtonIcon()
+        updateLeadingActionKey()
         updateAlphabetKeys()
     }
 
-    private fun updateCapsButtonIcon() {
-        caps.img.apply {
-            imageResource = when (capsState) {
-                CapsState.None -> R.drawable.ic_capslock_none
-                CapsState.Once -> R.drawable.ic_capslock_once
-                CapsState.Lock -> R.drawable.ic_capslock_lock
-            }
+    private fun updateLeadingActionKey() {
+        val mode = resolveLeadingActionMode(currentIme, capsState)
+        val (label, textSizeDp) = when (mode) {
+            TextKeyboardLeadingActionMode.PinyinSegment -> context.getString(R.string.keyboard_pinyin_segment) to 13f
+            TextKeyboardLeadingActionMode.ShiftLocked -> "\u21ea" to 22f
+            TextKeyboardLeadingActionMode.ShiftUnlocked -> "\u21e7" to 22f
         }
+        leadingActionKey.mainText.text = label
+        leadingActionKey.mainText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, textSizeDp)
     }
 
     private fun updateLangSwitchKey(visible: Boolean) {
