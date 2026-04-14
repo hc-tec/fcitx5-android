@@ -26,8 +26,40 @@ internal data class SherpaModelDescriptor(
 
 internal object SherpaOnnxModelCatalog {
     private const val MODEL_ASSET_ROOT = "models"
+    private const val MIXED_ZH_EN_MODEL_DIR = "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20"
     private const val FAST_CTC_MODEL_DIR = "sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01"
     private const val HOTWORD_MODEL_DIR = "sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23"
+
+    private val mixedZhEnModel =
+        SherpaModelDescriptor(
+            preference = SherpaOnnxModelPreference.MixedZhEn,
+            modelId = MIXED_ZH_EN_MODEL_DIR,
+            assetDir = "$MODEL_ASSET_ROOT/$MIXED_ZH_EN_MODEL_DIR",
+            requiredAssets =
+                listOf(
+                    "$MODEL_ASSET_ROOT/$MIXED_ZH_EN_MODEL_DIR/encoder-epoch-99-avg-1.int8.onnx",
+                    "$MODEL_ASSET_ROOT/$MIXED_ZH_EN_MODEL_DIR/decoder-epoch-99-avg-1.onnx",
+                    "$MODEL_ASSET_ROOT/$MIXED_ZH_EN_MODEL_DIR/joiner-epoch-99-avg-1.int8.onnx",
+                    "$MODEL_ASSET_ROOT/$MIXED_ZH_EN_MODEL_DIR/tokens.txt",
+                    "$MODEL_ASSET_ROOT/$MIXED_ZH_EN_MODEL_DIR/bpe.vocab"
+                ),
+            supportsHotwords = true
+        ) {
+            OnlineRecognizerConfig(
+                featConfig = getFeatureConfig(sampleRate = WhisperAudioRecorder.SAMPLE_RATE, featureDim = 80),
+                modelConfig =
+                    prefixModelConfig(getModelConfig(type = 8)!!, MODEL_ASSET_ROOT).apply {
+                        modelingUnit = "cjkchar+bpe"
+                        bpeVocab = "$MODEL_ASSET_ROOT/$MIXED_ZH_EN_MODEL_DIR/bpe.vocab"
+                    },
+                ctcFstDecoderConfig = OnlineCtcFstDecoderConfig(),
+                endpointConfig = getEndpointConfig(),
+                enableEndpoint = true,
+                decodingMethod = "modified_beam_search",
+                maxActivePaths = 4,
+                hotwordsScore = 1.5f
+            ).normalized()
+        }
 
     private val fastCtcModel =
         SherpaModelDescriptor(
@@ -77,9 +109,9 @@ internal object SherpaOnnxModelCatalog {
             ).normalized()
         }
 
-    private val descriptors = listOf(hotwordEnhancedModel, fastCtcModel)
+    private val descriptors = listOf(mixedZhEnModel, hotwordEnhancedModel, fastCtcModel)
 
-    val defaultPreference: SherpaOnnxModelPreference = SherpaOnnxModelPreference.HotwordEnhanced
+    val defaultPreference: SherpaOnnxModelPreference = SherpaOnnxModelPreference.MixedZhEn
 
     fun descriptorForPreference(preference: SherpaOnnxModelPreference): SherpaModelDescriptor =
         descriptors.first { it.preference == preference }
@@ -109,10 +141,24 @@ internal object SherpaOnnxModelCatalog {
 
     internal fun preferenceOrder(preference: SherpaOnnxModelPreference): List<SherpaOnnxModelPreference> =
         when (preference) {
+            SherpaOnnxModelPreference.MixedZhEn ->
+                listOf(
+                    SherpaOnnxModelPreference.MixedZhEn,
+                    SherpaOnnxModelPreference.HotwordEnhanced,
+                    SherpaOnnxModelPreference.FastCtc
+                )
             SherpaOnnxModelPreference.HotwordEnhanced ->
-                listOf(SherpaOnnxModelPreference.HotwordEnhanced, SherpaOnnxModelPreference.FastCtc)
+                listOf(
+                    SherpaOnnxModelPreference.HotwordEnhanced,
+                    SherpaOnnxModelPreference.MixedZhEn,
+                    SherpaOnnxModelPreference.FastCtc
+                )
             SherpaOnnxModelPreference.FastCtc ->
-                listOf(SherpaOnnxModelPreference.FastCtc, SherpaOnnxModelPreference.HotwordEnhanced)
+                listOf(
+                    SherpaOnnxModelPreference.FastCtc,
+                    SherpaOnnxModelPreference.HotwordEnhanced,
+                    SherpaOnnxModelPreference.MixedZhEn
+                )
         }
 
     private fun assetExists(

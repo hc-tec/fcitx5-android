@@ -245,8 +245,9 @@
     <string name="voice_model_preference_balanced">Balanced</string>
     <string name="voice_model_preference_accurate">Accurate</string>
     <string name="voice_sherpa_model_preference">Sherpa model profile</string>
-    <string name="voice_sherpa_model_preference_hotword">Hotword enhanced</string>
-    <string name="voice_sherpa_model_preference_fast_ctc">Fast CTC</string>
+    <string name="voice_sherpa_model_preference_mixed_zh_en">Chinese + English mixed</string>
+    <string name="voice_sherpa_model_preference_hotword">Chinese hotword enhanced</string>
+    <string name="voice_sherpa_model_preference_fast_ctc">Chinese fast CTC</string>
     <string name="voice_input_title">Voice input</string>
     <string name="voice_input_ready">Hold the button and speak</string>
     <string name="voice_input_hold_to_talk">Hold to talk</string>

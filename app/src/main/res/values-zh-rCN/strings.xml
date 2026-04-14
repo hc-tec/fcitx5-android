@@ -245,8 +245,9 @@
     <string name="voice_model_preference_balanced">均衡</string>
     <string name="voice_model_preference_accurate">高精度</string>
     <string name="voice_sherpa_model_preference">Sherpa 模型档位</string>
-    <string name="voice_sherpa_model_preference_hotword">热词增强</string>
-    <string name="voice_sherpa_model_preference_fast_ctc">高速 CTC</string>
+    <string name="voice_sherpa_model_preference_mixed_zh_en">中英混合</string>
+    <string name="voice_sherpa_model_preference_hotword">中文热词增强</string>
+    <string name="voice_sherpa_model_preference_fast_ctc">中文高速 CTC</string>
     <string name="voice_input_title">语音输入</string>
     <string name="voice_input_ready">按住按钮后开始说话</string>
     <string name="voice_input_hold_to_talk">按住说话</string>
