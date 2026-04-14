@@ -164,7 +164,7 @@ internal class VoiceInlineSessionController :
         pendingIncrementalTargetSamples = 0
         partialStabilizer.reset()
         Log.i(LOG_TAG, "Inline voice listening started session=$sessionId locale=${request.locale}")
-        publishVoiceUiState(VoiceInputUiState.Listening)
+        publishListeningUiState()
         return true
     }
 
@@ -177,7 +177,7 @@ internal class VoiceInlineSessionController :
         recorder = null
         listening = false
         processing = true
-        publishVoiceUiState(VoiceInputUiState.Processing)
+        publishProcessingUiState()
         endpointLoopJob?.cancel()
         endpointLoopJob = null
         partialLoopJob?.cancel()
@@ -283,6 +283,7 @@ internal class VoiceInlineSessionController :
                         val endpointDecision = analyzeEndpoint(pcmSnapshot)
                         if (endpointDecision.state != listeningState) {
                             listeningState = endpointDecision.state
+                            publishListeningUiState()
                         }
                     }
                     delay(ENDPOINT_POLL_INTERVAL_MS)
@@ -416,6 +417,7 @@ internal class VoiceInlineSessionController :
                             candidate = processedText,
                             stableLength = processed?.stableLength ?: 0
                         )
+                    publishListeningUiState()
                     Log.i(
                         LOG_TAG,
                         "Inline partial updated rawLength=${rawText.length} renderedLength=${latestTranscript.length}"
@@ -478,6 +480,23 @@ internal class VoiceInlineSessionController :
             )
         }
         publishVoiceUiState(VoiceInputUiState.Idle)
+    }
+
+    private fun publishListeningUiState() {
+        publishVoiceUiState(
+            VoiceInputUiState.Listening(
+                transcript = latestTranscript,
+                listeningState = listeningState
+            )
+        )
+    }
+
+    private fun publishProcessingUiState() {
+        publishVoiceUiState(
+            VoiceInputUiState.Processing(
+                transcript = latestTranscript
+            )
+        )
     }
 
     private fun analyzeEndpoint(

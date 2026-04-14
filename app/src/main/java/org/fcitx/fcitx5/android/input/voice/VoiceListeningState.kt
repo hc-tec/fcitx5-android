@@ -1,6 +1,6 @@
 package org.fcitx.fcitx5.android.input.voice
 
-internal enum class VoiceListeningState {
+enum class VoiceListeningState {
     NOT_TALKED_YET,
     MIC_MAY_BE_BLOCKED,
     TALKING,

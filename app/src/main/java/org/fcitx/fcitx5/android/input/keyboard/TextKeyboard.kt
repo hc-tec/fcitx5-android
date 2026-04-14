@@ -209,7 +209,10 @@ class TextKeyboard(
     }
 
     override fun onVoiceInputUiStateUpdate(state: VoiceInputUiState) {
-        if (spaceVoiceUiState == state) return
+        if (spaceVoiceUiState.phase == state.phase) {
+            spaceVoiceUiState = state
+            return
+        }
         spaceVoiceUiState = state
         updateSpacePresentation()
     }

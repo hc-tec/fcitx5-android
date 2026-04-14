@@ -476,7 +476,7 @@ class SpaceKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Text) :
         voiceIndicator.configure(
             theme,
             R.drawable.ic_baseline_keyboard_voice_24,
-            if (voiceUiState == VoiceInputUiState.Idle) Variant.AltForeground else Variant.Accent
+            if (voiceUiState.isIdle) Variant.AltForeground else Variant.Accent
         )
         voiceIndicator.visibility = if (indicatorVisible) View.VISIBLE else View.GONE
         mainText.updateLayoutParams<ConstraintLayout.LayoutParams> {

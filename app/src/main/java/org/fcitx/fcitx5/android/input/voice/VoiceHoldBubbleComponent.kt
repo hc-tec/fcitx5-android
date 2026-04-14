@@ -5,6 +5,7 @@ import android.animation.PropertyValuesHolder
 import android.animation.ValueAnimator
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -46,6 +47,8 @@ internal class VoiceHoldBubbleComponent :
             textSize = 14f
             setTextColor(theme.keyTextColor)
             maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            maxWidth = context.dp(240)
             layoutParams =
                 LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
                     marginStart = context.dp(8)
@@ -82,8 +85,24 @@ internal class VoiceHoldBubbleComponent :
     override fun onVoiceInputUiStateUpdate(state: VoiceInputUiState) {
         when (state) {
             VoiceInputUiState.Idle -> hide()
-            VoiceInputUiState.Listening -> show(context.getString(R.string.voice_input_recording_short), true)
-            VoiceInputUiState.Processing -> show(context.getString(R.string.voice_input_processing_short), false)
+            is VoiceInputUiState.Listening ->
+                show(
+                    text =
+                        VoiceInlineStatusFormatter.build(
+                            status = listeningStatusText(state.listeningState),
+                            transcript = state.transcript
+                        ),
+                    pulsing = true
+                )
+            is VoiceInputUiState.Processing ->
+                show(
+                    text =
+                        VoiceInlineStatusFormatter.build(
+                            status = context.getString(R.string.voice_input_processing_short),
+                            transcript = state.transcript
+                        ),
+                    pulsing = false
+                )
         }
     }
 
@@ -132,5 +151,13 @@ internal class VoiceHoldBubbleComponent :
             cornerRadius = context.dp(18).toFloat()
             setColor(theme.keyBackgroundColor)
             setStroke(context.dp(1), theme.dividerColor)
+        }
+
+    private fun listeningStatusText(state: VoiceListeningState): String =
+        when (state) {
+            VoiceListeningState.NOT_TALKED_YET -> context.getString(R.string.voice_input_recording_short)
+            VoiceListeningState.MIC_MAY_BE_BLOCKED -> context.getString(R.string.voice_input_listening_mic_blocked)
+            VoiceListeningState.TALKING -> context.getString(R.string.voice_input_release_to_finish)
+            VoiceListeningState.ENDING_SOON_VAD -> context.getString(R.string.voice_input_listening_ending_soon)
         }
 }
