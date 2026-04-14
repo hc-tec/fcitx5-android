@@ -149,8 +149,16 @@ abstract class BaseKeyboard(
         return when (def.appearance) {
             is KeyDef.Appearance.AltText -> AltTextKeyView(context, theme, def.appearance)
             is KeyDef.Appearance.ImageText -> ImageTextKeyView(context, theme, def.appearance)
-            is KeyDef.Appearance.Text -> TextKeyView(context, theme, def.appearance)
-            is KeyDef.Appearance.Image -> ImageKeyView(context, theme, def.appearance)
+            is KeyDef.Appearance.Text ->
+                when (def) {
+                    is SpaceKey -> SpaceKeyView(context, theme, def.appearance)
+                    else -> TextKeyView(context, theme, def.appearance)
+                }
+            is KeyDef.Appearance.Image ->
+                when (def) {
+                    is LeadingActionKey -> LeadingActionKeyView(context, theme, def.appearance)
+                    else -> ImageKeyView(context, theme, def.appearance)
+                }
         }.apply {
             var spaceVoiceLongPressActive = false
             soundEffect = when (def) {

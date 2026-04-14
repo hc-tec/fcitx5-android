@@ -1,7 +1,9 @@
 package org.fcitx.fcitx5.android.input.voice
 
+import android.os.SystemClock
 import android.util.Log
 import android.view.inputmethod.EditorInfo
+import android.widget.Toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,12 +23,12 @@ import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.input.broadcast.InputBroadcastReceiver
 import org.fcitx.fcitx5.android.input.dependency.context
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
+import org.fcitx.fcitx5.android.utils.toast
 import org.fcitx.fcitx5.android.voice.core.VoiceRecognitionResult
 import org.mechdancer.dependency.Dependent
 import org.mechdancer.dependency.UniqueComponent
 import org.mechdancer.dependency.manager.ManagedHandler
 import org.mechdancer.dependency.manager.managedHandler
-import org.mechdancer.dependency.manager.must
 
 internal class VoiceInlineSessionController :
     UniqueComponent<VoiceInlineSessionController>(),
@@ -36,7 +38,6 @@ internal class VoiceInlineSessionController :
 
     private val context by manager.context()
     private val service by manager.inputMethodService()
-    private val inlineBar: VoiceInlineBarComponent by manager.must()
 
     private val keyboardPrefs = AppPrefs.getInstance().keyboard
 
@@ -55,21 +56,20 @@ internal class VoiceInlineSessionController :
     private var endpointLoopJob: Job? = null
     private var partialLoopJob: Job? = null
     private var partialTranscriptionJob: Job? = null
-    private var hideBarJob: Job? = null
     private var lastPartialScheduledSamples = 0
     private var lastIncrementalEngineSamples = 0
     private var pendingIncrementalTargetSamples = 0
     private var listeningState = VoiceListeningState.NOT_TALKED_YET
+    private var lastToastMessage: String? = null
+    private var lastToastAtMs: Long = 0L
     private val partialStabilizer = VoicePartialStabilizer()
 
     override fun onStartInput(info: EditorInfo, capFlags: CapabilityFlags) {
-        cancelActiveSession(hideBar = true)
+        cancelActiveSession()
         clearCurrentSession()
         latestTranscript = ""
         if (VoiceInputLauncher.shouldPrewarm()) {
             ensureEngineReady(showUi = false)
-        } else {
-            inlineBar.hide()
         }
     }
 
@@ -77,7 +77,6 @@ internal class VoiceInlineSessionController :
         if (!controllerScope.isActive) {
             controllerScope = createControllerScope()
         }
-        cancelHideBar()
 
         if (keyboardPrefs.voiceInputMode.getValue() != VoiceInputMode.BuiltInSpeechRecognizer) {
             return false
@@ -95,31 +94,20 @@ internal class VoiceInlineSessionController :
         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
 
         if (!VoiceInputPermission.hasRecordAudioPermission(context)) {
-            inlineBar.show(
-                context.getString(R.string.voice_input_permission_message),
-                VoiceInlineBarComponent.Tone.Error
-            ) {
-                VoiceInputPermission.launchPermissionActivity(context)
-            }
+            showToastMessage(context.getString(R.string.voice_input_permission_message), Toast.LENGTH_LONG)
+            VoiceInputPermission.launchPermissionActivity(context)
             return false
         }
 
         when {
             engineLoading -> {
-                inlineBar.show(
-                    context.getString(R.string.voice_input_loading_engine),
-                    VoiceInlineBarComponent.Tone.Neutral
-                )
+                showToastMessage(context.getString(R.string.voice_input_loading_engine))
                 return false
             }
             !engineReady -> {
                 ensureEngineReady(
                     force = engineErrorMessage != null && !engineModelMissing,
                     showUi = true
-                )
-                inlineBar.show(
-                    context.getString(R.string.voice_input_loading_engine),
-                    VoiceInlineBarComponent.Tone.Neutral
                 )
                 return false
             }
@@ -130,12 +118,12 @@ internal class VoiceInlineSessionController :
                 .getOrElse { error ->
                     recorder = null
                     Log.w(LOG_TAG, "Failed to start inline recorder", error)
-                    showTransientMessage(
+                    showToastMessage(
                         context.getString(
                             R.string.voice_input_error,
                             error.message ?: context.getString(R.string.voice_input_engine_generic_error)
                         ),
-                        tone = VoiceInlineBarComponent.Tone.Error
+                        Toast.LENGTH_LONG
                     )
                     return false
                 }
@@ -152,12 +140,12 @@ internal class VoiceInlineSessionController :
             activeRecorder.cancel()
             recorder = null
             Log.w(LOG_TAG, "Failed to begin inline voice session", error)
-            showTransientMessage(
+            showToastMessage(
                 context.getString(
                     R.string.voice_input_error,
                     error.message ?: context.getString(R.string.voice_input_engine_generic_error)
                 ),
-                tone = VoiceInlineBarComponent.Tone.Error
+                Toast.LENGTH_LONG
             )
             return false
         }
@@ -172,9 +160,6 @@ internal class VoiceInlineSessionController :
         pendingIncrementalTargetSamples = 0
         partialStabilizer.reset()
         Log.i(LOG_TAG, "Inline voice listening started session=$sessionId locale=${request.locale}")
-        renderListeningState()
-        startEndpointLoop()
-        startPartialLoop()
         return true
     }
 
@@ -196,10 +181,6 @@ internal class VoiceInlineSessionController :
 
         val request = VoiceInputContextReader.capture(service)
         VoiceInputRuntime.sessionManager.updateSession(sessionId, request)
-        inlineBar.show(
-            context.getString(R.string.voice_input_processing),
-            VoiceInlineBarComponent.Tone.Neutral
-        )
 
         transcribeJob?.cancel()
         transcribeJob =
@@ -212,34 +193,22 @@ internal class VoiceInlineSessionController :
                         processing = false
                         latestTranscript = ""
                         Log.i(LOG_TAG, "Inline final audio empty, no speech detected")
-                        showTransientMessage(context.getString(R.string.voice_input_no_speech))
+                        showToastMessage(context.getString(R.string.voice_input_no_speech))
                         return@launch
                     }
 
                     val activityStats = VoiceActivityDetector.analyze(audioData)
-                    if (!activityStats.hasSpeech && latestTranscript.isBlank()) {
-                        voiceEngine?.endSession(cancelled = false)
-                        processing = false
-                        Log.i(
-                            LOG_TAG,
-                            "Inline final VAD rejected audio samples=${audioData.size} speechRatio=${activityStats.speechRatio}"
-                        )
-                        showTransientMessage(context.getString(R.string.voice_input_no_speech))
-                        return@launch
-                    }
-
-                    val engine = voiceEngine ?: return@launch
-                    val finalPayload =
-                        if (engine.capabilities.partialAudioMode == VoicePartialAudioMode.IncrementalSession) {
-                            audioData.sliceRemaining(lastIncrementalEngineSamples)
-                        } else {
-                            audioData
-                        }
                     Log.i(
                         LOG_TAG,
-                        "Submitting inline final transcription samples=${finalPayload.size} totalSamples=${audioData.size} locale=${request.locale}"
+                        "Inline final VAD stats samples=${audioData.size} speechRatio=${activityStats.speechRatio} hasSpeech=${activityStats.hasSpeech}"
                     )
-                    val result = engine.transcribeFinal(finalPayload, request.locale)
+
+                    val engine = voiceEngine ?: return@launch
+                    Log.i(
+                        LOG_TAG,
+                        "Submitting inline final transcription samples=${audioData.size} locale=${request.locale}"
+                    )
+                    val result = engine.transcribeFinal(audioData, request.locale)
                     engine.endSession(cancelled = false)
                     commitTranscript(result.text)
                 } catch (_: CancellationException) {
@@ -247,24 +216,24 @@ internal class VoiceInlineSessionController :
                     voiceEngine?.endSession(cancelled = false)
                     processing = false
                     Log.w(LOG_TAG, "Inline final transcription failed", error)
-                    showTransientMessage(
+                    showToastMessage(
                         context.getString(
                             R.string.voice_input_error,
                             error.message ?: context.getString(R.string.voice_input_engine_generic_error)
                         ),
-                        tone = VoiceInlineBarComponent.Tone.Error
+                        Toast.LENGTH_LONG
                     )
                 }
             }
     }
 
     fun shutdown() {
-        cancelActiveSession(hideBar = true)
+        cancelActiveSession()
         clearCurrentSession()
         controllerScope.cancel()
     }
 
-    private fun cancelActiveSession(hideBar: Boolean) {
+    private fun cancelActiveSession() {
         transcribeJob?.cancel()
         transcribeJob = null
         endpointLoopJob?.cancel()
@@ -283,10 +252,6 @@ internal class VoiceInlineSessionController :
         pendingIncrementalTargetSamples = 0
         listeningState = VoiceListeningState.NOT_TALKED_YET
         partialStabilizer.reset()
-        cancelHideBar()
-        if (hideBar) {
-            inlineBar.hide()
-        }
     }
 
     private fun clearCurrentSession() {
@@ -309,7 +274,6 @@ internal class VoiceInlineSessionController :
                         val endpointDecision = analyzeEndpoint(pcmSnapshot)
                         if (endpointDecision.state != listeningState) {
                             listeningState = endpointDecision.state
-                            renderListeningState()
                         }
                     }
                     delay(ENDPOINT_POLL_INTERVAL_MS)
@@ -447,9 +411,6 @@ internal class VoiceInlineSessionController :
                         LOG_TAG,
                         "Inline partial updated rawLength=${rawText.length} renderedLength=${latestTranscript.length}"
                     )
-                    if (listening) {
-                        renderListeningState()
-                    }
                 } catch (_: CancellationException) {
                 } catch (error: Exception) {
                     Log.w(LOG_TAG, "Ignoring inline partial transcription failure", error)
@@ -486,13 +447,12 @@ internal class VoiceInlineSessionController :
 
         if (committedText.isBlank()) {
             Log.i(LOG_TAG, "Inline final transcript blank after post-processing")
-            showTransientMessage(context.getString(R.string.voice_input_no_speech))
+            showToastMessage(context.getString(R.string.voice_input_no_speech))
             return
         }
 
         Log.i(LOG_TAG, "Committing inline final transcript length=${committedText.length}")
         service.commitText(committedText)
-        showTransientMessage(committedText, durationMs = FINAL_CONFIRM_DURATION_MS)
     }
 
     private fun analyzeEndpoint(
@@ -538,10 +498,7 @@ internal class VoiceInlineSessionController :
         engineErrorMessage = null
         engineModelMissing = false
         if (showUi) {
-            inlineBar.show(
-                context.getString(R.string.voice_input_loading_engine),
-                VoiceInlineBarComponent.Tone.Neutral
-            )
+            showToastMessage(context.getString(R.string.voice_input_loading_engine))
         }
         Log.i(LOG_TAG, "Ensuring inline voice engine ready force=$force")
 
@@ -553,9 +510,6 @@ internal class VoiceInlineSessionController :
                 engineErrorMessage = result.message
                 if (result.ready) {
                     Log.i(LOG_TAG, "Inline voice engine ready engine=${engine.engineId} model=${result.modelId ?: "unknown"}")
-                    if (showUi && !listening && !processing) {
-                        inlineBar.hide()
-                    }
                 } else if (showUi) {
                     val message =
                         if (result.modelMissing) {
@@ -566,7 +520,7 @@ internal class VoiceInlineSessionController :
                                 result.message ?: context.getString(R.string.voice_input_engine_generic_error)
                             )
                         }
-                    showTransientMessage(message, tone = VoiceInlineBarComponent.Tone.Error)
+                    showToastMessage(message, Toast.LENGTH_LONG)
                 }
             } catch (error: Exception) {
                 engineReady = false
@@ -574,12 +528,12 @@ internal class VoiceInlineSessionController :
                 engineErrorMessage = error.message ?: context.getString(R.string.voice_input_engine_generic_error)
                 Log.w(LOG_TAG, "Inline voice engine warmup failed", error)
                 if (showUi) {
-                    showTransientMessage(
+                    showToastMessage(
                         context.getString(
                             R.string.voice_input_engine_error,
                             engineErrorMessage ?: context.getString(R.string.voice_input_engine_generic_error)
                         ),
-                        tone = VoiceInlineBarComponent.Tone.Error
+                        Toast.LENGTH_LONG
                     )
                 }
             } finally {
@@ -588,39 +542,17 @@ internal class VoiceInlineSessionController :
         }
     }
 
-    private fun renderListeningState() {
-        inlineBar.show(
-            VoiceInlineStatusFormatter.build(
-                when (listeningState) {
-                    VoiceListeningState.NOT_TALKED_YET -> context.getString(R.string.voice_input_listening_waiting)
-                    VoiceListeningState.MIC_MAY_BE_BLOCKED -> context.getString(R.string.voice_input_listening_mic_blocked)
-                    VoiceListeningState.TALKING -> context.getString(R.string.voice_input_release_to_finish)
-                    VoiceListeningState.ENDING_SOON_VAD -> context.getString(R.string.voice_input_listening_ending_soon)
-                },
-                latestTranscript
-            ),
-            VoiceInlineBarComponent.Tone.Active
-        )
-    }
-
-    private fun showTransientMessage(
+    private fun showToastMessage(
         message: String,
-        tone: VoiceInlineBarComponent.Tone = VoiceInlineBarComponent.Tone.Neutral,
-        durationMs: Long = ERROR_MESSAGE_DURATION_MS
+        duration: Int = Toast.LENGTH_SHORT
     ) {
-        cancelHideBar()
-        inlineBar.show(message, tone)
-        hideBarJob =
-            controllerScope.launch {
-                delay(durationMs)
-                inlineBar.hide()
-                hideBarJob = null
-            }
-    }
-
-    private fun cancelHideBar() {
-        hideBarJob?.cancel()
-        hideBarJob = null
+        val now = SystemClock.elapsedRealtime()
+        if (message == lastToastMessage && now - lastToastAtMs < DUPLICATE_TOAST_SUPPRESSION_MS) {
+            return
+        }
+        lastToastMessage = message
+        lastToastAtMs = now
+        context.toast(message, duration)
     }
 
     private fun FloatArray.sliceRemaining(startSample: Int): FloatArray {
@@ -646,8 +578,7 @@ internal class VoiceInlineSessionController :
     private companion object {
         private const val ENDPOINT_POLL_INTERVAL_MS = 150L
         private const val REALTIME_ANALYSIS_MAX_SAMPLES = WhisperAudioRecorder.SAMPLE_RATE * 8
-        private const val ERROR_MESSAGE_DURATION_MS = 1_800L
-        private const val FINAL_CONFIRM_DURATION_MS = 900L
+        private const val DUPLICATE_TOAST_SUPPRESSION_MS = 1_200L
         private const val LOG_TAG = "VoiceInlineSession"
     }
 }

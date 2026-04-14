@@ -6,7 +6,6 @@ package org.fcitx.fcitx5.android.input.keyboard
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.util.TypedValue
 import android.view.View
 import androidx.annotation.Keep
 import androidx.core.view.allViews
@@ -18,6 +17,9 @@ import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.data.prefs.ManagedPreference
 import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.popup.PopupAction
+import org.fcitx.fcitx5.android.input.voice.VoiceInputLauncher
+import org.fcitx.fcitx5.android.input.voice.VoiceInputMode
+import org.fcitx.fcitx5.android.input.keyboard.KeyDef.Appearance.Variant
 import splitties.views.imageResource
 
 @SuppressLint("ViewConstructor")
@@ -77,25 +79,41 @@ class TextKeyboard(
         )
     }
 
-    val leadingActionKey: TextKeyView by lazy { findViewById(R.id.button_caps) }
+    val leadingActionKey: LeadingActionKeyView by lazy { findViewById(R.id.button_caps) }
     val backspace: ImageKeyView by lazy { findViewById(R.id.button_backspace) }
     val quickphrase: ImageKeyView by lazy { findViewById(R.id.button_quickphrase) }
     val lang: ImageKeyView by lazy { findViewById(R.id.button_lang) }
-    val space: TextKeyView by lazy { findViewById(R.id.button_space) }
+    val space: SpaceKeyView by lazy { findViewById(R.id.button_space) }
     val `return`: ImageKeyView by lazy { findViewById(R.id.button_return) }
 
     private val showLangSwitchKey = AppPrefs.getInstance().keyboard.showLangSwitchKey
+    private val spaceKeyLongPressBehavior = AppPrefs.getInstance().keyboard.spaceKeyLongPressBehavior
+    private val voiceInputMode = AppPrefs.getInstance().keyboard.voiceInputMode
 
     @Keep
     private val showLangSwitchKeyListener = ManagedPreference.OnChangeListener<Boolean> { _, v ->
         updateLangSwitchKey(v)
     }
 
+    @Keep
+    private val spaceKeyLongPressBehaviorListener =
+        ManagedPreference.OnChangeListener<SpaceLongPressBehavior> { _, _ ->
+            updateSpaceVoiceIndicator()
+        }
+
+    @Keep
+    private val voiceInputModeListener =
+        ManagedPreference.OnChangeListener<VoiceInputMode> { _, _ ->
+            updateSpaceVoiceIndicator()
+        }
+
     private val keepLettersUppercase by AppPrefs.getInstance().keyboard.keepLettersUppercase
 
     init {
         updateLangSwitchKey(showLangSwitchKey.getValue())
         showLangSwitchKey.registerOnChangeListener(showLangSwitchKeyListener)
+        spaceKeyLongPressBehavior.registerOnChangeListener(spaceKeyLongPressBehaviorListener)
+        voiceInputMode.registerOnChangeListener(voiceInputModeListener)
     }
 
     private val textKeys: List<TextKeyView> by lazy {
@@ -165,6 +183,7 @@ class TextKeyboard(
         capsState = CapsState.None
         updateLeadingActionKey()
         updateAlphabetKeys()
+        updateSpaceVoiceIndicator()
     }
 
     override fun onReturnDrawableUpdate(returnDrawable: Int) {
@@ -182,6 +201,7 @@ class TextKeyboard(
             append(ime.displayName)
             ime.subMode.run { label.ifEmpty { name.ifEmpty { null } } }?.let { append(" ($it)") }
         }
+        updateSpaceVoiceIndicator()
         if (capsState != CapsState.None) {
             switchCapsState()
         } else {
@@ -228,23 +248,43 @@ class TextKeyboard(
     }
 
     private fun updateLeadingActionKey() {
-        val mode = resolveLeadingActionMode(currentIme, capsState)
-        val (label, textSizeDp) = when (mode) {
-            TextKeyboardLeadingActionMode.PinyinSegment -> context.getString(R.string.keyboard_pinyin_segment) to 13f
-            TextKeyboardLeadingActionMode.ShiftLocked -> "\u21ea" to 22f
-            TextKeyboardLeadingActionMode.ShiftUnlocked -> "\u21e7" to 22f
+        when (resolveLeadingActionMode(currentIme, capsState)) {
+            TextKeyboardLeadingActionMode.PinyinSegment ->
+                leadingActionKey.showText(
+                    context.getString(R.string.keyboard_pinyin_segment),
+                    13f,
+                    Variant.Alternative
+                )
+            TextKeyboardLeadingActionMode.ShiftLocked ->
+                leadingActionKey.showIcon(R.drawable.ic_capslock_lock, Variant.Accent)
+            TextKeyboardLeadingActionMode.ShiftUnlocked ->
+                leadingActionKey.showIcon(
+                    if (capsState == CapsState.Once) {
+                        R.drawable.ic_capslock_once
+                    } else {
+                        R.drawable.ic_capslock_none
+                    },
+                    if (capsState == CapsState.Once) Variant.Accent else Variant.Alternative
+                )
         }
-        leadingActionKey.mainText.text = label
-        leadingActionKey.mainText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, textSizeDp)
     }
 
     private fun updateLangSwitchKey(visible: Boolean) {
         lang.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
+    private fun updateSpaceVoiceIndicator() {
+        space.setVoiceIndicatorVisible(
+            shouldShowSpaceVoiceIndicator(
+                config = VoiceInputLauncher.currentConfig(),
+                voiceInputAvailable = VoiceInputLauncher.isPreferredVoiceInputAvailable()
+            )
+        )
+    }
+
     private fun updateAlphabetKeys() {
         textKeys.forEach {
-            if (it.def !is KeyDef.Appearance.AltText) return
+            if (it.def !is KeyDef.Appearance.AltText) return@forEach
             it.mainText.text = it.def.displayText.let { str ->
                 if (str.length != 1 || !str[0].isLetter()) return@forEach
                 if (keepLettersUppercase) str.uppercase() else transformAlphabet(str)

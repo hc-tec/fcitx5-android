@@ -5,6 +5,8 @@
 package org.fcitx.fcitx5.android.input.keyboard
 
 import org.fcitx.fcitx5.android.core.InputMethodEntry
+import org.fcitx.fcitx5.android.input.voice.VoiceInputEntryConfig
+import org.fcitx.fcitx5.android.input.voice.VoiceInputLauncher
 
 internal enum class TextKeyboardLeadingActionMode {
     ShiftUnlocked,
@@ -18,6 +20,13 @@ internal fun supportsPinyinSegmentation(ime: InputMethodEntry): Boolean {
 
 internal fun canTriggerPinyinSegmentation(ime: InputMethodEntry, hasComposition: Boolean): Boolean {
     return supportsPinyinSegmentation(ime) && hasComposition
+}
+
+internal fun shouldShowSpaceVoiceIndicator(
+    config: VoiceInputEntryConfig = VoiceInputLauncher.currentConfig(),
+    voiceInputAvailable: Boolean = VoiceInputLauncher.isPreferredVoiceInputAvailable()
+): Boolean {
+    return config.spaceLongPressBehavior == SpaceLongPressBehavior.VoiceInput && voiceInputAvailable
 }
 
 internal fun resolveLeadingActionMode(

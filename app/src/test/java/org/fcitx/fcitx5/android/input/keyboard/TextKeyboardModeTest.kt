@@ -1,6 +1,8 @@
 package org.fcitx.fcitx5.android.input.keyboard
 
 import org.fcitx.fcitx5.android.core.InputMethodEntry
+import org.fcitx.fcitx5.android.input.voice.VoiceInputEntryConfig
+import org.fcitx.fcitx5.android.input.voice.VoiceInputMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -59,6 +61,28 @@ class TextKeyboardModeTest {
         assertEquals(
             TextKeyboardLeadingActionMode.ShiftLocked,
             resolveLeadingActionMode(ime, TextKeyboard.CapsState.Lock)
+        )
+    }
+
+    @Test
+    fun spaceShowsMicOnlyWhenVoiceLongPressIsUsable() {
+        val enabledConfig =
+            VoiceInputEntryConfig(
+                showVoiceInputButton = false,
+                spaceLongPressBehavior = SpaceLongPressBehavior.VoiceInput,
+                voiceInputMode = VoiceInputMode.BuiltInSpeechRecognizer
+            )
+
+        assertTrue(shouldShowSpaceVoiceIndicator(enabledConfig, voiceInputAvailable = true))
+        assertFalse(shouldShowSpaceVoiceIndicator(enabledConfig, voiceInputAvailable = false))
+        assertFalse(
+            shouldShowSpaceVoiceIndicator(
+                enabledConfig.copy(
+                    showVoiceInputButton = true,
+                    spaceLongPressBehavior = SpaceLongPressBehavior.None
+                ),
+                voiceInputAvailable = true
+            )
         )
     }
 }
