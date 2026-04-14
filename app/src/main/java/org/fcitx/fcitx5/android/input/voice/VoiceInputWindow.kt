@@ -20,6 +20,7 @@ import org.fcitx.fcitx5.android.input.FcitxInputMethodService
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
 import org.fcitx.fcitx5.android.input.dependency.theme
 import org.fcitx.fcitx5.android.input.wm.InputWindow
+import org.mechdancer.dependency.manager.must
 import org.fcitx.fcitx5.android.voice.core.VoiceRecognitionResult
 
 internal class VoiceInputWindow(
@@ -27,6 +28,7 @@ internal class VoiceInputWindow(
 ) : InputWindow.ExtendedInputWindow<VoiceInputWindow>() {
     private val service: FcitxInputMethodService by manager.inputMethodService()
     private val theme by manager.theme()
+    private val correctionLearningController: VoiceCorrectionLearningController by manager.must()
     private val ui by lazy { VoiceInputUi(context, theme) }
 
     private var sessionId: String = ""
@@ -525,11 +527,19 @@ internal class VoiceInputWindow(
 
         Log.i(LOG_TAG, "Committing final transcript length=${committedText.length}")
         service.commitText(committedText)
-        VoiceInputRuntime.rememberAcceptedPhrases(
-            locale = request.locale,
-            packageName = request.packageName,
-            phrases = processed?.learnedEntities.orEmpty()
-        )
+        if (VoicePersonalizationPolicy.isLearningAllowed(service.currentInputEditorInfo)) {
+            VoiceInputRuntime.rememberAcceptedPhrases(
+                locale = request.locale,
+                packageName = request.packageName,
+                phrases = processed?.learnedEntities.orEmpty()
+            )
+            correctionLearningController.beginObservation(
+                sessionId = sessionId,
+                locale = request.locale,
+                packageName = request.packageName,
+                committedText = committedText
+            )
+        }
         ui.renderReady(latestTranscript)
     }
 

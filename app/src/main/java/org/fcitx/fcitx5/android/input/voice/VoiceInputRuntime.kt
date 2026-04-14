@@ -1,6 +1,7 @@
 package org.fcitx.fcitx5.android.input.voice
 
 import org.fcitx.fcitx5.android.input.FcitxInputMethodService
+import org.fcitx.fcitx5.android.voice.core.VoiceCorrectionFeedback
 import org.fcitx.fcitx5.android.voice.core.VoiceSessionManager
 import org.fcitx.fcitx5.android.voice.core.VoiceSessionRequest
 
@@ -32,5 +33,9 @@ internal object VoiceInputRuntime {
         phrases: List<String>
     ) {
         personalizationStore.rememberAcceptedPhrases(locale, packageName, phrases)
+    }
+
+    fun recordCorrection(feedback: VoiceCorrectionFeedback) {
+        sessionManager.recordCorrection(feedback)
     }
 }

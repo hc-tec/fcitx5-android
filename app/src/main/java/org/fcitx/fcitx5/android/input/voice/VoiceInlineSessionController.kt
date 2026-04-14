@@ -41,6 +41,7 @@ internal class VoiceInlineSessionController :
     private val context by manager.context()
     private val service by manager.inputMethodService()
     private val broadcaster: InputBroadcaster by manager.must()
+    private val correctionLearningController: VoiceCorrectionLearningController by manager.must()
 
     private val keyboardPrefs = AppPrefs.getInstance().keyboard
 
@@ -463,11 +464,19 @@ internal class VoiceInlineSessionController :
 
         Log.i(LOG_TAG, "Committing inline final transcript length=${committedText.length}")
         service.commitText(committedText)
-        VoiceInputRuntime.rememberAcceptedPhrases(
-            locale = request.locale,
-            packageName = request.packageName,
-            phrases = processed?.learnedEntities.orEmpty()
-        )
+        if (VoicePersonalizationPolicy.isLearningAllowed(service.currentInputEditorInfo)) {
+            VoiceInputRuntime.rememberAcceptedPhrases(
+                locale = request.locale,
+                packageName = request.packageName,
+                phrases = processed?.learnedEntities.orEmpty()
+            )
+            correctionLearningController.beginObservation(
+                sessionId = sessionId,
+                locale = request.locale,
+                packageName = request.packageName,
+                committedText = committedText
+            )
+        }
         publishVoiceUiState(VoiceInputUiState.Idle)
     }
 

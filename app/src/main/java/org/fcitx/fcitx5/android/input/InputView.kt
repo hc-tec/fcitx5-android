@@ -42,6 +42,7 @@ import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
 import org.fcitx.fcitx5.android.input.voice.VoiceHoldBubbleComponent
+import org.fcitx.fcitx5.android.input.voice.VoiceCorrectionLearningController
 import org.fcitx.fcitx5.android.input.voice.VoiceInlineSessionController
 import org.fcitx.fcitx5.android.input.wm.ImeWindowResumeManager
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
@@ -107,6 +108,7 @@ class InputView(
     private val preeditEmptyState = PreeditEmptyStateComponent()
     private val preedit = PreeditComponent()
     private val voiceHoldBubble = VoiceHoldBubbleComponent()
+    private val voiceCorrectionLearningController = VoiceCorrectionLearningController()
     private val inlineVoiceController = VoiceInlineSessionController()
     private val commonKeyActionListener = CommonKeyActionListener()
     private val windowManager = InputWindowManager()
@@ -131,6 +133,7 @@ class InputView(
         scope += preeditEmptyState
         scope += preedit
         scope += voiceHoldBubble
+        scope += voiceCorrectionLearningController
         scope += inlineVoiceController
         scope += commonKeyActionListener
         scope += windowManager
@@ -405,6 +408,7 @@ class InputView(
 
     override fun onDetachedFromWindow() {
         keyboardPrefs.unregisterOnChangeListener(onKeyboardSizeChangeListener)
+        voiceCorrectionLearningController.shutdown()
         inlineVoiceController.shutdown()
         // clear DynamicScope, implies that InputView should not be attached again after detached.
         scope.clear()
