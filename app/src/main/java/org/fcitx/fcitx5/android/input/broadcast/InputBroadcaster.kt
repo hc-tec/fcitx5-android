@@ -11,6 +11,7 @@ import org.fcitx.fcitx5.android.core.FcitxEvent.CandidateListEvent
 import org.fcitx.fcitx5.android.core.FcitxEvent.InputPanelEvent
 import org.fcitx.fcitx5.android.core.FormattedText
 import org.fcitx.fcitx5.android.core.InputMethodEntry
+import org.fcitx.fcitx5.android.input.voice.VoiceInputUiState
 import org.fcitx.fcitx5.android.input.wm.InputWindow
 import org.mechdancer.dependency.Dependent
 import org.mechdancer.dependency.DynamicScope
@@ -88,6 +89,10 @@ class InputBroadcaster : UniqueComponent<InputBroadcaster>(), Dependent, InputBr
 
     override fun onReturnKeyDrawableUpdate(resourceId: Int) {
         receivers.forEach { it.onReturnKeyDrawableUpdate(resourceId) }
+    }
+
+    override fun onVoiceInputUiStateUpdate(state: VoiceInputUiState) {
+        receivers.forEach { it.onVoiceInputUiStateUpdate(state) }
     }
 
 }

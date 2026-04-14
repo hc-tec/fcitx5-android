@@ -12,6 +12,7 @@ import org.fcitx.fcitx5.android.core.FcitxEvent.CandidateListEvent
 import org.fcitx.fcitx5.android.core.FcitxEvent.InputPanelEvent
 import org.fcitx.fcitx5.android.core.FormattedText
 import org.fcitx.fcitx5.android.core.InputMethodEntry
+import org.fcitx.fcitx5.android.input.voice.VoiceInputUiState
 import org.fcitx.fcitx5.android.input.wm.InputWindow
 import org.mechdancer.dependency.DynamicScope
 
@@ -42,5 +43,7 @@ interface InputBroadcastReceiver {
     fun onPreeditEmptyStateUpdate(empty: Boolean) {}
 
     fun onReturnKeyDrawableUpdate(@DrawableRes resourceId: Int) {}
+
+    fun onVoiceInputUiStateUpdate(state: VoiceInputUiState) {}
 
 }

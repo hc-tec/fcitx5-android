@@ -5,6 +5,9 @@
 package org.fcitx.fcitx5.android.input.keyboard
 
 import android.annotation.SuppressLint
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
@@ -19,6 +22,7 @@ import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.ImageView
 import androidx.annotation.ColorInt
 import androidx.annotation.DrawableRes
@@ -32,6 +36,7 @@ import org.fcitx.fcitx5.android.data.theme.ThemePrefs.PunctuationPosition
 import org.fcitx.fcitx5.android.input.AutoScaleTextView
 import org.fcitx.fcitx5.android.input.keyboard.KeyDef.Appearance.Border
 import org.fcitx.fcitx5.android.input.keyboard.KeyDef.Appearance.Variant
+import org.fcitx.fcitx5.android.input.voice.VoiceInputUiState
 import org.fcitx.fcitx5.android.utils.styledFloat
 import org.fcitx.fcitx5.android.utils.unset
 import splitties.dimensions.dp
@@ -44,6 +49,7 @@ import splitties.views.dsl.constraintlayout.endToStartOf
 import splitties.views.dsl.constraintlayout.lParams
 import splitties.views.dsl.constraintlayout.parentId
 import splitties.views.dsl.constraintlayout.startOfParent
+import splitties.views.dsl.constraintlayout.startToEndOf
 import splitties.views.dsl.core.add
 import splitties.views.dsl.core.imageView
 import splitties.views.dsl.core.lParams
@@ -436,8 +442,9 @@ class SpaceKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Text) :
         isClickable = false
         isFocusable = false
         visibility = View.GONE
-        configure(theme, R.drawable.ic_baseline_mic_18, Variant.Accent)
+        configure(theme, R.drawable.ic_baseline_keyboard_voice_24, Variant.AltForeground)
     }
+    private var pulseAnimator: ObjectAnimator? = null
 
     init {
         mainText.gravity = Gravity.CENTER
@@ -452,32 +459,87 @@ class SpaceKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Text) :
         appearanceView.add(
             voiceIndicator,
             ConstraintLayout.LayoutParams(wrapContent, wrapContent).apply {
-                endToEnd = parentId
+                startToStart = parentId
                 topToTop = parentId
                 bottomToBottom = parentId
             }
         )
         voiceIndicator.updateLayoutParams<ConstraintLayout.LayoutParams> {
-            marginEnd = hMargin + dp(10)
+            marginStart = hMargin + dp(12)
         }
     }
 
-    fun setVoiceIndicatorVisible(visible: Boolean) {
-        voiceIndicator.visibility = if (visible) View.VISIBLE else View.GONE
+    fun render(
+        idleLabel: String,
+        showVoiceIndicator: Boolean,
+        voiceUiState: VoiceInputUiState,
+        listeningLabel: String,
+        processingLabel: String
+    ) {
+        val effectiveLabel =
+            when (voiceUiState) {
+                VoiceInputUiState.Idle -> idleLabel
+                VoiceInputUiState.Listening -> listeningLabel
+                VoiceInputUiState.Processing -> processingLabel
+            }
+        val indicatorVisible = showVoiceIndicator || voiceUiState != VoiceInputUiState.Idle
+
+        mainText.text = effectiveLabel
+        mainText.setTextColor(
+            theme.colorForVariant(
+                if (voiceUiState == VoiceInputUiState.Idle) Variant.Normal else Variant.Accent
+            )
+        )
+        voiceIndicator.configure(
+            theme,
+            R.drawable.ic_baseline_keyboard_voice_24,
+            if (voiceUiState == VoiceInputUiState.Idle) Variant.AltForeground else Variant.Accent
+        )
+        voiceIndicator.visibility = if (indicatorVisible) View.VISIBLE else View.GONE
         mainText.updateLayoutParams<ConstraintLayout.LayoutParams> {
             width = 0
-            startOfParent()
-            if (visible) {
-                endToStartOf(voiceIndicator)
-                marginEnd = dp(4)
+            if (indicatorVisible) {
+                startToEndOf(voiceIndicator)
+                marginStart = dp(6)
             } else {
-                endToStart = unset
-                endOfParent()
-                marginEnd = 0
+                startToEnd = unset
+                startOfParent()
+                marginStart = 0
             }
+            endOfParent()
+            marginEnd = hMargin + dp(12)
             topToTop = parentId
             bottomToBottom = parentId
         }
+        if (voiceUiState == VoiceInputUiState.Listening) {
+            startVoicePulse()
+        } else {
+            stopVoicePulse()
+        }
+    }
+
+    private fun startVoicePulse() {
+        if (pulseAnimator?.isRunning == true) return
+        pulseAnimator =
+            ObjectAnimator.ofPropertyValuesHolder(
+                voiceIndicator,
+                PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.18f, 1f),
+                PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.18f, 1f),
+                PropertyValuesHolder.ofFloat(View.ALPHA, 0.72f, 1f, 0.72f)
+            ).apply {
+                duration = 820L
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = AccelerateDecelerateInterpolator()
+                start()
+            }
+    }
+
+    private fun stopVoicePulse() {
+        pulseAnimator?.cancel()
+        pulseAnimator = null
+        voiceIndicator.scaleX = 1f
+        voiceIndicator.scaleY = 1f
+        voiceIndicator.alpha = 1f
     }
 }
 

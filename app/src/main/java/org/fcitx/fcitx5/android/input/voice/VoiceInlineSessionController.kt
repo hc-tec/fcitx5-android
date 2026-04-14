@@ -20,6 +20,7 @@ import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.core.CapabilityFlag
 import org.fcitx.fcitx5.android.core.CapabilityFlags
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
+import org.fcitx.fcitx5.android.input.broadcast.InputBroadcaster
 import org.fcitx.fcitx5.android.input.broadcast.InputBroadcastReceiver
 import org.fcitx.fcitx5.android.input.dependency.context
 import org.fcitx.fcitx5.android.input.dependency.inputMethodService
@@ -29,6 +30,7 @@ import org.mechdancer.dependency.Dependent
 import org.mechdancer.dependency.UniqueComponent
 import org.mechdancer.dependency.manager.ManagedHandler
 import org.mechdancer.dependency.manager.managedHandler
+import org.mechdancer.dependency.manager.must
 
 internal class VoiceInlineSessionController :
     UniqueComponent<VoiceInlineSessionController>(),
@@ -38,6 +40,7 @@ internal class VoiceInlineSessionController :
 
     private val context by manager.context()
     private val service by manager.inputMethodService()
+    private val broadcaster: InputBroadcaster by manager.must()
 
     private val keyboardPrefs = AppPrefs.getInstance().keyboard
 
@@ -160,6 +163,7 @@ internal class VoiceInlineSessionController :
         pendingIncrementalTargetSamples = 0
         partialStabilizer.reset()
         Log.i(LOG_TAG, "Inline voice listening started session=$sessionId locale=${request.locale}")
+        publishVoiceUiState(VoiceInputUiState.Listening)
         return true
     }
 
@@ -172,6 +176,7 @@ internal class VoiceInlineSessionController :
         recorder = null
         listening = false
         processing = true
+        publishVoiceUiState(VoiceInputUiState.Processing)
         endpointLoopJob?.cancel()
         endpointLoopJob = null
         partialLoopJob?.cancel()
@@ -192,6 +197,7 @@ internal class VoiceInlineSessionController :
                         voiceEngine?.endSession(cancelled = false)
                         processing = false
                         latestTranscript = ""
+                        publishVoiceUiState(VoiceInputUiState.Idle)
                         Log.i(LOG_TAG, "Inline final audio empty, no speech detected")
                         showToastMessage(context.getString(R.string.voice_input_no_speech))
                         return@launch
@@ -215,6 +221,7 @@ internal class VoiceInlineSessionController :
                 } catch (error: Exception) {
                     voiceEngine?.endSession(cancelled = false)
                     processing = false
+                    publishVoiceUiState(VoiceInputUiState.Idle)
                     Log.w(LOG_TAG, "Inline final transcription failed", error)
                     showToastMessage(
                         context.getString(
@@ -252,6 +259,7 @@ internal class VoiceInlineSessionController :
         pendingIncrementalTargetSamples = 0
         listeningState = VoiceListeningState.NOT_TALKED_YET
         partialStabilizer.reset()
+        publishVoiceUiState(VoiceInputUiState.Idle)
     }
 
     private fun clearCurrentSession() {
@@ -447,12 +455,14 @@ internal class VoiceInlineSessionController :
 
         if (committedText.isBlank()) {
             Log.i(LOG_TAG, "Inline final transcript blank after post-processing")
+            publishVoiceUiState(VoiceInputUiState.Idle)
             showToastMessage(context.getString(R.string.voice_input_no_speech))
             return
         }
 
         Log.i(LOG_TAG, "Committing inline final transcript length=${committedText.length}")
         service.commitText(committedText)
+        publishVoiceUiState(VoiceInputUiState.Idle)
     }
 
     private fun analyzeEndpoint(
@@ -553,6 +563,10 @@ internal class VoiceInlineSessionController :
         lastToastMessage = message
         lastToastAtMs = now
         context.toast(message, duration)
+    }
+
+    private fun publishVoiceUiState(state: VoiceInputUiState) {
+        broadcaster.onVoiceInputUiStateUpdate(state)
     }
 
     private fun FloatArray.sliceRemaining(startSample: Int): FloatArray {

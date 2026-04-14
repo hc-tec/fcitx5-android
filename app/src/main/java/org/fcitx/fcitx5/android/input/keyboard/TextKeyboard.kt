@@ -19,6 +19,7 @@ import org.fcitx.fcitx5.android.data.theme.Theme
 import org.fcitx.fcitx5.android.input.popup.PopupAction
 import org.fcitx.fcitx5.android.input.voice.VoiceInputLauncher
 import org.fcitx.fcitx5.android.input.voice.VoiceInputMode
+import org.fcitx.fcitx5.android.input.voice.VoiceInputUiState
 import org.fcitx.fcitx5.android.input.keyboard.KeyDef.Appearance.Variant
 import splitties.views.imageResource
 
@@ -98,13 +99,13 @@ class TextKeyboard(
     @Keep
     private val spaceKeyLongPressBehaviorListener =
         ManagedPreference.OnChangeListener<SpaceLongPressBehavior> { _, _ ->
-            updateSpaceVoiceIndicator()
+            updateSpacePresentation()
         }
 
     @Keep
     private val voiceInputModeListener =
         ManagedPreference.OnChangeListener<VoiceInputMode> { _, _ ->
-            updateSpaceVoiceIndicator()
+            updateSpacePresentation()
         }
 
     private val keepLettersUppercase by AppPrefs.getInstance().keyboard.keepLettersUppercase
@@ -122,6 +123,7 @@ class TextKeyboard(
 
     private var capsState: CapsState = CapsState.None
     private var currentIme: InputMethodEntry? = null
+    private var spaceVoiceUiState: VoiceInputUiState = VoiceInputUiState.Idle
 
     private fun transformAlphabet(c: String): String {
         return when (capsState) {
@@ -181,9 +183,10 @@ class TextKeyboard(
 
     override fun onAttach() {
         capsState = CapsState.None
+        spaceVoiceUiState = VoiceInputUiState.Idle
         updateLeadingActionKey()
         updateAlphabetKeys()
-        updateSpaceVoiceIndicator()
+        updateSpacePresentation()
     }
 
     override fun onReturnDrawableUpdate(returnDrawable: Int) {
@@ -197,16 +200,18 @@ class TextKeyboard(
 
     override fun onInputMethodUpdate(ime: InputMethodEntry) {
         currentIme = ime
-        space.mainText.text = buildString {
-            append(ime.displayName)
-            ime.subMode.run { label.ifEmpty { name.ifEmpty { null } } }?.let { append(" ($it)") }
-        }
-        updateSpaceVoiceIndicator()
+        updateSpacePresentation()
         if (capsState != CapsState.None) {
             switchCapsState()
         } else {
             updateLeadingActionKey()
         }
+    }
+
+    override fun onVoiceInputUiStateUpdate(state: VoiceInputUiState) {
+        if (spaceVoiceUiState == state) return
+        spaceVoiceUiState = state
+        updateSpacePresentation()
     }
 
     private fun transformPopupPreview(c: String): String {
@@ -273,12 +278,25 @@ class TextKeyboard(
         lang.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
-    private fun updateSpaceVoiceIndicator() {
-        space.setVoiceIndicatorVisible(
+    private fun updateSpacePresentation() {
+        val showVoiceIndicator =
             shouldShowSpaceVoiceIndicator(
                 config = VoiceInputLauncher.currentConfig(),
                 voiceInputAvailable = VoiceInputLauncher.isPreferredVoiceInputAvailable()
             )
+        val idleLabel =
+            currentIme?.run {
+                buildString {
+                    append(displayName)
+                    subMode.run { label.ifEmpty { name.ifEmpty { null } } }?.let { append(" ($it)") }
+                }
+            } ?: ""
+        space.render(
+            idleLabel = idleLabel,
+            showVoiceIndicator = showVoiceIndicator,
+            voiceUiState = spaceVoiceUiState,
+            listeningLabel = context.getString(R.string.voice_input_release_to_finish),
+            processingLabel = context.getString(R.string.voice_input_processing)
         )
     }
 
