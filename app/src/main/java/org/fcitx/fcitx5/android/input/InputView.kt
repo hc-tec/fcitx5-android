@@ -41,6 +41,7 @@ import org.fcitx.fcitx5.android.input.preedit.PreeditComponent
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
+import org.fcitx.fcitx5.android.input.voice.VoiceHoldBubbleComponent
 import org.fcitx.fcitx5.android.input.voice.VoiceInlineSessionController
 import org.fcitx.fcitx5.android.input.wm.ImeWindowResumeManager
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
@@ -105,6 +106,7 @@ class InputView(
     private val returnKeyDrawable = ReturnKeyDrawableComponent()
     private val preeditEmptyState = PreeditEmptyStateComponent()
     private val preedit = PreeditComponent()
+    private val voiceHoldBubble = VoiceHoldBubbleComponent()
     private val inlineVoiceController = VoiceInlineSessionController()
     private val commonKeyActionListener = CommonKeyActionListener()
     private val windowManager = InputWindowManager()
@@ -128,6 +130,7 @@ class InputView(
         scope += returnKeyDrawable
         scope += preeditEmptyState
         scope += preedit
+        scope += voiceHoldBubble
         scope += inlineVoiceController
         scope += commonKeyActionListener
         scope += windowManager
@@ -243,6 +246,11 @@ class InputView(
                 /**
                  * set start and end constrain in [updateKeyboardSize]
                  */
+            })
+            add(voiceHoldBubble.view, lParams(wrapContent, wrapContent) {
+                below(kawaiiBar.view)
+                centerHorizontally()
+                topMargin = dp(10)
             })
             add(bottomPaddingSpace, lParams {
                 startToEndOf(leftPaddingSpace)

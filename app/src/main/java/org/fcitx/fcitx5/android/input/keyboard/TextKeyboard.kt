@@ -294,9 +294,7 @@ class TextKeyboard(
         space.render(
             idleLabel = idleLabel,
             showVoiceIndicator = showVoiceIndicator,
-            voiceUiState = spaceVoiceUiState,
-            listeningLabel = context.getString(R.string.voice_input_release_to_finish),
-            processingLabel = context.getString(R.string.voice_input_processing)
+            voiceUiState = spaceVoiceUiState
         )
     }
 

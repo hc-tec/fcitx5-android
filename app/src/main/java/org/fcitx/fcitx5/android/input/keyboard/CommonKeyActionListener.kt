@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import org.fcitx.fcitx5.android.core.FcitxAPI
+import org.fcitx.fcitx5.android.data.InputFeedbacks
 import org.fcitx.fcitx5.android.daemon.launchOnReady
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.input.broadcast.PreeditEmptyStateComponent
@@ -196,7 +197,11 @@ class CommonKeyActionListener :
                         SpaceLongPressBehavior.VoiceInput ->
                             ContextCompat.getMainExecutor(service).execute {
                                 when (kbdPrefs.voiceInputMode.getValue()) {
-                                    VoiceInputMode.BuiltInSpeechRecognizer -> inlineVoiceController.startHoldToTalk()
+                                    VoiceInputMode.BuiltInSpeechRecognizer -> {
+                                        if (inlineVoiceController.startHoldToTalk()) {
+                                            InputFeedbacks.hapticFeedback(windowManager.view, longPress = true)
+                                        }
+                                    }
                                     VoiceInputMode.SystemVoiceIme ->
                                         VoiceInputLauncher.launchPreferredVoiceInput(
                                             service = service,
@@ -213,6 +218,7 @@ class CommonKeyActionListener :
                         kbdPrefs.voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
                     ) {
                         ContextCompat.getMainExecutor(service).execute {
+                            InputFeedbacks.hapticFeedback(windowManager.view, keyUp = true)
                             inlineVoiceController.stopHoldToTalk()
                         }
                     }

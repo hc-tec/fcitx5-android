@@ -5,9 +5,6 @@
 package org.fcitx.fcitx5.android.input.keyboard
 
 import android.annotation.SuppressLint
-import android.animation.ObjectAnimator
-import android.animation.PropertyValuesHolder
-import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
@@ -22,7 +19,6 @@ import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
-import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.ImageView
 import androidx.annotation.ColorInt
 import androidx.annotation.DrawableRes
@@ -444,7 +440,6 @@ class SpaceKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Text) :
         visibility = View.GONE
         configure(theme, R.drawable.ic_baseline_keyboard_voice_24, Variant.AltForeground)
     }
-    private var pulseAnimator: ObjectAnimator? = null
 
     init {
         mainText.gravity = Gravity.CENTER
@@ -472,24 +467,12 @@ class SpaceKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Text) :
     fun render(
         idleLabel: String,
         showVoiceIndicator: Boolean,
-        voiceUiState: VoiceInputUiState,
-        listeningLabel: String,
-        processingLabel: String
+        voiceUiState: VoiceInputUiState
     ) {
-        val effectiveLabel =
-            when (voiceUiState) {
-                VoiceInputUiState.Idle -> idleLabel
-                VoiceInputUiState.Listening -> listeningLabel
-                VoiceInputUiState.Processing -> processingLabel
-            }
-        val indicatorVisible = showVoiceIndicator || voiceUiState != VoiceInputUiState.Idle
+        val indicatorVisible = showVoiceIndicator
 
-        mainText.text = effectiveLabel
-        mainText.setTextColor(
-            theme.colorForVariant(
-                if (voiceUiState == VoiceInputUiState.Idle) Variant.Normal else Variant.Accent
-            )
-        )
+        mainText.text = idleLabel
+        mainText.setTextColor(theme.colorForVariant(Variant.Normal))
         voiceIndicator.configure(
             theme,
             R.drawable.ic_baseline_keyboard_voice_24,
@@ -511,35 +494,6 @@ class SpaceKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Text) :
             topToTop = parentId
             bottomToBottom = parentId
         }
-        if (voiceUiState == VoiceInputUiState.Listening) {
-            startVoicePulse()
-        } else {
-            stopVoicePulse()
-        }
-    }
-
-    private fun startVoicePulse() {
-        if (pulseAnimator?.isRunning == true) return
-        pulseAnimator =
-            ObjectAnimator.ofPropertyValuesHolder(
-                voiceIndicator,
-                PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.18f, 1f),
-                PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.18f, 1f),
-                PropertyValuesHolder.ofFloat(View.ALPHA, 0.72f, 1f, 0.72f)
-            ).apply {
-                duration = 820L
-                repeatCount = ValueAnimator.INFINITE
-                interpolator = AccelerateDecelerateInterpolator()
-                start()
-            }
-    }
-
-    private fun stopVoicePulse() {
-        pulseAnimator?.cancel()
-        pulseAnimator = null
-        voiceIndicator.scaleX = 1f
-        voiceIndicator.scaleY = 1f
-        voiceIndicator.alpha = 1f
     }
 }
 
