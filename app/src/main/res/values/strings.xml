@@ -245,6 +245,7 @@
     <string name="voice_model_preference_balanced">Balanced</string>
     <string name="voice_model_preference_accurate">Accurate</string>
     <string name="voice_sherpa_model_preference">Sherpa model profile</string>
+    <string name="voice_sherpa_model_preference_auto">Smart Auto</string>
     <string name="voice_sherpa_model_preference_mixed_zh_en">Chinese + English mixed</string>
     <string name="voice_sherpa_model_preference_hotword">Chinese hotword enhanced</string>
     <string name="voice_sherpa_model_preference_fast_ctc">Chinese fast CTC</string>

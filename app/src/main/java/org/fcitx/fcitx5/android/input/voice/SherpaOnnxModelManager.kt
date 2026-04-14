@@ -111,10 +111,10 @@ internal object SherpaOnnxModelCatalog {
 
     private val descriptors = listOf(mixedZhEnModel, hotwordEnhancedModel, fastCtcModel)
 
-    val defaultPreference: SherpaOnnxModelPreference = SherpaOnnxModelPreference.MixedZhEn
+    val defaultPreference: SherpaOnnxModelPreference = SherpaOnnxModelPreference.Auto
 
     fun descriptorForPreference(preference: SherpaOnnxModelPreference): SherpaModelDescriptor =
-        descriptors.first { it.preference == preference }
+        descriptors.first { it.preference == concretePreference(preference) }
 
     fun resolveBundledModel(
         assetManager: AssetManager,
@@ -141,6 +141,12 @@ internal object SherpaOnnxModelCatalog {
 
     internal fun preferenceOrder(preference: SherpaOnnxModelPreference): List<SherpaOnnxModelPreference> =
         when (preference) {
+            SherpaOnnxModelPreference.Auto ->
+                listOf(
+                    SherpaOnnxModelPreference.MixedZhEn,
+                    SherpaOnnxModelPreference.HotwordEnhanced,
+                    SherpaOnnxModelPreference.FastCtc
+                )
             SherpaOnnxModelPreference.MixedZhEn ->
                 listOf(
                     SherpaOnnxModelPreference.MixedZhEn,
@@ -159,6 +165,13 @@ internal object SherpaOnnxModelCatalog {
                     SherpaOnnxModelPreference.HotwordEnhanced,
                     SherpaOnnxModelPreference.MixedZhEn
                 )
+        }
+
+    private fun concretePreference(preference: SherpaOnnxModelPreference): SherpaOnnxModelPreference =
+        if (preference == SherpaOnnxModelPreference.Auto) {
+            SherpaOnnxModelPreference.MixedZhEn
+        } else {
+            preference
         }
 
     private fun assetExists(
@@ -247,7 +260,8 @@ internal object SherpaOnnxModelManager {
     }
 
     private data class LoadConfig(
-        val configuredPreference: SherpaOnnxModelPreference
+        val configuredPreference: SherpaOnnxModelPreference,
+        val routingDecision: SherpaRoutingDecision
     )
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -263,10 +277,11 @@ internal object SherpaOnnxModelManager {
 
     suspend fun awaitReady(
         context: Context,
-        force: Boolean = false
+        force: Boolean = false,
+        request: org.fcitx.fcitx5.android.voice.core.VoiceSessionRequest? = null
     ): State =
         suspendCoroutine { continuation ->
-            ensureReady(context, force) { nextState ->
+            ensureReady(context, force, request) { nextState ->
                 if (nextState !is State.Loading) {
                     continuation.resume(nextState)
                 }
@@ -276,17 +291,19 @@ internal object SherpaOnnxModelManager {
     fun ensureReady(
         context: Context,
         force: Boolean = false,
+        request: org.fcitx.fcitx5.android.voice.core.VoiceSessionRequest? = null,
         callback: (State) -> Unit
     ) {
         val immediate: State
         var shouldLoad = false
         var previousReady: State.Ready? = null
+        val loadConfig = currentLoadConfig(context, request)
 
         synchronized(this) {
             val currentState = state
             immediate =
                 when {
-                    currentState is State.Ready && !force && !shouldReloadForPreference(context, currentState) -> currentState
+                    currentState is State.Ready && !force && !shouldReloadForLoadConfig(context, currentState, loadConfig) -> currentState
                     loading && !force -> {
                         callbacks += callback
                         State.Loading
@@ -314,7 +331,6 @@ internal object SherpaOnnxModelManager {
                     .onFailure { error -> Log.w(LOG_TAG, "Failed to release previous sherpa recognizer", error) }
             }
 
-            val loadConfig = currentLoadConfig()
             val nextState =
                 runCatching { loadRecognizer(appContext, loadConfig) }
                     .getOrElse { error ->
@@ -344,7 +360,7 @@ internal object SherpaOnnxModelManager {
         val model =
             SherpaOnnxModelCatalog.resolveBundledModel(
                 assetManager = context.assets,
-                preference = loadConfig.configuredPreference
+                preference = loadConfig.routingDecision.effectivePreference
             )
         if (model == null) {
             return State.Error(
@@ -353,30 +369,43 @@ internal object SherpaOnnxModelManager {
             )
         }
 
-        val fellBack = model.preference != loadConfig.configuredPreference
+        val fellBack = model.preference != loadConfig.routingDecision.effectivePreference
         Log.i(
             LOG_TAG,
-            "Loading sherpa-onnx model modelId=${model.modelId} configured=${loadConfig.configuredPreference} effective=${model.preference} fallback=$fellBack"
+            "Loading sherpa-onnx model modelId=${model.modelId} configured=${loadConfig.configuredPreference} routed=${loadConfig.routingDecision.effectivePreference} effective=${model.preference} fallback=$fellBack reasons=${loadConfig.routingDecision.summary} constrained=${loadConfig.routingDecision.deviceProfile.constrainedDevice}"
         )
         val recognizer = OnlineRecognizer(assetManager = context.assets, config = model.buildConfig())
         return State.Ready(recognizer = recognizer, model = model)
     }
 
-    private fun shouldReloadForPreference(
+    private fun shouldReloadForLoadConfig(
         context: Context,
-        state: State.Ready
+        state: State.Ready,
+        loadConfig: LoadConfig
     ): Boolean {
-        val loadConfig = currentLoadConfig()
         val preferred =
             SherpaOnnxModelCatalog.resolveBundledModel(
                 assetManager = context.assets,
-                preference = loadConfig.configuredPreference
+                preference = loadConfig.routingDecision.effectivePreference
             ) ?: return false
         return preferred.modelId != state.model.modelId
     }
 
-    private fun currentLoadConfig(): LoadConfig =
-        LoadConfig(configuredPreference = currentPreference())
+    private fun currentLoadConfig(
+        context: Context,
+        request: org.fcitx.fcitx5.android.voice.core.VoiceSessionRequest?
+    ): LoadConfig {
+        val configuredPreference = currentPreference()
+        return LoadConfig(
+            configuredPreference = configuredPreference,
+            routingDecision =
+                SherpaOnnxRuntimeRouting.decide(
+                    context = context,
+                    configuredPreference = configuredPreference,
+                    request = request
+                )
+        )
+    }
 
     private fun currentPreference(): SherpaOnnxModelPreference =
         runCatching {

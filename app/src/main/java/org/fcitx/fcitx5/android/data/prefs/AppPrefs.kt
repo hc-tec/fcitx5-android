@@ -208,7 +208,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         val builtInSherpaModel = enumList(
             R.string.voice_sherpa_model_preference,
             "built_in_sherpa_model",
-            SherpaOnnxModelPreference.MixedZhEn
+            SherpaOnnxModelPreference.Auto
         ) {
             hasVoiceInputEntryEnabled() &&
                 voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer &&

@@ -31,7 +31,7 @@ internal class SherpaOnnxVoiceEngine(
     private var activeSession: SessionState? = null
 
     override suspend fun warmup(force: Boolean): VoiceEngineWarmupResult {
-        val state = SherpaOnnxModelManager.awaitReady(context, force)
+        val state = SherpaOnnxModelManager.awaitReady(context, force, pendingRequest)
         Log.i(LOG_TAG, "warmup force=$force state=${state::class.simpleName}")
         return when (state) {
             is SherpaOnnxModelManager.State.Ready ->
@@ -55,6 +55,11 @@ internal class SherpaOnnxVoiceEngine(
 
     override fun beginSession(request: VoiceSessionRequest) {
         pendingRequest = request
+        SherpaOnnxModelManager.ensureReady(context, request = request) { state ->
+            if (state is SherpaOnnxModelManager.State.Ready) {
+                Log.i(LOG_TAG, "Prepared session model=${state.model.modelId} locale=${request.locale}")
+            }
+        }
         synchronized(sessionLock) {
             releaseSessionLocked()
         }
@@ -83,7 +88,8 @@ internal class SherpaOnnxVoiceEngine(
         localeTag: String,
         final: Boolean
     ): VoiceEngineResult {
-        val state = SherpaOnnxModelManager.awaitReady(context)
+        val request = pendingRequest ?: VoiceSessionRequest(locale = localeTag)
+        val state = SherpaOnnxModelManager.awaitReady(context, request = request)
         require(state is SherpaOnnxModelManager.State.Ready) {
             (state as? SherpaOnnxModelManager.State.Error)?.message ?: "sherpa-onnx engine is unavailable"
         }
@@ -92,7 +98,6 @@ internal class SherpaOnnxVoiceEngine(
         val start = SystemClock.elapsedRealtime()
         val text =
             synchronized(sessionLock) {
-                val request = pendingRequest ?: VoiceSessionRequest(locale = localeTag)
                 val session = ensureSessionLocked(readyState, request)
                 consumeAudioLocked(
                     recognizer = readyState.recognizer,
