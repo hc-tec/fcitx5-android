@@ -25,6 +25,7 @@ import org.fcitx.fcitx5.android.input.keyboard.CustomGestureView.GestureType
 import org.fcitx.fcitx5.android.input.keyboard.CustomGestureView.OnGestureListener
 import org.fcitx.fcitx5.android.input.popup.PopupAction
 import org.fcitx.fcitx5.android.input.popup.PopupActionListener
+import org.fcitx.fcitx5.android.input.voice.VoiceInputUiState
 import splitties.dimensions.dp
 import splitties.views.dsl.constraintlayout.above
 import splitties.views.dsl.constraintlayout.below
@@ -56,6 +57,7 @@ abstract class BaseKeyboard(
     private val popupOnKeyPress by prefs.keyboard.popupOnKeyPress
     private val expandKeypressArea by prefs.keyboard.expandKeypressArea
     private val swipeSymbolDirection by prefs.keyboard.swipeSymbolDirection
+    private val spaceKeyLongPressBehavior by prefs.keyboard.spaceKeyLongPressBehavior
 
     private val spaceSwipeMoveCursor = prefs.keyboard.spaceSwipeMoveCursor
     private val spaceKeys = mutableListOf<KeyView>()
@@ -148,9 +150,18 @@ abstract class BaseKeyboard(
         return when (def.appearance) {
             is KeyDef.Appearance.AltText -> AltTextKeyView(context, theme, def.appearance)
             is KeyDef.Appearance.ImageText -> ImageTextKeyView(context, theme, def.appearance)
-            is KeyDef.Appearance.Text -> TextKeyView(context, theme, def.appearance)
-            is KeyDef.Appearance.Image -> ImageKeyView(context, theme, def.appearance)
+            is KeyDef.Appearance.Text ->
+                when (def) {
+                    is SpaceKey -> SpaceKeyView(context, theme, def.appearance)
+                    else -> TextKeyView(context, theme, def.appearance)
+                }
+            is KeyDef.Appearance.Image ->
+                when (def) {
+                    is LeadingActionKey -> LeadingActionKeyView(context, theme, def.appearance)
+                    else -> ImageKeyView(context, theme, def.appearance)
+                }
         }.apply {
+            var spaceVoiceLongPressActive = false
             soundEffect = when (def) {
                 is SpaceKey -> InputFeedbacks.SoundEffect.SpaceBar
                 is MiniSpaceKey -> InputFeedbacks.SoundEffect.SpaceBar
@@ -214,6 +225,13 @@ abstract class BaseKeyboard(
                     }
                     is KeyDef.Behavior.LongPress -> {
                         setOnLongClickListener { _ ->
+                            if (
+                                def is SpaceKey &&
+                                spaceKeyLongPressBehavior == SpaceLongPressBehavior.VoiceInput &&
+                                it.action is KeyAction.SpaceLongPressAction
+                            ) {
+                                spaceVoiceLongPressActive = true
+                            }
                             onAction(it.action)
                             true
                         }
@@ -343,6 +361,27 @@ abstract class BaseKeyboard(
                             oldOnGestureListener.onGesture(view, event)
                         }
                     }
+                }
+            }
+            if (def is SpaceKey) {
+                val oldOnGestureListener = onGestureListener ?: OnGestureListener.Empty
+                onGestureListener = OnGestureListener { view, event ->
+                    when (event.type) {
+                        GestureType.Down -> {
+                            spaceVoiceLongPressActive = false
+                            false
+                        }
+                        GestureType.Up -> {
+                            if (spaceVoiceLongPressActive) {
+                                spaceVoiceLongPressActive = false
+                                onAction(KeyAction.SpaceLongPressReleaseAction)
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        GestureType.Move -> false
+                    } || oldOnGestureListener.onGesture(view, event)
                 }
             }
         }
@@ -496,6 +535,10 @@ abstract class BaseKeyboard(
     }
 
     open fun onInputMethodUpdate(ime: InputMethodEntry) {
+        // do nothing by default
+    }
+
+    open fun onVoiceInputUiStateUpdate(state: VoiceInputUiState) {
         // do nothing by default
     }
 

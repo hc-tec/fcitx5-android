@@ -437,6 +437,19 @@ android {
         }
     }
 
+    flavorDimensions += "featureSet"
+
+    productFlavors {
+        create("standard") {
+            dimension = "featureSet"
+            buildConfigField("boolean", "WITH_VOICE_INPUT", "false")
+        }
+        create("voice") {
+            dimension = "featureSet"
+            buildConfigField("boolean", "WITH_VOICE_INPUT", "true")
+        }
+    }
+
     buildFeatures {
         viewBinding = true
         resValues = true
@@ -495,16 +508,17 @@ android {
     androidResources {
         @Suppress("UnstableApiUsage")
         generateLocaleConfig = true
+        noCompress += "bin"
     }
 
     sourceSets.named("debug") {
-        assets.srcDir(functionKitDebugAssetsDir.get().asFile)
+        assets.setSrcDirs(listOf(functionKitDebugAssetsDir.get().asFile))
     }
     sourceSets.named("release") {
-        assets.srcDir(functionKitReleaseAssetsDir.get().asFile)
+        assets.setSrcDirs(listOf(functionKitReleaseAssetsDir.get().asFile))
     }
     sourceSets.named("androidTest") {
-        assets.srcDir(functionKitTestAssetsDir.get().asFile)
+        assets.setSrcDirs(listOf(functionKitTestAssetsDir.get().asFile))
     }
 }
 
@@ -533,6 +547,9 @@ dependencies {
     implementation(project(":lib:libime"))
     implementation(project(":lib:fcitx5-chinese-addons"))
     implementation(project(":lib:common"))
+    add("voiceImplementation", project(":lib:voice-core"))
+    add("voiceImplementation", project(":lib:sherpa"))
+    add("voiceImplementation", files("libs/vad-release.aar"))
     implementation(libs.kotlinx.coroutines)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.activity)

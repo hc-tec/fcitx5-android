@@ -56,3 +56,7 @@
 [submodule "plugin/thai/src/main/cpp/fcitx5-libthai"]
 	path = plugin/thai/src/main/cpp/fcitx5-libthai
 	url = https://github.com/fcitx/fcitx5-libthai
+[submodule "third_party/whisper.cpp"]
+	path = third_party/whisper.cpp
+	url = https://github.com/ggml-org/whisper.cpp.git
+	shallow = true

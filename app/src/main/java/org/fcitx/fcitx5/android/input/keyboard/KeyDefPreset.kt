@@ -93,7 +93,7 @@ class AlphabetDigitKey(
     )
 }
 
-class CapsKey : KeyDef(
+class LeadingActionKey : KeyDef(
     Appearance.Image(
         src = R.drawable.ic_capslock_none,
         viewId = R.id.button_caps,

@@ -17,6 +17,7 @@ import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
 import androidx.annotation.ColorInt
@@ -31,14 +32,20 @@ import org.fcitx.fcitx5.android.data.theme.ThemePrefs.PunctuationPosition
 import org.fcitx.fcitx5.android.input.AutoScaleTextView
 import org.fcitx.fcitx5.android.input.keyboard.KeyDef.Appearance.Border
 import org.fcitx.fcitx5.android.input.keyboard.KeyDef.Appearance.Variant
+import org.fcitx.fcitx5.android.input.voice.VoiceInputUiState
 import org.fcitx.fcitx5.android.utils.styledFloat
 import org.fcitx.fcitx5.android.utils.unset
 import splitties.dimensions.dp
+import splitties.views.dsl.constraintlayout.centerVertically
 import splitties.views.dsl.constraintlayout.centerHorizontally
 import splitties.views.dsl.constraintlayout.centerInParent
 import splitties.views.dsl.constraintlayout.constraintLayout
+import splitties.views.dsl.constraintlayout.endOfParent
+import splitties.views.dsl.constraintlayout.endToStartOf
 import splitties.views.dsl.constraintlayout.lParams
 import splitties.views.dsl.constraintlayout.parentId
+import splitties.views.dsl.constraintlayout.startOfParent
+import splitties.views.dsl.constraintlayout.startToEndOf
 import splitties.views.dsl.core.add
 import splitties.views.dsl.core.imageView
 import splitties.views.dsl.core.lParams
@@ -376,6 +383,121 @@ class AltTextKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.AltText)
 }
 
 @SuppressLint("ViewConstructor")
+class LeadingActionKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Image) :
+    KeyView(ctx, theme, def) {
+    val img = imageView { configure(theme, def.src, def.variant) }
+
+    private val labelView = view(::AutoScaleTextView) {
+        isClickable = false
+        isFocusable = false
+        background = null
+        gravity = Gravity.CENTER
+        scaleMode = AutoScaleTextView.Mode.Horizontal
+        visibility = View.GONE
+        setTypeface(typeface, Typeface.BOLD)
+        setTextColor(theme.altKeyTextColor)
+    }
+
+    init {
+        appearanceView.apply {
+            add(img, lParams(wrapContent, wrapContent) {
+                centerInParent()
+            })
+            add(labelView, lParams(matchParent, wrapContent) {
+                centerInParent()
+            })
+        }
+    }
+
+    fun showIcon(
+        @DrawableRes src: Int,
+        variant: Variant = def.variant
+    ) {
+        labelView.visibility = View.GONE
+        img.visibility = View.VISIBLE
+        img.configure(theme, src, variant)
+    }
+
+    fun showText(
+        text: String,
+        textSizeDp: Float,
+        variant: Variant = def.variant
+    ) {
+        img.visibility = View.GONE
+        labelView.visibility = View.VISIBLE
+        labelView.text = text
+        labelView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, textSizeDp)
+        labelView.setTextColor(theme.colorForVariant(variant))
+    }
+}
+
+@SuppressLint("ViewConstructor")
+class SpaceKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Text) :
+    TextKeyView(ctx, theme, def) {
+    private val voiceIndicator = imageView {
+        isClickable = false
+        isFocusable = false
+        visibility = View.GONE
+        configure(theme, R.drawable.ic_baseline_keyboard_voice_24, Variant.AltForeground)
+    }
+
+    init {
+        mainText.gravity = Gravity.CENTER
+        mainText.scaleMode = AutoScaleTextView.Mode.Horizontal
+        mainText.updateLayoutParams<ConstraintLayout.LayoutParams> {
+            width = 0
+            startOfParent()
+            endOfParent()
+            topToTop = parentId
+            bottomToBottom = parentId
+        }
+        appearanceView.add(
+            voiceIndicator,
+            ConstraintLayout.LayoutParams(wrapContent, wrapContent).apply {
+                startToStart = parentId
+                topToTop = parentId
+                bottomToBottom = parentId
+            }
+        )
+        voiceIndicator.updateLayoutParams<ConstraintLayout.LayoutParams> {
+            marginStart = hMargin + dp(12)
+        }
+    }
+
+    fun render(
+        idleLabel: String,
+        showVoiceIndicator: Boolean,
+        voiceUiState: VoiceInputUiState
+    ) {
+        val indicatorVisible = showVoiceIndicator
+
+        mainText.text = idleLabel
+        mainText.setTextColor(theme.colorForVariant(Variant.Normal))
+        voiceIndicator.configure(
+            theme,
+            R.drawable.ic_baseline_keyboard_voice_24,
+            if (voiceUiState.isIdle) Variant.AltForeground else Variant.Accent
+        )
+        voiceIndicator.visibility = if (indicatorVisible) View.VISIBLE else View.GONE
+        mainText.updateLayoutParams<ConstraintLayout.LayoutParams> {
+            width = 0
+            if (indicatorVisible) {
+                startToEndOf(voiceIndicator)
+                marginStart = dp(6)
+            } else {
+                startToEnd = unset
+                startOfParent()
+                marginStart = 0
+            }
+            endOfParent()
+            marginEnd = hMargin + dp(12)
+            topToTop = parentId
+            bottomToBottom = parentId
+        }
+    }
+}
+
+@SuppressLint("ViewConstructor")
 class ImageKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Image) :
     KeyView(ctx, theme, def) {
     val img = imageView { configure(theme, def.src, def.variant) }
@@ -392,15 +514,16 @@ class ImageKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.Image) :
 private fun ImageView.configure(theme: Theme, @DrawableRes src: Int, variant: Variant) = apply {
     isClickable = false
     isFocusable = false
-    imageTintList = ColorStateList.valueOf(
-        when (variant) {
-            Variant.Normal -> theme.keyTextColor
-            Variant.AltForeground, Variant.Alternative -> theme.altKeyTextColor
-            Variant.Accent -> theme.accentKeyTextColor
-        }
-    )
+    imageTintList = ColorStateList.valueOf(theme.colorForVariant(variant))
     imageResource = src
 }
+
+private fun Theme.colorForVariant(variant: Variant): Int =
+    when (variant) {
+        Variant.Normal -> keyTextColor
+        Variant.AltForeground, Variant.Alternative -> altKeyTextColor
+        Variant.Accent -> accentKeyTextColor
+    }
 
 @SuppressLint("ViewConstructor")
 class ImageTextKeyView(ctx: Context, theme: Theme, def: KeyDef.Appearance.ImageText) :

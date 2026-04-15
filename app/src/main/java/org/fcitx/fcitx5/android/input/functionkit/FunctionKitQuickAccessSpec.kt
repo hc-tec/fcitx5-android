@@ -48,7 +48,10 @@ internal object FunctionKitQuickAccessSpec {
 
     fun buildToolbarSlots(functionKitIds: Collection<String>): List<ToolbarSlot> =
         buildList {
-            val primary = setOf(ToolbarShortcut.Bindings, ToolbarShortcut.TaskCenter)
+            // Keep the most frequently used shortcuts closest to the left edge.
+            // User expectation: Clipboard should be immediately after Bindings + Task Center,
+            // and NOT pushed behind dynamic kit icons.
+            val primary = setOf(ToolbarShortcut.Bindings, ToolbarShortcut.TaskCenter, ToolbarShortcut.Clipboard)
             addAll(fixedToolbarOrder.filter { it in primary }.map(ToolbarSlot::Fixed))
             addAll(
                 functionKitIds

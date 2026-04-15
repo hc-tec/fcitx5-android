@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import org.fcitx.fcitx5.android.core.FcitxAPI
+import org.fcitx.fcitx5.android.data.InputFeedbacks
 import org.fcitx.fcitx5.android.daemon.launchOnReady
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.input.broadcast.PreeditEmptyStateComponent
@@ -26,13 +27,18 @@ import org.fcitx.fcitx5.android.input.keyboard.KeyAction.DeleteSelectionAction
 import org.fcitx.fcitx5.android.input.keyboard.KeyAction.FcitxKeyAction
 import org.fcitx.fcitx5.android.input.keyboard.KeyAction.LangSwitchAction
 import org.fcitx.fcitx5.android.input.keyboard.KeyAction.MoveSelectionAction
+import org.fcitx.fcitx5.android.input.keyboard.KeyAction.PinyinSegmentAction
 import org.fcitx.fcitx5.android.input.keyboard.KeyAction.PickerSwitchAction
 import org.fcitx.fcitx5.android.input.keyboard.KeyAction.QuickPhraseAction
 import org.fcitx.fcitx5.android.input.keyboard.KeyAction.ShowInputMethodPickerAction
 import org.fcitx.fcitx5.android.input.keyboard.KeyAction.SpaceLongPressAction
+import org.fcitx.fcitx5.android.input.keyboard.KeyAction.SpaceLongPressReleaseAction
 import org.fcitx.fcitx5.android.input.keyboard.KeyAction.SymAction
 import org.fcitx.fcitx5.android.input.keyboard.KeyAction.UnicodeAction
 import org.fcitx.fcitx5.android.input.picker.PickerWindow
+import org.fcitx.fcitx5.android.input.voice.VoiceInlineSessionController
+import org.fcitx.fcitx5.android.input.voice.VoiceInputLauncher
+import org.fcitx.fcitx5.android.input.voice.VoiceInputMode
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.switchToNextIME
 import org.mechdancer.dependency.Dependent
@@ -54,6 +60,7 @@ class CommonKeyActionListener :
     private val preeditState: PreeditEmptyStateComponent by manager.must()
     private val horizontalCandidate: HorizontalCandidateComponent by manager.must()
     private val windowManager: InputWindowManager by manager.must()
+    private val inlineVoiceController: VoiceInlineSessionController by manager.must()
 
     private var lastPickerType by AppPrefs.getInstance().internal.lastPickerType
 
@@ -99,6 +106,13 @@ class CommonKeyActionListener :
                 is CommitAction -> service.postFcitxJob {
                     commitAndReset()
                     service.lifecycleScope.launch { service.commitText(action.text) }
+                }
+                is PinyinSegmentAction -> service.postFcitxJob {
+                    val hasComposition =
+                        clientPreeditCached.isNotEmpty() || inputPanelCached.preedit.isNotEmpty()
+                    if (canTriggerPinyinSegmentation(inputMethodEntryCached, hasComposition)) {
+                        sendKey("'")
+                    }
                 }
                 is QuickPhraseAction -> service.postFcitxJob {
                     commitAndReset()
@@ -180,6 +194,33 @@ class CommonKeyActionListener :
                             toggleIme()
                         }
                         SpaceLongPressBehavior.ShowPicker -> showInputMethodPicker()
+                        SpaceLongPressBehavior.VoiceInput ->
+                            ContextCompat.getMainExecutor(service).execute {
+                                when (kbdPrefs.voiceInputMode.getValue()) {
+                                    VoiceInputMode.BuiltInSpeechRecognizer -> {
+                                        if (inlineVoiceController.startHoldToTalk()) {
+                                            InputFeedbacks.hapticFeedback(windowManager.view, longPress = true)
+                                        }
+                                    }
+                                    VoiceInputMode.SystemVoiceIme ->
+                                        VoiceInputLauncher.launchPreferredVoiceInput(
+                                            service = service,
+                                            windowManager = windowManager,
+                                            startListeningImmediately = true
+                                        )
+                                }
+                            }
+                    }
+                }
+                is SpaceLongPressReleaseAction -> {
+                    if (
+                        spaceKeyLongPressBehavior == SpaceLongPressBehavior.VoiceInput &&
+                        kbdPrefs.voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
+                    ) {
+                        ContextCompat.getMainExecutor(service).execute {
+                            InputFeedbacks.hapticFeedback(windowManager.view, keyUp = true)
+                            inlineVoiceController.stopHoldToTalk()
+                        }
                     }
                 }
                 else -> {}

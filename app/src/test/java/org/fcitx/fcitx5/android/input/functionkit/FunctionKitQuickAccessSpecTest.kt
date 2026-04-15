@@ -15,9 +15,9 @@ class FunctionKitQuickAccessSpecTest {
             listOf(
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Bindings),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.TaskCenter),
+                FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard),
                 FunctionKitQuickAccessSpec.ToolbarSlot.FunctionKit("chat-auto-reply"),
                 FunctionKitQuickAccessSpec.ToolbarSlot.FunctionKit("quick-phrases"),
-                FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Clipboard),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.CursorMove),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Undo),
                 FunctionKitQuickAccessSpec.ToolbarSlot.Fixed(FunctionKitQuickAccessSpec.ToolbarShortcut.Redo),

@@ -41,6 +41,9 @@ import org.fcitx.fcitx5.android.input.preedit.PreeditComponent
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingTrigger
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitBindingsWindow
 import org.fcitx.fcitx5.android.input.functionkit.FunctionKitWindowPool
+import org.fcitx.fcitx5.android.input.voice.VoiceHoldBubbleComponent
+import org.fcitx.fcitx5.android.input.voice.VoiceCorrectionLearningController
+import org.fcitx.fcitx5.android.input.voice.VoiceInlineSessionController
 import org.fcitx.fcitx5.android.input.wm.ImeWindowResumeManager
 import org.fcitx.fcitx5.android.input.wm.InputWindowManager
 import org.fcitx.fcitx5.android.utils.unset
@@ -104,6 +107,9 @@ class InputView(
     private val returnKeyDrawable = ReturnKeyDrawableComponent()
     private val preeditEmptyState = PreeditEmptyStateComponent()
     private val preedit = PreeditComponent()
+    private val voiceHoldBubble = VoiceHoldBubbleComponent()
+    private val voiceCorrectionLearningController = VoiceCorrectionLearningController()
+    private val inlineVoiceController = VoiceInlineSessionController()
     private val commonKeyActionListener = CommonKeyActionListener()
     private val windowManager = InputWindowManager()
     private val kawaiiBar = KawaiiBarComponent()
@@ -126,6 +132,9 @@ class InputView(
         scope += returnKeyDrawable
         scope += preeditEmptyState
         scope += preedit
+        scope += voiceHoldBubble
+        scope += voiceCorrectionLearningController
+        scope += inlineVoiceController
         scope += commonKeyActionListener
         scope += windowManager
         scope += kawaiiBar
@@ -240,6 +249,11 @@ class InputView(
                 /**
                  * set start and end constrain in [updateKeyboardSize]
                  */
+            })
+            add(voiceHoldBubble.view, lParams(wrapContent, wrapContent) {
+                below(kawaiiBar.view)
+                centerHorizontally()
+                topMargin = dp(10)
             })
             add(bottomPaddingSpace, lParams {
                 startToEndOf(leftPaddingSpace)
@@ -394,6 +408,8 @@ class InputView(
 
     override fun onDetachedFromWindow() {
         keyboardPrefs.unregisterOnChangeListener(onKeyboardSizeChangeListener)
+        voiceCorrectionLearningController.shutdown()
+        inlineVoiceController.shutdown()
         // clear DynamicScope, implies that InputView should not be attached again after detached.
         scope.clear()
         super.onDetachedFromWindow()
