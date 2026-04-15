@@ -10,6 +10,7 @@ import androidx.annotation.Keep
 import androidx.annotation.RequiresApi
 import androidx.core.content.edit
 import androidx.preference.PreferenceManager
+import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.R
 import org.fcitx.fcitx5.android.data.InputFeedbacks.InputFeedbackMode
 import org.fcitx.fcitx5.android.input.candidates.expanded.ExpandedCandidateStyle
@@ -66,6 +67,24 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
     }
 
     inner class Keyboard : ManagedPreferenceCategory(R.string.virtual_keyboard, sharedPreferences) {
+        private val voiceFeatureEnabled = BuildConfig.WITH_VOICE_INPUT
+        private val standardSpaceLongPressFallback = SpaceLongPressBehavior.ShowPicker
+
+        private inline fun <reified T> hiddenEnumPreference(
+            key: String,
+            defaultValue: T
+        ): ManagedPreference.PStringLike<T> where T : Enum<T>, T : ManagedPreferenceEnum =
+            ManagedPreference.PStringLike(
+                sharedPreferences,
+                key,
+                defaultValue,
+                object : ManagedPreference.StringLikeCodec<T> {
+                    override fun decode(raw: String): T = enumValueOf(raw)
+                }
+            ).apply {
+                register()
+            }
+
         val hapticOnKeyPress =
             enumList(
                 R.string.button_haptic_feedback,
@@ -164,23 +183,51 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         val spaceKeyLongPressBehavior = enumList(
             R.string.space_long_press_behavior,
             "space_long_press_behavior",
-            SpaceLongPressBehavior.VoiceInput
+            if (voiceFeatureEnabled) {
+                SpaceLongPressBehavior.VoiceInput
+            } else {
+                standardSpaceLongPressFallback
+            },
+            entryValues =
+                if (voiceFeatureEnabled) {
+                    enumValues<SpaceLongPressBehavior>().toList()
+                } else {
+                    enumValues<SpaceLongPressBehavior>().filterNot {
+                        it == SpaceLongPressBehavior.VoiceInput
+                    }
+                }
         )
 
         private fun hasVoiceInputEntryEnabled(): Boolean =
-            showVoiceInputButton.getValue() ||
-                spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.VoiceInput
+            voiceFeatureEnabled &&
+                (
+                    showVoiceInputButton.getValue() ||
+                        spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.VoiceInput
+                    )
 
-        val voiceInputMode = enumList(
-            R.string.voice_input_mode,
-            "voice_input_mode",
-            VoiceInputMode.BuiltInSpeechRecognizer
-        ) { hasVoiceInputEntryEnabled() }
-        val preferredVoiceInput = voiceInputPreference(
-            R.string.preferred_voice_input, "preferred_voice_input", ""
-        ) {
-            hasVoiceInputEntryEnabled() && voiceInputMode.getValue() == VoiceInputMode.SystemVoiceIme
-        }
+        val voiceInputMode =
+            if (voiceFeatureEnabled) {
+                enumList(
+                    R.string.voice_input_mode,
+                    "voice_input_mode",
+                    VoiceInputMode.BuiltInSpeechRecognizer
+                ) { hasVoiceInputEntryEnabled() }
+            } else {
+                hiddenEnumPreference("voice_input_mode", VoiceInputMode.BuiltInSpeechRecognizer)
+            }
+        val preferredVoiceInput =
+            if (voiceFeatureEnabled) {
+                voiceInputPreference(
+                    R.string.preferred_voice_input, "preferred_voice_input", ""
+                ) {
+                    hasVoiceInputEntryEnabled() &&
+                        voiceInputMode.getValue() == VoiceInputMode.SystemVoiceIme
+                }
+            } else {
+                ManagedPreference.PString(sharedPreferences, "preferred_voice_input", "").apply {
+                    register()
+                }
+            }
         // Keep the legacy preference key for migration compatibility so old installs that
         // previously stored `WhisperCpp` can be coerced back to Sherpa without crashing.
         val builtInVoiceEngine =
@@ -194,14 +241,19 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             ).apply {
                 register()
             }
-        val builtInSherpaModel = enumList(
-            R.string.voice_sherpa_model_preference,
-            "built_in_sherpa_model",
-            SherpaOnnxModelPreference.Auto
-        ) {
-            hasVoiceInputEntryEnabled() &&
-                voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
-        }
+        val builtInSherpaModel =
+            if (voiceFeatureEnabled) {
+                enumList(
+                    R.string.voice_sherpa_model_preference,
+                    "built_in_sherpa_model",
+                    SherpaOnnxModelPreference.Auto
+                ) {
+                    hasVoiceInputEntryEnabled() &&
+                        voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
+                }
+            } else {
+                hiddenEnumPreference("built_in_sherpa_model", SherpaOnnxModelPreference.Auto)
+            }
 
         val expandKeypressArea =
             switch(R.string.expand_keypress_area, "expand_keypress_area", false)
@@ -713,6 +765,15 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             return
         }
 
+        if (!BuildConfig.WITH_VOICE_INPUT) {
+            if (keyboard.spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.VoiceInput) {
+                keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.ShowPicker)
+            }
+            keyboard.showVoiceInputButton.setValue(false)
+            internal.migratedVoiceSpaceLongPressDefaultOn.setValue(true)
+            return
+        }
+
         if (!sharedPreferences.contains("space_long_press_behavior")) {
             keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.VoiceInput)
         }
@@ -722,6 +783,14 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
 
     private fun migrateVoiceSpaceLongPressBackfillOn() {
         if (internal.migratedVoiceSpaceLongPressBackfillOn.getValue()) {
+            return
+        }
+
+        if (!BuildConfig.WITH_VOICE_INPUT) {
+            if (keyboard.spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.VoiceInput) {
+                keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.ShowPicker)
+            }
+            internal.migratedVoiceSpaceLongPressBackfillOn.setValue(true)
             return
         }
 
@@ -740,6 +809,15 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             return
         }
 
+        if (!BuildConfig.WITH_VOICE_INPUT) {
+            keyboard.showVoiceInputButton.setValue(false)
+            if (keyboard.spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.VoiceInput) {
+                keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.ShowPicker)
+            }
+            internal.migratedVoiceToolbarButtonRetired.setValue(true)
+            return
+        }
+
         if (keyboard.showVoiceInputButton.getValue()) {
             if (keyboard.spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.None) {
                 keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.VoiceInput)
@@ -755,7 +833,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             return
         }
 
-        if (keyboard.builtInVoiceEngine.getValue() != BuiltInVoiceEngine.SherpaOnnx) {
+        if (BuildConfig.WITH_VOICE_INPUT && keyboard.builtInVoiceEngine.getValue() != BuiltInVoiceEngine.SherpaOnnx) {
             keyboard.builtInVoiceEngine.setValue(BuiltInVoiceEngine.SherpaOnnx)
         }
 

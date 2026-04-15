@@ -13,10 +13,8 @@
         tools:node="remove" />
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-sdk tools:overrideLibrary="com.konovalov.vad" />
 
     <!-- remove intent queries merged from library manifest (namely Android-Image-Cropper) -->
     <queries tools:node="removeAll" />
@@ -70,14 +68,6 @@
         <activity
             android:name=".ui.main.CropImageActivity"
             android:exported="false" />
-        <activity
-            android:name=".input.voice.VoicePermissionActivity"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:finishOnTaskLaunch="true"
-            android:launchMode="singleTask"
-            android:taskAffinity="${applicationId}.voice.permission"
-            android:theme="@style/Theme.DialogTheme" />
         <activity
             android:name=".input.functionkit.FunctionKitFilePickerActivity"
             android:excludeFromRecents="true"

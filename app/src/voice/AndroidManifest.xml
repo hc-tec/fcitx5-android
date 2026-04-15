@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-sdk tools:overrideLibrary="com.konovalov.vad" />
+
+    <application>
+        <activity
+            android:name=".input.voice.VoicePermissionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:finishOnTaskLaunch="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="${applicationId}.voice.permission"
+            android:theme="@style/Theme.DialogTheme" />
+    </application>
+
+</manifest>
