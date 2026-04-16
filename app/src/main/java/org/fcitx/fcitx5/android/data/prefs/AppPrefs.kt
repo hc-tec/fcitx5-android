@@ -49,6 +49,8 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             bool("migrated_voice_toolbar_button_retired", false)
         val migratedWhisperRetired =
             bool("migrated_whisper_retired", false)
+        val lastKnownVoiceFeatureEnabled =
+            bool("last_known_voice_feature_enabled", BuildConfig.WITH_VOICE_INPUT)
     }
 
     inner class Advanced : ManagedPreferenceCategory(R.string.advanced, sharedPreferences) {
@@ -746,6 +748,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         migrateVoiceSpaceLongPressBackfillOn()
         migrateVoiceToolbarButtonRetired()
         migrateWhisperRetired()
+        migrateVoiceFeatureAvailabilityChange()
     }
 
     private fun migrateFunctionKitToolbarShortcutDefaultOn() {
@@ -838,6 +841,35 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         }
 
         internal.migratedWhisperRetired.setValue(true)
+    }
+
+    private fun migrateVoiceFeatureAvailabilityChange() {
+        val previousVoiceFeatureEnabled = internal.lastKnownVoiceFeatureEnabled.getValue()
+        val currentVoiceFeatureEnabled = BuildConfig.WITH_VOICE_INPUT
+        if (previousVoiceFeatureEnabled == currentVoiceFeatureEnabled) {
+            return
+        }
+
+        if (currentVoiceFeatureEnabled) {
+            when (keyboard.spaceKeyLongPressBehavior.getValue()) {
+                SpaceLongPressBehavior.None,
+                SpaceLongPressBehavior.ShowPicker -> {
+                    keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.VoiceInput)
+                }
+                else -> {}
+            }
+            keyboard.showVoiceInputButton.setValue(false)
+            if (keyboard.builtInVoiceEngine.getValue() != BuiltInVoiceEngine.SherpaOnnx) {
+                keyboard.builtInVoiceEngine.setValue(BuiltInVoiceEngine.SherpaOnnx)
+            }
+        } else {
+            keyboard.showVoiceInputButton.setValue(false)
+            if (keyboard.spaceKeyLongPressBehavior.getValue() == SpaceLongPressBehavior.VoiceInput) {
+                keyboard.spaceKeyLongPressBehavior.setValue(SpaceLongPressBehavior.ShowPicker)
+            }
+        }
+
+        internal.lastKnownVoiceFeatureEnabled.setValue(currentVoiceFeatureEnabled)
     }
 
     companion object {
