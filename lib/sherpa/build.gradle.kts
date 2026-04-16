@@ -4,6 +4,10 @@ plugins {
 
 android {
     namespace = "org.fcitx.fcitx5.android.lib.sherpa"
+
+    defaultConfig {
+        consumerProguardFiles("proguard-rules.pro")
+    }
 }
 
 dependencies {
