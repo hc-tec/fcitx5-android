@@ -27,7 +27,6 @@ internal data class SherpaModelDescriptor(
 internal object SherpaOnnxModelCatalog {
     private const val MODEL_ASSET_ROOT = "models"
     private const val MIXED_ZH_EN_MODEL_DIR = "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20"
-    private const val FAST_CTC_MODEL_DIR = "sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01"
     private const val HOTWORD_MODEL_DIR = "sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23"
 
     private val mixedZhEnModel =
@@ -61,25 +60,6 @@ internal object SherpaOnnxModelCatalog {
             ).normalized()
         }
 
-    private val fastCtcModel =
-        SherpaModelDescriptor(
-            preference = SherpaOnnxModelPreference.FastCtc,
-            modelId = FAST_CTC_MODEL_DIR,
-            assetDir = "$MODEL_ASSET_ROOT/$FAST_CTC_MODEL_DIR",
-            requiredAssets = listOf("$MODEL_ASSET_ROOT/$FAST_CTC_MODEL_DIR/model.int8.onnx", "$MODEL_ASSET_ROOT/$FAST_CTC_MODEL_DIR/tokens.txt"),
-            supportsHotwords = false
-        ) {
-            OnlineRecognizerConfig(
-                featConfig = getFeatureConfig(sampleRate = WhisperAudioRecorder.SAMPLE_RATE, featureDim = 80),
-                modelConfig = prefixModelConfig(getModelConfig(type = 15)!!, MODEL_ASSET_ROOT),
-                ctcFstDecoderConfig = OnlineCtcFstDecoderConfig(),
-                endpointConfig = getEndpointConfig(),
-                enableEndpoint = true,
-                decodingMethod = "greedy_search",
-                maxActivePaths = 4
-            ).normalized()
-        }
-
     private val hotwordEnhancedModel =
         SherpaModelDescriptor(
             preference = SherpaOnnxModelPreference.HotwordEnhanced,
@@ -109,7 +89,7 @@ internal object SherpaOnnxModelCatalog {
             ).normalized()
         }
 
-    private val descriptors = listOf(mixedZhEnModel, hotwordEnhancedModel, fastCtcModel)
+    private val descriptors = listOf(mixedZhEnModel, hotwordEnhancedModel)
 
     val defaultPreference: SherpaOnnxModelPreference = SherpaOnnxModelPreference.Auto
 
@@ -144,31 +124,30 @@ internal object SherpaOnnxModelCatalog {
             SherpaOnnxModelPreference.Auto ->
                 listOf(
                     SherpaOnnxModelPreference.MixedZhEn,
-                    SherpaOnnxModelPreference.HotwordEnhanced,
-                    SherpaOnnxModelPreference.FastCtc
+                    SherpaOnnxModelPreference.HotwordEnhanced
                 )
             SherpaOnnxModelPreference.MixedZhEn ->
                 listOf(
                     SherpaOnnxModelPreference.MixedZhEn,
-                    SherpaOnnxModelPreference.HotwordEnhanced,
-                    SherpaOnnxModelPreference.FastCtc
+                    SherpaOnnxModelPreference.HotwordEnhanced
                 )
             SherpaOnnxModelPreference.HotwordEnhanced ->
                 listOf(
                     SherpaOnnxModelPreference.HotwordEnhanced,
-                    SherpaOnnxModelPreference.MixedZhEn,
-                    SherpaOnnxModelPreference.FastCtc
+                    SherpaOnnxModelPreference.MixedZhEn
                 )
             SherpaOnnxModelPreference.FastCtc ->
                 listOf(
-                    SherpaOnnxModelPreference.FastCtc,
-                    SherpaOnnxModelPreference.HotwordEnhanced,
-                    SherpaOnnxModelPreference.MixedZhEn
+                    SherpaOnnxModelPreference.MixedZhEn,
+                    SherpaOnnxModelPreference.HotwordEnhanced
                 )
         }
 
     private fun concretePreference(preference: SherpaOnnxModelPreference): SherpaOnnxModelPreference =
-        if (preference == SherpaOnnxModelPreference.Auto) {
+        if (
+            preference == SherpaOnnxModelPreference.Auto ||
+            preference == SherpaOnnxModelPreference.FastCtc
+        ) {
             SherpaOnnxModelPreference.MixedZhEn
         } else {
             preference

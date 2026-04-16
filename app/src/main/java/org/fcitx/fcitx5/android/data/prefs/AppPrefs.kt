@@ -49,6 +49,8 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
             bool("migrated_voice_toolbar_button_retired", false)
         val migratedWhisperRetired =
             bool("migrated_whisper_retired", false)
+        val migratedFastCtcRetired =
+            bool("migrated_fast_ctc_retired", false)
         val lastKnownVoiceFeatureEnabled =
             bool("last_known_voice_feature_enabled", false)
     }
@@ -248,7 +250,11 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
                 enumList(
                     R.string.voice_sherpa_model_preference,
                     "built_in_sherpa_model",
-                    SherpaOnnxModelPreference.Auto
+                    SherpaOnnxModelPreference.Auto,
+                    entryValues =
+                        enumValues<SherpaOnnxModelPreference>().filterNot {
+                            it == SherpaOnnxModelPreference.FastCtc
+                        }
                 ) {
                     hasVoiceInputEntryEnabled() &&
                         voiceInputMode.getValue() == VoiceInputMode.BuiltInSpeechRecognizer
@@ -748,6 +754,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         migrateVoiceSpaceLongPressBackfillOn()
         migrateVoiceToolbarButtonRetired()
         migrateWhisperRetired()
+        migrateFastCtcRetired()
         migrateVoiceFeatureAvailabilityChange()
     }
 
@@ -841,6 +848,18 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         }
 
         internal.migratedWhisperRetired.setValue(true)
+    }
+
+    private fun migrateFastCtcRetired() {
+        if (internal.migratedFastCtcRetired.getValue()) {
+            return
+        }
+
+        if (keyboard.builtInSherpaModel.getValue() == SherpaOnnxModelPreference.FastCtc) {
+            keyboard.builtInSherpaModel.setValue(SherpaOnnxModelPreference.Auto)
+        }
+
+        internal.migratedFastCtcRetired.setValue(true)
     }
 
     private fun migrateVoiceFeatureAvailabilityChange() {

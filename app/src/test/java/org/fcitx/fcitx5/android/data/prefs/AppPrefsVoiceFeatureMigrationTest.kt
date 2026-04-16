@@ -7,6 +7,7 @@ package org.fcitx.fcitx5.android.data.prefs
 import android.content.SharedPreferences
 import org.fcitx.fcitx5.android.BuildConfig
 import org.fcitx.fcitx5.android.input.keyboard.SpaceLongPressBehavior
+import org.fcitx.fcitx5.android.input.voice.SherpaOnnxModelPreference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assume.assumeTrue
@@ -55,6 +56,23 @@ class AppPrefsVoiceFeatureMigrationTest {
             prefs.keyboard.spaceKeyLongPressBehavior.getValue()
         )
         assertEquals(true, prefs.internal.lastKnownVoiceFeatureEnabled.getValue())
+    }
+
+    @Test
+    fun `voice build retires fast ctc preference to auto`() {
+        assumeTrue(BuildConfig.WITH_VOICE_INPUT)
+
+        val prefs =
+            newPrefs(
+                "built_in_sherpa_model" to SherpaOnnxModelPreference.FastCtc.name
+            )
+
+        applyMigrations(prefs)
+
+        assertEquals(
+            SherpaOnnxModelPreference.Auto,
+            prefs.keyboard.builtInSherpaModel.getValue()
+        )
     }
 
     private fun newPrefs(vararg seedEntries: Pair<String, Any?>): AppPrefs {

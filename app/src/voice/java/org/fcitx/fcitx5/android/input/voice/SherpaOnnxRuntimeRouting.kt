@@ -50,7 +50,10 @@ internal object SherpaOnnxRuntimeRouting {
         request: VoiceSessionRequest?,
         deviceProfile: DeviceProfile
     ): SherpaRoutingDecision {
-        if (configuredPreference != SherpaOnnxModelPreference.Auto) {
+        if (
+            configuredPreference != SherpaOnnxModelPreference.Auto &&
+            configuredPreference != SherpaOnnxModelPreference.FastCtc
+        ) {
             return SherpaRoutingDecision(
                 configuredPreference = configuredPreference,
                 effectivePreference = configuredPreference,
@@ -62,6 +65,9 @@ internal object SherpaOnnxRuntimeRouting {
         val session = profileSession(request)
         val reasons = mutableListOf<String>()
         reasons += "auto profile"
+        if (configuredPreference == SherpaOnnxModelPreference.FastCtc) {
+            reasons += "retired fast ctc profile coerced to auto"
+        }
 
         val effectivePreference =
             when {
@@ -72,10 +78,6 @@ internal object SherpaOnnxRuntimeRouting {
                 session.prefersChineseHotwordBias -> {
                     reasons += "strong Chinese hotword context"
                     SherpaOnnxModelPreference.HotwordEnhanced
-                }
-                deviceProfile.constrainedDevice -> {
-                    reasons += "latency-first constrained device"
-                    SherpaOnnxModelPreference.FastCtc
                 }
                 else -> {
                     reasons += "balanced default bilingual route"

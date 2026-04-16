@@ -39,7 +39,7 @@ class SherpaOnnxRuntimeRoutingTest {
     }
 
     @Test
-    fun `auto route prefers fast ctc on constrained device without context pressure`() {
+    fun `auto route keeps bilingual model on constrained device without context pressure`() {
         val decision =
             SherpaOnnxRuntimeRouting.decide(
                 configuredPreference = SherpaOnnxModelPreference.Auto,
@@ -54,7 +54,7 @@ class SherpaOnnxRuntimeRoutingTest {
                     )
             )
 
-        assertEquals(SherpaOnnxModelPreference.FastCtc, decision.effectivePreference)
+        assertEquals(SherpaOnnxModelPreference.MixedZhEn, decision.effectivePreference)
     }
 
     @Test
@@ -71,6 +71,18 @@ class SherpaOnnxRuntimeRoutingTest {
             )
 
         assertEquals(SherpaOnnxModelPreference.HotwordEnhanced, decision.effectivePreference)
+    }
+
+    @Test
+    fun `legacy fast ctc preference is coerced back to auto routing`() {
+        val decision =
+            SherpaOnnxRuntimeRouting.decide(
+                configuredPreference = SherpaOnnxModelPreference.FastCtc,
+                request = VoiceSessionRequest(locale = "zh-CN"),
+                deviceProfile = unconstrainedDevice()
+            )
+
+        assertEquals(SherpaOnnxModelPreference.MixedZhEn, decision.effectivePreference)
     }
 
     private fun unconstrainedDevice(): SherpaOnnxRuntimeRouting.DeviceProfile =

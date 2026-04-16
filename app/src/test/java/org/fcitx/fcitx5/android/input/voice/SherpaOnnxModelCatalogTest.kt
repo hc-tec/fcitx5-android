@@ -1,13 +1,12 @@
 package org.fcitx.fcitx5.android.input.voice
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SherpaOnnxModelCatalogTest {
     @Test
-    fun `auto preference falls back in mixed hotword fast order`() {
+    fun `auto preference falls back in mixed hotword order`() {
         val descriptor =
             SherpaOnnxModelCatalog.resolveAvailableModel(
                 availableAssets =
@@ -15,9 +14,7 @@ class SherpaOnnxModelCatalogTest {
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/encoder-epoch-99-avg-1.int8.onnx",
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/decoder-epoch-99-avg-1.onnx",
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/joiner-epoch-99-avg-1.int8.onnx",
-                        "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/tokens.txt",
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/model.int8.onnx",
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/tokens.txt"
+                        "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/tokens.txt"
                     ),
                 preference = SherpaOnnxModelPreference.Auto
             )
@@ -39,9 +36,7 @@ class SherpaOnnxModelCatalogTest {
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/encoder-epoch-99-avg-1.int8.onnx",
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/decoder-epoch-99-avg-1.onnx",
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/joiner-epoch-99-avg-1.int8.onnx",
-                        "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/tokens.txt",
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/model.int8.onnx",
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/tokens.txt"
+                        "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/tokens.txt"
                     ),
                 preference = SherpaOnnxModelPreference.MixedZhEn
             )
@@ -59,9 +54,7 @@ class SherpaOnnxModelCatalogTest {
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/encoder-epoch-99-avg-1.int8.onnx",
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/decoder-epoch-99-avg-1.onnx",
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/joiner-epoch-99-avg-1.int8.onnx",
-                        "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/tokens.txt",
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/model.int8.onnx",
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/tokens.txt"
+                        "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/tokens.txt"
                     ),
                 preference = SherpaOnnxModelPreference.MixedZhEn
             )
@@ -93,9 +86,7 @@ class SherpaOnnxModelCatalogTest {
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/encoder-epoch-99-avg-1.int8.onnx",
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/decoder-epoch-99-avg-1.onnx",
                         "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/joiner-epoch-99-avg-1.int8.onnx",
-                        "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/tokens.txt",
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/model.int8.onnx",
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/tokens.txt"
+                        "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/tokens.txt"
                     ),
                 preference = SherpaOnnxModelPreference.HotwordEnhanced
             )
@@ -105,18 +96,21 @@ class SherpaOnnxModelCatalogTest {
     }
 
     @Test
-    fun `fast ctc remains non hotword fallback`() {
+    fun `legacy fast ctc preference falls back to bilingual profile`() {
         val descriptor =
             SherpaOnnxModelCatalog.resolveAvailableModel(
                 availableAssets =
                     setOf(
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/model.int8.onnx",
-                        "models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/tokens.txt"
+                        "models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/encoder-epoch-99-avg-1.int8.onnx",
+                        "models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/decoder-epoch-99-avg-1.onnx",
+                        "models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/joiner-epoch-99-avg-1.int8.onnx",
+                        "models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/tokens.txt",
+                        "models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/bpe.vocab"
                     ),
                 preference = SherpaOnnxModelPreference.FastCtc
             )
 
-        assertEquals(SherpaOnnxModelPreference.FastCtc, descriptor?.preference)
-        assertFalse(descriptor?.supportsHotwords == true)
+        assertEquals(SherpaOnnxModelPreference.MixedZhEn, descriptor?.preference)
+        assertTrue(descriptor?.supportsHotwords == true)
     }
 }
