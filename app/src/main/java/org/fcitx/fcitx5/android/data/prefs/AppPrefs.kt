@@ -50,7 +50,7 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
         val migratedWhisperRetired =
             bool("migrated_whisper_retired", false)
         val lastKnownVoiceFeatureEnabled =
-            bool("last_known_voice_feature_enabled", BuildConfig.WITH_VOICE_INPUT)
+            bool("last_known_voice_feature_enabled", false)
     }
 
     inner class Advanced : ManagedPreferenceCategory(R.string.advanced, sharedPreferences) {
@@ -844,9 +844,19 @@ class AppPrefs(private val sharedPreferences: SharedPreferences) {
     }
 
     private fun migrateVoiceFeatureAvailabilityChange() {
-        val previousVoiceFeatureEnabled = internal.lastKnownVoiceFeatureEnabled.getValue()
+        val hasRecordedVoiceFeatureEnabled =
+            sharedPreferences.contains("last_known_voice_feature_enabled")
+        val previousVoiceFeatureEnabled =
+            if (hasRecordedVoiceFeatureEnabled) {
+                internal.lastKnownVoiceFeatureEnabled.getValue()
+            } else {
+                false
+            }
         val currentVoiceFeatureEnabled = BuildConfig.WITH_VOICE_INPUT
         if (previousVoiceFeatureEnabled == currentVoiceFeatureEnabled) {
+            if (!hasRecordedVoiceFeatureEnabled) {
+                internal.lastKnownVoiceFeatureEnabled.setValue(currentVoiceFeatureEnabled)
+            }
             return
         }
 

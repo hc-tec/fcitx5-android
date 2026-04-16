@@ -19,7 +19,6 @@ class AppPrefsVoiceFeatureMigrationTest {
 
         val prefs =
             newPrefs(
-                "last_known_voice_feature_enabled" to false,
                 "migrated_voice_space_long_press_default_on" to true,
                 "migrated_voice_space_long_press_backfill_on" to true,
                 "migrated_voice_toolbar_button_retired" to true,
@@ -43,7 +42,6 @@ class AppPrefsVoiceFeatureMigrationTest {
 
         val prefs =
             newPrefs(
-                "last_known_voice_feature_enabled" to false,
                 "migrated_voice_space_long_press_default_on" to true,
                 "migrated_voice_space_long_press_backfill_on" to true,
                 "migrated_voice_toolbar_button_retired" to true,
