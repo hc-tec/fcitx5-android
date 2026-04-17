@@ -302,28 +302,6 @@ class FunctionKitWindow(
         return preferred.coerceIn(minHeight, maxHeight)
     }
 
-    private fun resolvePanelExpandedHeightPx(baseHeightPx: Int): Int {
-        val preferred = context.dp(460)
-        val minHeight = context.dp(260)
-        if (baseHeightPx <= 0) {
-            return preferred
-        }
-        val maxHeight = (baseHeightPx * 0.92f).toInt().coerceAtLeast(minHeight)
-        val scaled = (baseHeightPx * 0.75f).toInt()
-        return maxOf(preferred, scaled).coerceIn(minHeight, maxHeight)
-    }
-
-    private fun resolveExpandedWindowHeightPx(baseHeightPx: Int): Int {
-        val minHeight = baseHeightPx.coerceAtLeast(context.dp(360))
-        val screenHeight = context.resources.displayMetrics.heightPixels
-        if (screenHeight <= 0) {
-            return minHeight
-        }
-        val maxHeight = (screenHeight * 0.92f).toInt().coerceAtLeast(minHeight)
-        val preferred = (baseHeightPx * 1.35f).toInt().coerceAtLeast(minHeight)
-        return preferred.coerceIn(minHeight, maxHeight)
-    }
-
     private fun resolveKeyboardHeightFromPrefsPx(): Int {
         val keyboardPrefs = AppPrefs.getInstance().keyboard
         val percentPref =
@@ -356,16 +334,6 @@ class FunctionKitWindow(
         }
     }
 
-    private fun applyPanelExpandButtonState(button: ToolButton, expanded: Boolean) {
-        if (expanded) {
-            button.setIcon(R.drawable.ic_baseline_expand_less_24)
-            button.contentDescription = context.getString(R.string.function_kit_panel_collapse)
-        } else {
-            button.setIcon(R.drawable.ic_baseline_expand_more_24)
-            button.contentDescription = context.getString(R.string.function_kit_panel_expand)
-        }
-    }
-
     private fun applyPanelPeekHeightPx(heightPx: Int) {
         if (heightPx <= 0) {
             return
@@ -386,67 +354,6 @@ class FunctionKitWindow(
                 windowManager.view.layoutParams = params
             }
         }
-    }
-
-    private var panelExpanded = false
-    private var panelPeekHeightBeforeExpandPx: Int? = null
-    private var windowManagerHeightBeforeExpandPx: Int? = null
-
-    private fun togglePanelExpanded() {
-        if (panelExpanded) {
-            collapsePanelExpanded(reason = "toggle")
-        } else {
-            expandPanel(reason = "toggle")
-        }
-    }
-
-    private fun expandPanel(reason: String) {
-        val currentWindowHeightPx = windowManager.view.layoutParams?.height ?: 0
-        val baseHeightPx =
-            currentWindowHeightPx.takeIf { it > 0 }
-                ?: windowManagerHeightBeforeAttach
-                ?: resolveKeyboardHeightFromPrefsPx()
-        if (windowManagerHeightBeforeExpandPx == null && baseHeightPx > 0) {
-            windowManagerHeightBeforeExpandPx = baseHeightPx
-        }
-        if (panelPeekHeightBeforeExpandPx == null && panelPeekHeightPx > 0) {
-            panelPeekHeightBeforeExpandPx = panelPeekHeightPx
-        }
-
-        val expandedWindowHeightPx = resolveExpandedWindowHeightPx(baseHeightPx)
-        val expandedPanelHeightPx = resolvePanelExpandedHeightPx(expandedWindowHeightPx)
-        setWindowManagerHeightPx(expandedWindowHeightPx)
-        applyPanelPeekHeightPx(expandedPanelHeightPx)
-
-        panelExpanded = true
-        applyPanelExpandButtonState(panelExpandButton, expanded = true)
-        pushHostState("面板已放大 ($reason)")
-    }
-
-    private fun collapsePanelExpanded(reason: String) {
-        val restoredWindowHeightPx =
-            windowManagerHeightBeforeExpandPx
-                ?: windowManagerHeightBeforeAttach
-                ?: resolveKeyboardHeightFromPrefsPx()
-        setWindowManagerHeightPx(restoredWindowHeightPx)
-
-        val restoredPanelHeightPx =
-            panelPeekHeightBeforeExpandPx
-                ?: resolvePanelPeekHeightPx(restoredWindowHeightPx)
-        applyPanelPeekHeightPx(restoredPanelHeightPx)
-
-        panelExpanded = false
-        windowManagerHeightBeforeExpandPx = null
-        panelPeekHeightBeforeExpandPx = null
-        applyPanelExpandButtonState(panelExpandButton, expanded = false)
-        pushHostState("面板已收起 ($reason)")
-    }
-
-    private fun collapsePanelExpandedIfNeeded(reason: String) {
-        if (!panelExpanded) {
-            return
-        }
-        collapsePanelExpanded(reason)
     }
 
     private val embeddedCandidateDockHeightPx by lazy { context.dp(KawaiiBarComponent.HEIGHT) }
@@ -653,12 +560,6 @@ class FunctionKitWindow(
             setOnClickListener { AppUtil.launchMainToFunctionKitDetail(context, functionKitId) }
         }
     }
-    private val panelExpandButton by lazy {
-        ToolButton(context, R.drawable.ic_baseline_expand_more_24, theme).apply {
-            applyPanelExpandButtonState(this, panelExpanded)
-            setOnClickListener { togglePanelExpanded() }
-        }
-    }
     private val pinnedKeyboardButton by lazy {
         ToolButton(context, R.drawable.ic_baseline_keyboard_24, theme).apply {
             applyEmbeddedKeyboardPinnedButtonState(this, embeddedKeyboardPinned)
@@ -674,7 +575,6 @@ class FunctionKitWindow(
         context.horizontalLayout {
             add(pinnedKeyboardButton, lParams(dp(40), dp(40)))
             add(settingsButton, lParams(dp(40), dp(40)))
-            add(panelExpandButton, lParams(dp(40), dp(40)))
             add(refreshButton, lParams(dp(40), dp(40)))
         }
     }
@@ -914,11 +814,6 @@ class FunctionKitWindow(
         refreshGrantedPermissions(notifyUi = panelInitialized)
         service.localInputTarget = this
 
-        // Default to the expanded panel mode when users open a Function Kit, so the kit UI is
-        // immediately usable without extra taps.
-        if (!panelExpanded) {
-            expandPanel(reason = "auto-open")
-        }
         syncEmbeddedKeyboardLayout()
 
         val reloadCachedPanelForPendingLaunch = shouldReloadCachedPanelForPendingLaunch()
@@ -958,7 +853,6 @@ class FunctionKitWindow(
 
     override fun onDetached() {
         windowAttached = false
-        collapsePanelExpandedIfNeeded(reason = "host-detach")
         if (service.localInputTarget === this) {
             service.localInputTarget = null
         }
@@ -1016,7 +910,6 @@ class FunctionKitWindow(
     }
 
     override fun onImeWindowHidden() {
-        collapsePanelExpandedIfNeeded(reason = "ime-hidden")
     }
 
     private fun ensureManifestStateInitialized() {
