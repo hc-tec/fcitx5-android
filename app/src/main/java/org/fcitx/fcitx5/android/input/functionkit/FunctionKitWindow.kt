@@ -356,6 +356,10 @@ class FunctionKitWindow(
         }
     }
 
+    private fun restoreWindowManagerHeightBeforeAttach() {
+        windowManagerHeightBeforeAttach?.let(::setWindowManagerHeightPx)
+    }
+
     private val embeddedCandidateDockHeightPx by lazy { context.dp(KawaiiBarComponent.HEIGHT) }
     private val embeddedPreeditDockFallbackHeightPx by lazy { context.dp(56) }
     private val embeddedPreeditUi by lazy {
@@ -443,16 +447,15 @@ class FunctionKitWindow(
         syncEmbeddedCandidateDock(showKeyboard)
         embeddedKeyboardContainer.visibility = if (showKeyboard) View.VISIBLE else View.GONE
 
-        // The keyboard container defaults to VISIBLE; always force the correct visibility and window height
-        // even if we failed to capture the base keyboard height (some devices may report 0 during init).
-        val baseHeight = windowManagerHeightBeforeAttach ?: 0
-        val desiredHeight = if (showKeyboard) panelPeekHeightPx + baseHeight else panelPeekHeightPx
-        windowManager.view.layoutParams?.let { params ->
-            if (params.height != desiredHeight) {
-                params.height = desiredHeight
-                windowManager.view.layoutParams = params
+        // The keyboard container defaults to VISIBLE; always force the correct visibility and window height.
+        val baseHeight = windowManagerHeightBeforeAttach ?: resolveKeyboardBaseHeightPx()
+        val desiredHeight =
+            if (showKeyboard && baseHeight > 0) {
+                panelPeekHeightPx + baseHeight
+            } else {
+                panelPeekHeightPx
             }
-        }
+        setWindowManagerHeightPx(desiredHeight)
     }
 
     private val panelContainer by lazy {
@@ -884,7 +887,8 @@ class FunctionKitWindow(
                         lastAction = "host-detach"
                     )
                 )
-            syncEmbeddedKeyboardLayout()
+            // Avoid temporarily shrinking the shared KeyboardWindow view while it is still
+            // reparented under this panel; the panel is being removed anyway.
         }
         embeddedKeyboardWindow?.onDetached()
         embeddedKeyboardWindow = null
@@ -894,14 +898,7 @@ class FunctionKitWindow(
         }
         embeddedKeyboardView = null
 
-        windowManagerHeightBeforeAttach?.let { height ->
-            windowManager.view.layoutParams?.let { params ->
-                if (params.height != height) {
-                    params.height = height
-                    windowManager.view.layoutParams = params
-                }
-            }
-        }
+        restoreWindowManagerHeightBeforeAttach()
         windowManagerHeightBeforeAttach = null
 
         webViewResumed = false

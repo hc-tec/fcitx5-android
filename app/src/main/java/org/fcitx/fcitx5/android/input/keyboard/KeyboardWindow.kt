@@ -4,6 +4,7 @@
  */
 package org.fcitx.fcitx5.android.input.keyboard
 
+import android.content.res.Configuration
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -74,6 +75,17 @@ class KeyboardWindow : InputWindow.SimpleInputWindow<KeyboardWindow>(), Essentia
     }
     private var currentKeyboardName = ""
     private var lastSymbolType: String by AppPrefs.getInstance().internal.lastSymbolLayout
+
+    private val keyboardHeightPx: Int
+        get() {
+            val keyboardPrefs = AppPrefs.getInstance().keyboard
+            val percent =
+                when (context.resources.configuration.orientation) {
+                    Configuration.ORIENTATION_LANDSCAPE -> keyboardPrefs.keyboardHeightPercentLandscape
+                    else -> keyboardPrefs.keyboardHeightPercent
+                }.getValue()
+            return context.resources.displayMetrics.heightPixels * percent / 100
+        }
 
     private val currentKeyboard: BaseKeyboard? get() = keyboards[currentKeyboardName]
 
@@ -165,6 +177,7 @@ class KeyboardWindow : InputWindow.SimpleInputWindow<KeyboardWindow>(), Essentia
     }
 
     override fun onAttached() {
+        restoreDirectKeyboardWindowHeight()
         currentKeyboard?.let {
             it.keyActionListener = keyActionListener
             it.popupActionListener = popupActionListener
@@ -187,5 +200,18 @@ class KeyboardWindow : InputWindow.SimpleInputWindow<KeyboardWindow>(), Essentia
     // 2) currently keyboard window is attached and switchLayout was used
     private fun notifyBarLayoutChanged() {
         bar.onKeyboardLayoutSwitched(currentKeyboardName == NumberKeyboard.Name)
+    }
+
+    private fun restoreDirectKeyboardWindowHeight() {
+        if (!::keyboardView.isInitialized || keyboardView.parent !== windowManager.view) {
+            return
+        }
+        windowManager.view.layoutParams?.let { params ->
+            val height = keyboardHeightPx
+            if (height > 0 && params.height != height) {
+                params.height = height
+                windowManager.view.layoutParams = params
+            }
+        }
     }
 }

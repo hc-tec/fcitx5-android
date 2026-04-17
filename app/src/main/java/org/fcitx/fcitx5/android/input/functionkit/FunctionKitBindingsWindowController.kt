@@ -258,7 +258,7 @@ internal class FunctionKitBindingsWindowController(
 
     fun onDetached() {
         windowAttached = false
-        setSearchFocused(false)
+        setSearchFocused(false, syncLayout = false)
         setEmbeddedExpandedCandidateHeight(0)
 
         removeBindingSettingsListener?.invoke()
@@ -385,13 +385,15 @@ internal class FunctionKitBindingsWindowController(
 
     private fun currentSearchQuery(): String = searchDraft.text.trim()
 
-    private fun setSearchFocused(focused: Boolean) {
+    private fun setSearchFocused(focused: Boolean, syncLayout: Boolean = true) {
         if (searchFocused == focused) {
             return
         }
         searchFocused = focused
         updateSearchBarUi(rebuildRows = false)
-        syncEmbeddedKeyboardLayout()
+        if (syncLayout) {
+            syncEmbeddedKeyboardLayout()
+        }
     }
 
     private fun updateSearchBarUi(rebuildRows: Boolean = true) {
@@ -817,7 +819,7 @@ internal class FunctionKitBindingsWindowController(
         syncEmbeddedCandidateDock(showKeyboard)
         embeddedKeyboardContainer.isVisible = showKeyboard
 
-        val baseHeight = windowManagerHeightBeforeAttach ?: 0
+        val baseHeight = windowManagerHeightBeforeAttach ?: resolveKeyboardBaseHeightPx()
         val desiredHeight =
             if (showKeyboard) {
                 panelPeekHeightPx + baseHeight
